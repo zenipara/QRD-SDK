@@ -1,0 +1,13 @@
+[package]
+name = "qrd-ffi"
+version = "0.1.0"
+edition = "2021"
+authors = ["QRD Contributors"]
+license = "MIT"
+description = "QRD C FFI bindings for language native interfaces"
+
+[dependencies]
+qrd-core = { path = "../qrd-core" }
+
+[lib]
+crate-type = ["cdylib", "rlib"]

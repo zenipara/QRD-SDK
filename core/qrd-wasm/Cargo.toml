@@ -1,0 +1,19 @@
+[package]
+name = "qrd-wasm"
+version = "0.1.0"
+edition = "2021"
+authors = ["QRD Contributors"]
+license = "MIT"
+description = "QRD WebAssembly bindings for browser and Node.js"
+
+[dependencies]
+qrd-core = { path = "../qrd-core" }
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+wasm-bindgen = ["dep:wasm-bindgen", "dep:web-sys"]

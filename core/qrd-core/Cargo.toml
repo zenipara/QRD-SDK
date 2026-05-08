@@ -1,0 +1,71 @@
+[package]
+name = "qrd-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["QRD Contributors"]
+license = "MIT"
+repository = "https://github.com/zenipara/QRD-SDK"
+documentation = "https://docs.qrd.dev"
+description = "QRD Core Engine - High-performance columnar binary format"
+
+[dependencies]
+serde = { workspace = true }
+bincode = { workspace = true }
+byteorder = { workspace = true }
+zstd = { workspace = true }
+lz4 = { workspace = true }
+crc32fast = { workspace = true }
+sha2 = { workspace = true }
+aes-gcm = { workspace = true }
+hkdf = { workspace = true }
+rand = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, optional = true }
+parking_lot = { workspace = true }
+num_cpus = { workspace = true }
+
+# Optional for WASM
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+tempfile = "3.8"
+
+[features]
+default = ["threading", "compression", "encryption"]
+threading = []
+compression = []
+encryption = []
+ecc = []
+wasm = []
+
+[lib]
+name = "qrd_core"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic_writer"
+path = "examples/basic_writer.rs"
+
+[[example]]
+name = "basic_reader"
+path = "examples/basic_reader.rs"
+
+[[example]]
+name = "streaming_read"
+path = "examples/streaming_read.rs"
+
+[[bench]]
+name = "write_bench"
+harness = false
+
+[[bench]]
+name = "read_bench"
+harness = false
+
+[[bench]]
+name = "encode_bench"
+harness = false
