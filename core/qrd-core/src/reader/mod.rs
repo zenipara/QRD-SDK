@@ -102,9 +102,9 @@ impl FileReader {
     pub fn rows(&self) -> Result<Vec<Vec<u8>>> {
         let mut all_rows = Vec::new();
 
-        for offset in &self.row_group_offsets {
+        for (group_index, offset) in self.row_group_offsets.iter().enumerate() {
             // Read row group data
-            let row_group_data = self.read_row_group_at_offset(*offset)?;
+            let row_group_data = self.read_row_group_at_offset(group_index, *offset)?;
 
             // Parse row group
             let row_group = crate::rowgroup::RowGroup::deserialize(&row_group_data)?;
@@ -118,17 +118,55 @@ impl FileReader {
     }
 
     /// Read specific columns
-    pub fn read_columns(&self, _column_indices: &[usize]) -> Result<Vec<Vec<u8>>> {
-        // TODO: Implement partial read
-        Ok(vec![])
+    pub fn read_columns(&self, column_indices: &[usize]) -> Result<Vec<Vec<u8>>> {
+        if column_indices.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut columns: Vec<Vec<u8>> = column_indices.iter().map(|_| Vec::new()).collect();
+
+        for (group_index, offset) in self.row_group_offsets.iter().enumerate() {
+            let row_group_data = self.read_row_group_at_offset(group_index, *offset)?;
+            let row_group = crate::rowgroup::RowGroup::deserialize(&row_group_data)?;
+
+            for (selected_index, column_index) in column_indices.iter().enumerate() {
+                let column = row_group.columns.get(*column_index).ok_or_else(|| {
+                    crate::error::Error::InvalidSchema(format!(
+                        "Column index {} out of bounds for row group",
+                        column_index
+                    ))
+                })?;
+
+                let field = self.schema.fields.get(*column_index).ok_or_else(|| {
+                    crate::error::Error::InvalidSchema(format!(
+                        "Column index {} out of bounds for schema",
+                        column_index
+                    ))
+                })?;
+
+                if field.field_type.fixed_size().is_none() {
+                    return Err(crate::error::Error::Other(format!(
+                        "Variable-length column types not yet supported: {} ({})",
+                        field.name, field.field_type
+                    )));
+                }
+
+                columns[selected_index].extend_from_slice(&column.encoded_data);
+            }
+        }
+
+        Ok(columns)
     }
 
     /// Read row group data from file at given offset
-    fn read_row_group_at_offset(&self, offset: u64) -> Result<Vec<u8>> {
+    fn read_row_group_at_offset(&self, group_index: usize, offset: u64) -> Result<Vec<u8>> {
         let offset = offset as usize;
 
-        // Need to read until we hit the next row group or footer
-        let end_offset = self.footer_offset as usize;
+        let end_offset = self
+            .row_group_offsets
+            .get(group_index + 1)
+            .map(|next_offset| *next_offset as usize)
+            .unwrap_or(self.footer_offset as usize);
 
         if offset >= end_offset || offset >= self.file_data.len() {
             return Err(crate::error::Error::InvalidData(
@@ -189,15 +227,54 @@ impl FileReader {
 
         Ok(rows)
     }
+
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::{FieldType, Nullability, SchemaBuilder};
+    use crate::writer::FileWriter;
+    use tempfile::NamedTempFile;
 
     #[test]
     fn test_reader_error_on_missing_file() {
         let result = FileReader::new("/nonexistent/file.qrd");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reader_partial_column_read() {
+        let temp = NamedTempFile::new().unwrap();
+
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("value", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                vec![1u8, 0, 0, 0, 0, 0, 0, 0],
+                vec![10u8, 0, 0, 0, 0, 0, 0, 0],
+            ]).unwrap();
+            writer.write_row(vec![
+                vec![2u8, 0, 0, 0, 0, 0, 0, 0],
+                vec![20u8, 0, 0, 0, 0, 0, 0, 0],
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let columns = reader.read_columns(&[0, 1]).unwrap();
+
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns[0].len(), 16);
+        assert_eq!(columns[1].len(), 16);
+        assert_eq!(reader.row_count(), 2);
+        assert_eq!(reader.schema().fields.len(), 2);
     }
 }

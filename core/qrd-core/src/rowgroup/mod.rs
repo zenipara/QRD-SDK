@@ -4,7 +4,6 @@ use crate::columnar::ColumnChunk;
 use crate::compression::{compress, decompress, CompressionCodec, CompressionLevel};
 use crate::encoding::EncodingType;
 use crate::error::Result;
-use crate::metadata::ColumnMetadata;
 use crate::validation::Validator;
 use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
 use std::io::{Cursor, Read};
@@ -138,7 +137,7 @@ impl RowGroup {
                     format!("Unknown compression ID: {}", compression_id)
                 ))?;
 
-            let encoded_len = cursor.read_u32::<LittleEndian>()? as usize;
+            let _encoded_len = cursor.read_u32::<LittleEndian>()? as usize;
             let compressed_len = cursor.read_u32::<LittleEndian>()? as usize;
             let _null_count = cursor.read_u32::<LittleEndian>()?;
             let _distinct_count = cursor.read_u32::<LittleEndian>()?;
