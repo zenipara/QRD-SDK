@@ -146,7 +146,7 @@ impl<R: Read + Seek> Seek for RangeReader<R> {
             SeekFrom::End(offset) => {
                 let base = self.range.end as i64;
                 let new = base + offset;
-                if new < 0 || new as u64 < self.range.start {
+                if new < 0 || (new as u64) < self.range.start {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "Seek before range",
@@ -157,7 +157,7 @@ impl<R: Read + Seek> Seek for RangeReader<R> {
             SeekFrom::Current(offset) => {
                 let base = self.current_pos as i64;
                 let new = base + offset;
-                if new < 0 || new as u64 < self.range.start || new as u64 > self.range.end {
+                if new < 0 || (new as u64) < self.range.start || (new as u64) > self.range.end {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidInput,
                         "Seek out of range",

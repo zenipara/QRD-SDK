@@ -11,6 +11,32 @@ pub mod delta_byte_array;
 pub mod dictionary_rle;
 pub mod byte_stream_split;
 
+/// PASSTHROUGH encoder for pre-serialized data.
+pub struct PassthroughEncoder;
+
+impl PassthroughEncoder {
+    /// Create new passthrough encoder.
+    pub fn new() -> Self {
+        PassthroughEncoder
+    }
+}
+
+impl Default for PassthroughEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Encoder for PassthroughEncoder {
+    fn encode(&self, data: &[u8]) -> Result<Vec<u8>> {
+        Ok(data.to_vec())
+    }
+
+    fn decode(&self, data: &[u8], _expected_length: usize) -> Result<Vec<u8>> {
+        Ok(data.to_vec())
+    }
+}
+
 /// Encoding type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EncodingType {
@@ -97,37 +123,16 @@ pub fn get_encoder(encoding: EncodingType) -> Result<Box<dyn Encoder>> {
         EncodingType::DeltaByteArray => Ok(Box::new(delta_byte_array::DeltaByteArrayEncoder::new())),
         EncodingType::DictionaryRle => Ok(Box::new(dictionary_rle::DictionaryRleEncoder::new())),
         EncodingType::ByteStreamSplit => Ok(Box::new(byte_stream_split::ByteStreamSplitEncoder::new())),
+        EncodingType::Passthrough => Ok(Box::new(PassthroughEncoder::new())),
         _ => Err(Error::EncodingError(format!("Encoder not implemented: {:?}", encoding))),
     }
 }
 
 /// Select appropriate encoding for a field type
 pub fn select_encoding(field_type: &crate::schema::FieldType, data: &[u8]) -> EncodingType {
-    match field_type {
-        crate::schema::FieldType::Boolean => EncodingType::BitPacked,
-        crate::schema::FieldType::String => {
-            if is_sorted_strings(data) {
-                EncodingType::DeltaByteArray
-            } else if is_low_cardinality(data, 10) {
-                EncodingType::DictionaryRle
-            } else {
-                EncodingType::Plain
-            }
-        }
-        crate::schema::FieldType::Float32 | crate::schema::FieldType::Float64 => EncodingType::ByteStreamSplit,
-        crate::schema::FieldType::Blob => EncodingType::Plain, // TODO: DELTA_BYTE_ARRAY for sorted blobs
-        crate::schema::FieldType::Decimal => EncodingType::Plain, // TODO: Special decimal encoding
-        // For integer types, check if sorted
-        _ if is_integer_type(field_type) => {
-            if is_sorted_integers(field_type, data) {
-                EncodingType::DeltaBinary
-            } else if is_low_cardinality_integers(field_type, data, 10) {
-                EncodingType::DictionaryRle
-            } else {
-                EncodingType::Plain
-            }
-        }
-        _ => EncodingType::Plain,
+    match field_type.fixed_size() {
+        Some(_) => EncodingType::Plain,
+        None => EncodingType::Passthrough,
     }
 }
 

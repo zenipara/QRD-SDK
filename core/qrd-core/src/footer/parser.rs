@@ -158,6 +158,7 @@ mod tests {
             row_count: 3000,
             created_at: 1000,
             modified_at: 1000,
+            metadata_index: None,
             checksum: 0,
         };
 
@@ -179,6 +180,7 @@ mod tests {
             row_count: 3000,
             created_at: 1000,
             modified_at: 1000,
+            metadata_index: None,
             checksum: 0,
         };
 
@@ -197,6 +199,7 @@ mod tests {
             row_count: 3000,
             created_at: 1000,
             modified_at: 1000,
+            metadata_index: None,
             checksum: 0,
         };
 

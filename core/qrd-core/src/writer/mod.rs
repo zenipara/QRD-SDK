@@ -66,6 +66,8 @@ impl FileWriter {
 
     /// Create with custom config
     pub fn with_config(mut file: File, schema: Schema, config: WriterConfig) -> Result<Self> {
+        let current_row_group_stats = RowGroupStats::new(&schema);
+
         // Write file header
         file.write_all(crate::QRD_MAGIC)?;
         file.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
@@ -95,22 +97,39 @@ impl FileWriter {
             total_rows: 0,
             row_group_offsets: Vec::new(),
             current_offset: 32, // After header
-            current_row_group_stats: RowGroupStats::new(&schema),
+            current_row_group_stats,
             row_group_stats: Vec::new(),
         })
     }
 
     /// Write a single row (as column data)
     pub fn write_row(&mut self, row: Vec<Vec<u8>>) -> Result<()> {
+        let normalized_row: Vec<Vec<u8>> = row
+            .iter()
+            .enumerate()
+            .map(|(col_idx, col)| {
+                let field = &self.schema.fields[col_idx];
+
+                if col.is_empty()
+                    && field.nullability == crate::schema::Nullability::Optional
+                    && field.field_type.fixed_size().is_none()
+                {
+                    vec![0, 0, 0, 0]
+                } else {
+                    col.clone()
+                }
+            })
+            .collect();
+
         // Convert row data to Option<Vec<u8>> for statistics (empty vec = null)
-        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
+        let stats_row: Vec<Option<Vec<u8>>> = normalized_row.iter()
             .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
             .collect();
 
         // Update statistics
         self.current_row_group_stats.update_row(&stats_row);
 
-        self.row_buffer.add_row(row)?;
+        self.row_buffer.add_row(normalized_row)?;
         self.total_rows += 1;
 
         // Flush row group if threshold reached

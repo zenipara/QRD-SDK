@@ -15,13 +15,34 @@ use crate::error::Result;
 use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
+use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::Arc;
+
+/// Backing storage for a QRD file.
+#[derive(Debug)]
+enum FileData {
+    /// Memory-mapped file contents.
+    Mapped(Mmap),
+    /// In-memory file contents.
+    InMemory(Vec<u8>),
+}
+
+impl FileData {
+    /// View the backing file contents as a byte slice.
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            FileData::Mapped(mapped) => mapped.as_ref(),
+            FileData::InMemory(buffer) => buffer.as_slice(),
+        }
+    }
+}
 
 /// File reader for QRD format
 pub struct FileReader {
-    file_data: Vec<u8>,
+    file_data: Arc<FileData>,
     schema: Schema,
     row_count: u32,
     row_group_offsets: Vec<u64>,
@@ -29,20 +50,50 @@ pub struct FileReader {
 }
 
 impl FileReader {
-    /// Open a QRD file for reading
-    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+    /// Open a QRD file using in-memory loading.
+    pub fn open_in_memory(path: impl AsRef<Path>) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut file_data = Vec::new();
         file.read_to_end(&mut file_data)?;
 
-        if file_data.len() < 36 {
+        Self::from_file_data(Arc::new(FileData::InMemory(file_data)))
+    }
+
+    /// Open a QRD file using memory-mapped storage for large files.
+    pub fn open_mmap(path: impl AsRef<Path>) -> Result<Self> {
+        let file = File::open(path)?;
+
+        // SAFETY: The file descriptor remains valid for the duration of the
+        // mapping creation call, and the returned `Mmap` owns the mapping.
+        let mmap = unsafe { MmapOptions::new().map(&file)? };
+
+        Self::from_file_data(Arc::new(FileData::Mapped(mmap)))
+    }
+
+    /// Open a QRD file for reading.
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let path_ref = path.as_ref();
+        const MMAP_THRESHOLD: u64 = 64 * 1024 * 1024;
+
+        if std::fs::metadata(path_ref)?.len() >= MMAP_THRESHOLD {
+            Self::open_mmap(path_ref)
+        } else {
+            Self::open_in_memory(path_ref)
+        }
+    }
+
+    /// Build a reader from loaded file contents.
+    fn from_file_data(file_data: Arc<FileData>) -> Result<Self> {
+        let file_slice = file_data.as_slice();
+
+        if file_slice.len() < 36 {
             return Err(crate::error::Error::InvalidData(
                 "File too small".to_string(),
             ));
         }
 
         // Parse header
-        let header = &file_data[0..32];
+        let header = &file_slice[0..32];
 
         // Verify magic
         let magic = &header[0..4];
@@ -65,8 +116,8 @@ impl FileReader {
         let row_count = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
 
         // Read footer length from end
-        let file_len = file_data.len();
-        let footer_len_bytes = &file_data[file_len - 4..file_len];
+        let file_len = file_slice.len();
+        let footer_len_bytes = &file_slice[file_len - 4..file_len];
         let footer_length = u32::from_le_bytes([
             footer_len_bytes[0],
             footer_len_bytes[1],
@@ -75,7 +126,7 @@ impl FileReader {
         ]) as usize;
 
         let footer_start = file_len - 4 - footer_length;
-        let footer_data = &file_data[footer_start..footer_start + footer_length];
+        let footer_data = &file_slice[footer_start..footer_start + footer_length];
 
         let footer = Footer::deserialize(footer_data)?;
 
@@ -125,7 +176,7 @@ impl FileReader {
             self.footer_offset as usize
         };
 
-        let row_group_data = &self.file_data[offset..end_offset];
+        let row_group_data = &self.file_data.as_slice()[offset..end_offset];
         RowGroup::deserialize(row_group_data)
     }
 
@@ -153,7 +204,7 @@ impl FileReader {
             let row_group_data = self.read_row_group_at_offset(group_index, *offset)?;
 
             // Parse row group
-            let row_group = crate::rowgroup::RowGroup::deserialize(&row_group_data)?;
+            let row_group = RowGroup::deserialize(&row_group_data)?;
 
             // Reassemble rows from columns
             let rows = self.reassemble_rows_from_columns(&row_group)?;
@@ -163,8 +214,21 @@ impl FileReader {
         Ok(all_rows)
     }
 
-    /// Read specific columns
+    /// Read specific columns.
+    ///
+    /// Variable-length columns are returned in their raw serialized form,
+    /// including the 4-byte little-endian length prefix.
     pub fn read_columns(&self, column_indices: &[usize]) -> Result<Vec<Vec<u8>>> {
+        self.read_columns_with_length_prefix(column_indices, true)
+    }
+
+    /// Read specific columns with control over whether variable-length values
+    /// keep their 4-byte length prefix in the returned bytes.
+    pub fn read_columns_with_length_prefix(
+        &self,
+        column_indices: &[usize],
+        include_length_prefix: bool,
+    ) -> Result<Vec<Vec<u8>>> {
         if column_indices.is_empty() {
             return Ok(Vec::new());
         }
@@ -173,7 +237,7 @@ impl FileReader {
 
         for (group_index, offset) in self.row_group_offsets.iter().enumerate() {
             let row_group_data = self.read_row_group_at_offset(group_index, *offset)?;
-            let row_group = crate::rowgroup::RowGroup::deserialize(&row_group_data)?;
+            let row_group = RowGroup::deserialize(&row_group_data)?;
 
             for (selected_index, column_index) in column_indices.iter().enumerate() {
                 let column = row_group.columns.get(*column_index).ok_or_else(|| {
@@ -190,14 +254,55 @@ impl FileReader {
                     ))
                 })?;
 
-                if field.field_type.fixed_size().is_none() {
-                    return Err(crate::error::Error::Other(format!(
-                        "Variable-length column types not yet supported: {} ({})",
-                        field.name, field.field_type
-                    )));
-                }
+                match field.field_type.fixed_size() {
+                    Some(_) => columns[selected_index].extend_from_slice(&column.encoded_data),
+                    None => {
+                        if include_length_prefix {
+                            columns[selected_index].extend_from_slice(&column.encoded_data);
+                        } else {
+                            let mut offset = 0usize;
+                            for row_idx in 0..row_group.row_count as usize {
+                                let len_end = offset.checked_add(4).ok_or_else(|| {
+                                    crate::error::Error::InvalidData(format!(
+                                        "Length prefix overflow for field {} ({}) at row {}",
+                                        field.name, field.field_type, row_idx
+                                    ))
+                                })?;
 
-                columns[selected_index].extend_from_slice(&column.encoded_data);
+                                let len_bytes = column.encoded_data.get(offset..len_end).ok_or_else(|| {
+                                    crate::error::Error::InvalidData(format!(
+                                        "Length prefix out of bounds for field {} ({}) at row {}",
+                                        field.name, field.field_type, row_idx
+                                    ))
+                                })?;
+                                let len = u32::from_le_bytes([
+                                    len_bytes[0],
+                                    len_bytes[1],
+                                    len_bytes[2],
+                                    len_bytes[3],
+                                ]) as usize;
+
+                                let value_start = len_end;
+                                let value_end = value_start.checked_add(len).ok_or_else(|| {
+                                    crate::error::Error::InvalidData(format!(
+                                        "Variable-length data overflow for field {} ({}) at row {}",
+                                        field.name, field.field_type, row_idx
+                                    ))
+                                })?;
+
+                                let value = column.encoded_data.get(value_start..value_end).ok_or_else(|| {
+                                    crate::error::Error::InvalidData(format!(
+                                        "Variable-length data out of bounds for field {} ({}) at row {}",
+                                        field.name, field.field_type, row_idx
+                                    ))
+                                })?;
+
+                                columns[selected_index].extend_from_slice(value);
+                                offset = value_end;
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -214,56 +319,105 @@ impl FileReader {
             .map(|next_offset| *next_offset as usize)
             .unwrap_or(self.footer_offset as usize);
 
-        if offset >= end_offset || offset >= self.file_data.len() {
+        if offset >= end_offset || offset >= self.file_data.as_slice().len() {
             return Err(crate::error::Error::InvalidData(
                 format!("Invalid row group offset: {}", offset)
             ));
         }
 
         // Read row group data
-        let row_group_data = &self.file_data[offset..end_offset];
+        let row_group_data = &self.file_data.as_slice()[offset..end_offset];
         Ok(row_group_data.to_vec())
     }
 
     /// Reassemble rows from column chunks
-    fn reassemble_rows_from_columns(&self, row_group: &crate::rowgroup::RowGroup) -> Result<Vec<Vec<u8>>> {
+    fn reassemble_rows_from_columns(&self, row_group: &RowGroup) -> Result<Vec<Vec<u8>>> {
         if row_group.columns.is_empty() {
             return Ok(vec![]);
         }
 
         let mut rows = Vec::new();
+        let decoded_columns = row_group.decode_columns()?;
+        let row_count = row_group.row_count as usize;
+        let mut col_offsets = vec![0usize; row_group.columns.len()];
 
-        // For each row
-        for row_idx in 0..row_group.row_count as usize {
+        for row_idx in 0..row_count {
             let mut row_data = Vec::new();
 
-            // For each column (in order)
             for (col_idx, column) in row_group.columns.iter().enumerate() {
                 if col_idx >= self.schema.fields.len() {
                     return Err(crate::error::Error::InvalidSchema(
-                        format!("Column index {} exceeds schema field count", col_idx)
+                        format!(
+                            "Column index {} exceeds schema field count for row group field set",
+                            col_idx
+                        )
                     ));
                 }
 
                 let field = &self.schema.fields[col_idx];
+                let decoded_column = &decoded_columns[col_idx];
                 match field.field_type.fixed_size() {
                     Some(field_size) => {
-                        let start = row_idx * field_size;
-                        let end = start + field_size;
-                        if end <= column.encoded_data.len() {
-                            row_data.extend_from_slice(&column.encoded_data[start..end]);
-                        } else {
-                            // Handle short reads - return error
-                            return Err(crate::error::Error::InvalidData(
-                                format!("Column {} data too short for row {}", col_idx, row_idx)
-                            ));
-                        }
+                        let start = row_idx.checked_mul(field_size).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Fixed-size offset overflow for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+                        let end = start.checked_add(field_size).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Fixed-size offset overflow for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+                        let slice = decoded_column.get(start..end).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Column {} ({}) data too short for row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+                        row_data.extend_from_slice(slice);
                     }
                     None => {
-                        return Err(crate::error::Error::Other(
-                            format!("Variable-length column types not yet supported: {} ({})", 
-                                   field.name, field.field_type)
-                        ));
+                        let offset = col_offsets[col_idx];
+                        let len_end = offset.checked_add(4).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Length prefix overflow for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+
+                        let len_bytes = decoded_column.get(offset..len_end).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Length prefix out of bounds for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+
+                        let len = u32::from_le_bytes([
+                            len_bytes[0],
+                            len_bytes[1],
+                            len_bytes[2],
+                            len_bytes[3],
+                        ]) as usize;
+                        let value_start = len_end;
+                        let value_end = value_start.checked_add(len).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Variable-length data overflow for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+
+                        let value = decoded_column.get(value_start..value_end).ok_or_else(|| {
+                            crate::error::Error::InvalidData(format!(
+                                "Variable-length data out of bounds for field {} ({}) at row {}",
+                                field.name, field.field_type, row_idx
+                            ))
+                        })?;
+
+                        row_data.extend_from_slice(len_bytes);
+                        row_data.extend_from_slice(value);
+                        col_offsets[col_idx] = value_end;
                     }
                 }
             }
@@ -282,6 +436,14 @@ mod tests {
     use crate::schema::{FieldType, Nullability, SchemaBuilder};
     use crate::writer::FileWriter;
     use tempfile::NamedTempFile;
+
+    fn serialize_string(value: &str) -> Vec<u8> {
+        let mut result = Vec::new();
+        let bytes = value.as_bytes();
+        result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        result.extend_from_slice(bytes);
+        result
+    }
 
     #[test]
     fn test_reader_error_on_missing_file() {
@@ -322,5 +484,175 @@ mod tests {
         assert_eq!(columns[1].len(), 16);
         assert_eq!(reader.row_count(), 2);
         assert_eq!(reader.schema().fields.len(), 2);
+    }
+
+    #[test]
+    fn test_string_column_roundtrip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let names = vec![
+            "alpha",
+            "",
+            "こんにちは",
+            "emoji-🚀",
+            "plain-ascii",
+            "multi\nline",
+            "with spaces",
+            "ümlaut",
+            "symbols-!@#$",
+            "final",
+        ];
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for (idx, name) in names.iter().enumerate() {
+                writer.write_row(vec![
+                    (idx as i64).to_le_bytes().to_vec(),
+                    serialize_string(name),
+                ]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), names.len());
+        for (idx, row) in rows.iter().enumerate() {
+            let id = i64::from_le_bytes(row[0..8].try_into().unwrap());
+            assert_eq!(id, idx as i64);
+
+            let name_len = u32::from_le_bytes(row[8..12].try_into().unwrap()) as usize;
+            let name_bytes = &row[12..12 + name_len];
+            assert_eq!(name_bytes, names[idx].as_bytes());
+        }
+
+        let mixed_columns = reader.read_columns(&[0, 1]).unwrap();
+        assert_eq!(mixed_columns[0].len(), 10 * 8);
+        assert!(mixed_columns[1].windows(4).any(|window| window == [0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_blob_column_roundtrip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("blob", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let blobs = vec![
+            vec![0u8, 1, 2, 3, 4],
+            vec![0u8, 0, 1, 0, 2, 0, 3],
+            vec![255u8, 0, 128, 64],
+            vec![],
+        ];
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for (idx, blob) in blobs.iter().enumerate() {
+                let mut payload = Vec::new();
+                payload.extend_from_slice(&(blob.len() as u32).to_le_bytes());
+                payload.extend_from_slice(blob);
+
+                writer.write_row(vec![
+                    (idx as i64).to_le_bytes().to_vec(),
+                    payload,
+                ]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), blobs.len());
+        for (idx, row) in rows.iter().enumerate() {
+            let id = i64::from_le_bytes(row[0..8].try_into().unwrap());
+            assert_eq!(id, idx as i64);
+
+            let blob_len = u32::from_le_bytes(row[8..12].try_into().unwrap()) as usize;
+            let blob_bytes = &row[12..12 + blob_len];
+            assert_eq!(blob_bytes, blobs[idx].as_slice());
+        }
+    }
+
+    #[test]
+    fn test_large_string_roundtrip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("payload", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let large_string = "a".repeat(70_000);
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![serialize_string(&large_string)]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        let len = u32::from_le_bytes(rows[0][0..4].try_into().unwrap()) as usize;
+        assert_eq!(len, 70_000);
+        assert_eq!(&rows[0][4..4 + len], large_string.as_bytes());
+    }
+
+    #[test]
+    fn test_empty_string_roundtrip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("payload", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![serialize_string("")]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_null_optional_string() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("payload", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![Vec::new()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0], &[0, 0, 0, 0]);
     }
 }

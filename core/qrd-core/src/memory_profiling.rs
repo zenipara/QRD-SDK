@@ -40,7 +40,14 @@ impl MemoryProfiler {
     pub const fn new() -> Self {
         MemoryProfiler {
             allocator: System,
-            stats: Mutex::new(MemoryStats::default()),
+            stats: Mutex::new(MemoryStats {
+                current_bytes: 0,
+                peak_bytes: 0,
+                total_allocations: 0,
+                total_deallocations: 0,
+                total_bytes_allocated: 0,
+                total_bytes_deallocated: 0,
+            }),
         }
     }
 

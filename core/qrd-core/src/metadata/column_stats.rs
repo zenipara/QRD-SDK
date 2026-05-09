@@ -7,10 +7,11 @@
 
 use crate::error::Result;
 use crate::schema::{FieldType, Schema};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Column statistics for a single column
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnStats {
     /// Column name
     pub name: String,
@@ -142,7 +143,7 @@ impl ColumnStats {
 }
 
 /// Statistics collector for all columns in a row group
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RowGroupStats {
     /// Statistics for each column
     pub column_stats: Vec<ColumnStats>,
@@ -195,7 +196,7 @@ impl RowGroupStats {
 }
 
 /// Column filter for query pushdown
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ColumnFilter {
     /// Value must be null
     IsNull,
@@ -214,7 +215,7 @@ pub enum ColumnFilter {
 }
 
 /// Filter specification with column index
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColumnFilterSpec {
     /// Column index to filter
     pub column_index: usize,
@@ -223,7 +224,7 @@ pub struct ColumnFilterSpec {
 }
 
 /// Result of filter evaluation
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterResult {
     /// Row group may contain matching rows
     MayPass,
@@ -242,7 +243,7 @@ impl FilterResult {
 }
 
 /// Query pushdown optimizer
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct QueryOptimizer {
     /// Schema for the query
     schema: Schema,
@@ -288,7 +289,7 @@ impl QueryOptimizer {
 }
 
 /// Metadata index for efficient column access
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetadataIndex {
     /// Column name to index mapping
     pub column_indices: std::collections::HashMap<String, usize>,
@@ -321,8 +322,15 @@ impl MetadataIndex {
 
     /// Get row groups that can satisfy filters
     pub fn get_accessible_row_groups(&self, filters: &[ColumnFilterSpec]) -> Vec<usize> {
-        let optimizer = QueryOptimizer::new(Schema::default()); // We don't need full schema here
-        optimizer.optimize_access(&self.row_group_stats, filters)
+        let mut accessible_groups = Vec::new();
+
+        for (idx, stats) in self.row_group_stats.iter().enumerate() {
+            if stats.can_pass_filters(filters) != FilterResult::MustNotPass {
+                accessible_groups.push(idx);
+            }
+        }
+
+        accessible_groups
     }
 
     /// Get statistics for a specific column across all row groups

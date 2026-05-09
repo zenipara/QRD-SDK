@@ -63,6 +63,7 @@ impl FooterBuilder {
             row_count: self.row_count,
             created_at: self.created_at,
             modified_at: self.modified_at,
+            metadata_index: None,
             checksum: 0, // Will be calculated by serializer
         };
 

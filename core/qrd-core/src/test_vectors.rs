@@ -63,7 +63,7 @@ fn generate_basic_types_vector(golden_dir: &Path) -> Result<()> {
     // Write 10 rows with deterministic test data
     for i in 0..10 {
         let bool_val = vec![(i % 2 == 0) as u8];
-        let int8_val = vec![i as i8];
+        let int8_val = vec![i as u8];
         let int16_val = (i as i16 * 10).to_le_bytes().to_vec();
         let int32_val = (i as i32 * 100).to_le_bytes().to_vec();
         let int64_val = (i as i64 * 1000).to_le_bytes().to_vec();

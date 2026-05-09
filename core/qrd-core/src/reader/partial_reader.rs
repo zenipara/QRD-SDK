@@ -9,6 +9,7 @@
 
 use crate::error::Result;
 use crate::footer::{Footer, FooterParser};
+use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
 use crate::metadata::{ColumnFilterSpec, MetadataIndex};
 use std::io::{Read, Seek, SeekFrom};
@@ -197,6 +198,23 @@ impl<R: Read + Seek> PartialReader<R> {
             // Fallback: read all row groups
             self.read_columns_range(0, self.row_group_count(), column_indices)
         }
+    }
+
+    /// Read columns across a row-group range.
+    fn read_columns_range(
+        &mut self,
+        start_rg: usize,
+        end_rg: usize,
+        column_indices: &[usize],
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut result = Vec::new();
+
+        for rg_idx in start_rg..end_rg.min(self.row_group_count()) {
+            let columns = self.read_columns(rg_idx, column_indices)?;
+            result.extend(columns);
+        }
+
+        Ok(result)
     }
 
     /// Estimate result count for query without executing it

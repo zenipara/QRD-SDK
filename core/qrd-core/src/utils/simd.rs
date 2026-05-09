@@ -1,3 +1,5 @@
+use crate::error::{Error, Result};
+
 /// SIMD instruction set support
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SimdInstructionSet {
@@ -16,6 +18,8 @@ pub enum SimdInstructionSet {
 pub struct SimdOps {
     /// Whether SIMD is available and enabled
     pub enabled: bool,
+    /// Detected instruction set.
+    instruction_set: SimdInstructionSet,
 }
 
 impl SimdOps {
