@@ -1,416 +1,660 @@
-Phase ini memperbaiki tiga masalah performa dan correctness:
+# 🌐 QRD-SDK Production-Ready — PHASE 4 of 5
+## Language Bindings — Python, TypeScript, Go, Java
 
-1. **SIMD palsu** — `SimdOps` klaim vectorized tapi semua scalar
-2. **StreamingWriter bug laten** — `W: Write` tanpa `Seek` tapi coba patch header
-3. **Footer statistics placeholder** — statistik dikumpulkan tapi tidak ditulis ke binary
+> Prerequisite: PHASE 1, 2, 3 sudah selesai dan semua tests passing.
+> Paste seluruh blok ini ke GitHub Copilot Chat di Codespace.
 
 ---
 
-## TASK 1: Real SIMD Implementation
+## CONTEXT
 
-### Background
+Saat ini semua language bindings hanya scaffolding. Target phase ini:
+- **FFI layer** (`qrd-ffi`) diperbaiki dan bisa di-compile
+- **Python** (PyO3) bisa di-install dan digunakan
+- **TypeScript** (WASM) bisa di-bundle dan dijalankan di browser/Node
+- **Go** (CGO) bisa di-import dan digunakan
+- **Java** (JNA) bisa di-build dengan Maven
 
-Di `utils/simd.rs`, semua fungsi adalah scalar dengan comment "placeholder":
+---
+
+## TASK 1: Fix FFI Layer (`core/qrd-ffi/src/lib.rs`)
+
+### Masalah Saat Ini
+
+FFI menggunakan `LogicalType` dan `Value` yang tidak ada di public API core:
 ```rust
-pub fn memcpy(&self, dst: &mut [u8], src: &[u8]) -> Result<()> {
-    dst.copy_from_slice(src);  // ← bukan SIMD
+// SALAH — types ini tidak match dengan qrd-core
+let logical_type = match field_type {
+    0 => LogicalType::BOOLEAN,  // ← qrd-core pakai FieldType, bukan LogicalType
+```
+
+### Implementasi FFI yang Benar
+
+Buat ulang `qrd-ffi/src/lib.rs` dengan C ABI yang stabil:
+
+```rust
+//! QRD C FFI — Stable C interface for all language bindings
+//!
+//! Memory ownership rules:
+//! - Functions returning *mut T transfer ownership to caller
+//! - Caller MUST call the corresponding _free function
+//! - Input *const T are borrowed — caller retains ownership
+//! - Returning i32 error codes: 0 = success, negative = error
+
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder, Schema};
+use qrd_core::writer::{FileWriter, WriterConfig};
+use qrd_core::reader::FileReader;
+use qrd_core::error::Error;
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int, c_uint, c_double};
+use std::ptr;
+
+// ============================================================================
+// OPAQUE HANDLES
+// ============================================================================
+
+pub struct QrdSchemaBuilder(SchemaBuilder);
+pub struct QrdSchema(Schema);
+pub struct QrdWriter(FileWriter);
+pub struct QrdReader(FileReader);
+
+// Thread safety markers
+unsafe impl Send for QrdSchemaBuilder {}
+unsafe impl Send for QrdWriter {}
+unsafe impl Send for QrdReader {}
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
+thread_local! {
+    static LAST_ERROR: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
 }
-pub fn xor(&self, dst: &mut [u8], src: &[u8]) -> Result<()> {
-    for i in 0..dst.len() { dst[i] ^= src[i]; }  // ← bukan SIMD
+
+fn set_last_error(msg: impl Into<String>) {
+    LAST_ERROR.with(|e| *e.borrow_mut() = Some(msg.into()));
+}
+
+/// Get last error message. Returns NULL if no error.
+/// Caller must NOT free returned pointer — it's thread-local storage.
+#[no_mangle]
+pub extern "C" fn qrd_last_error() -> *const c_char {
+    LAST_ERROR.with(|e| {
+        match &*e.borrow() {
+            Some(msg) => msg.as_ptr() as *const c_char,
+            None => ptr::null(),
+        }
+    })
+}
+
+// ============================================================================
+// SCHEMA BUILDER
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_new() -> *mut QrdSchemaBuilder {
+    Box::into_raw(Box::new(QrdSchemaBuilder(SchemaBuilder::new())))
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_free(ptr: *mut QrdSchemaBuilder) {
+    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
+}
+
+/// field_type values:
+///   0=Boolean, 1=Int8, 2=Int16, 3=Int32, 4=Int64,
+///   5=UInt8, 6=UInt16, 7=UInt32, 8=UInt64,
+///   9=Float32, 10=Float64, 11=Timestamp, 12=Date, 13=Time,
+///   14=String, 15=Blob, 16=Uuid, 17=Decimal
+///
+/// nullability values: 0=Required, 1=Optional, 2=Repeated
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_add_field(
+    builder: *mut QrdSchemaBuilder,
+    name: *const c_char,
+    field_type: c_int,
+    nullability: c_int,
+) -> c_int {
+    let builder = unsafe { &mut (*builder).0 };
+    let name = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
+    
+    let ft = match field_type_from_int(field_type) {
+        Ok(ft) => ft,
+        Err(e) => { set_last_error(e); return -1; }
+    };
+    let null = match nullability_from_int(nullability) {
+        Ok(n) => n,
+        Err(e) => { set_last_error(e); return -1; }
+    };
+    
+    match builder.add_field(&name, ft, null) {
+        Ok(_) => 0,
+        Err(e) => { set_last_error(e.to_string()); -1 }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_build(builder: *mut QrdSchemaBuilder) -> *mut QrdSchema {
+    let builder = unsafe { Box::from_raw(builder) };
+    match builder.0.build() {
+        Ok(schema) => Box::into_raw(Box::new(QrdSchema(schema))),
+        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_free(ptr: *mut QrdSchema) {
+    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
+}
+
+// ============================================================================
+// WRITER
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn qrd_writer_new(
+    path: *const c_char,
+    schema: *mut QrdSchema,
+) -> *mut QrdWriter {
+    let path = unsafe { CStr::from_ptr(path).to_string_lossy().into_owned() };
+    let schema = unsafe { (*schema).0.clone() };
+    
+    match FileWriter::new(&path, schema) {
+        Ok(w) => Box::into_raw(Box::new(QrdWriter(w))),
+        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_writer_free(ptr: *mut QrdWriter) {
+    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
+}
+
+/// Write a row. data is array of byte slices.
+/// column_count: number of columns
+/// data_ptrs: array of pointers to column data
+/// data_lens: array of lengths for each column
+#[no_mangle]
+pub extern "C" fn qrd_writer_write_row(
+    writer: *mut QrdWriter,
+    column_count: c_uint,
+    data_ptrs: *const *const u8,
+    data_lens: *const c_uint,
+) -> c_int {
+    let writer = unsafe { &mut (*writer).0 };
+    let count = column_count as usize;
+    
+    let row: Vec<Vec<u8>> = (0..count).map(|i| {
+        let ptr = unsafe { *data_ptrs.add(i) };
+        let len = unsafe { *data_lens.add(i) } as usize;
+        unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }
+    }).collect();
+    
+    match writer.write_row(row) {
+        Ok(()) => 0,
+        Err(e) => { set_last_error(e.to_string()); -1 }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_writer_finish(ptr: *mut QrdWriter) -> c_int {
+    let writer = unsafe { Box::from_raw(ptr) };
+    match writer.0.finish() {
+        Ok(()) => 0,
+        Err(e) => { set_last_error(e.to_string()); -1 }
+    }
+}
+
+// ============================================================================
+// READER
+// ============================================================================
+
+#[no_mangle]
+pub extern "C" fn qrd_reader_new(path: *const c_char) -> *mut QrdReader {
+    let path = unsafe { CStr::from_ptr(path).to_string_lossy().into_owned() };
+    match FileReader::new(&path) {
+        Ok(r) => Box::into_raw(Box::new(QrdReader(r))),
+        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_reader_free(ptr: *mut QrdReader) {
+    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_reader_row_count(reader: *const QrdReader) -> c_uint {
+    unsafe { (*reader).0.row_count() }
+}
+
+// Helper functions (private)
+fn field_type_from_int(n: c_int) -> Result<FieldType, String> {
+    match n {
+        0 => Ok(FieldType::Boolean), 1 => Ok(FieldType::Int8),
+        2 => Ok(FieldType::Int16),   3 => Ok(FieldType::Int32),
+        4 => Ok(FieldType::Int64),   5 => Ok(FieldType::UInt8),
+        6 => Ok(FieldType::UInt16),  7 => Ok(FieldType::UInt32),
+        8 => Ok(FieldType::UInt64),  9 => Ok(FieldType::Float32),
+        10 => Ok(FieldType::Float64), 11 => Ok(FieldType::Timestamp),
+        12 => Ok(FieldType::Date),   13 => Ok(FieldType::Time),
+        14 => Ok(FieldType::String), 15 => Ok(FieldType::Blob),
+        16 => Ok(FieldType::Uuid),   17 => Ok(FieldType::Decimal),
+        _ => Err(format!("Unknown field type: {}", n)),
+    }
+}
+
+fn nullability_from_int(n: c_int) -> Result<Nullability, String> {
+    match n {
+        0 => Ok(Nullability::Required),
+        1 => Ok(Nullability::Optional),
+        _ => Err(format!("Unknown nullability: {}", n)),
+    }
 }
 ```
 
-### Tambahkan ke `Cargo.toml` workspace dependencies:
+### Update `qrd-ffi/Cargo.toml`:
 ```toml
-# SIMD portable (stable Rust, no nightly needed)
-wide = "0.7"
+[package]
+name = "qrd-ffi"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+qrd-core = { path = "../qrd-core" }
+
+[lib]
+name = "qrd_ffi"
+crate-type = ["cdylib", "staticlib"]  # ← PENTING: dua jenis output
 ```
 
-### Implementasi baru `utils/simd.rs`:
+### Generate C header (`qrd.h`) otomatis:
 
-**Strategy:** Gunakan `wide` crate untuk portable SIMD yang works di stable Rust.
-Tetap pertahankan scalar fallback untuk platform tanpa SIMD.
+Tambahkan ke workspace `Cargo.toml`:
+```toml
+[workspace.metadata.cbindgen]
+language = "C"
+include_guard = "QRD_H"
+```
+
+Buat script `scripts/gen_header.sh`:
+```bash
+#!/bin/bash
+cargo install cbindgen 2>/dev/null || true
+cbindgen --config cbindgen.toml --crate qrd-ffi --output sdk/include/qrd.h
+```
+
+---
+
+## TASK 2: Python Binding (PyO3)
+
+Update `sdk/python/src/lib.rs`:
 
 ```rust
-use wide::{u8x16, u8x32, i32x8};
+use pyo3::prelude::*;
+use pyo3::exceptions::PyValueError;
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::writer::FileWriter;
+use qrd_core::reader::FileReader;
 
-impl SimdOps {
-    /// SIMD-accelerated XOR — gunakan u8x32 (AVX2) jika tersedia, fallback u8x16 (SSE2), lalu scalar
-    pub fn xor(&self, dst: &mut [u8], src: &[u8]) -> Result<()> {
-        if dst.len() != src.len() {
-            return Err(Error::InvalidInput("Length mismatch".to_string()));
-        }
-        
-        if !self.enabled {
-            // Scalar fallback
-            dst.iter_mut().zip(src.iter()).for_each(|(d, s)| *d ^= s);
-            return Ok(());
-        }
-        
-        let len = dst.len();
-        let chunks_32 = len / 32;
-        let chunks_16 = (len % 32) / 16;
-        let remainder = len % 16;
-        
-        // Process 32 bytes at a time (AVX2 width)
-        for i in 0..chunks_32 {
-            let offset = i * 32;
-            let a = u8x32::from(&dst[offset..offset+32]);
-            let b = u8x32::from(&src[offset..offset+32]);
-            let result = a ^ b;
-            dst[offset..offset+32].copy_from_slice(result.as_array_ref());
-        }
-        
-        // Process 16 bytes at a time (SSE2 width)
-        let base = chunks_32 * 32;
-        for i in 0..chunks_16 {
-            let offset = base + i * 16;
-            let a = u8x16::from(&dst[offset..offset+16]);
-            let b = u8x16::from(&src[offset..offset+16]);
-            let result = a ^ b;
-            dst[offset..offset+16].copy_from_slice(result.as_array_ref());
-        }
-        
-        // Scalar tail
-        let tail_start = base + chunks_16 * 16;
-        dst[tail_start..].iter_mut().zip(src[tail_start..].iter()).for_each(|(d, s)| *d ^= s);
-        
+fn qrd_error_to_py(e: qrd_core::error::Error) -> PyErr {
+    PyValueError::new_err(e.to_string())
+}
+
+#[pyclass(name = "SchemaBuilder")]
+struct PySchemaBuilder {
+    inner: SchemaBuilder,
+}
+
+#[pymethods]
+impl PySchemaBuilder {
+    #[new]
+    fn new() -> Self {
+        PySchemaBuilder { inner: SchemaBuilder::new() }
+    }
+    
+    fn add_field(&mut self, name: &str, field_type: &str, required: bool) -> PyResult<()> {
+        let ft = parse_field_type(field_type)?;
+        let null = if required { Nullability::Required } else { Nullability::Optional };
+        self.inner.add_field(name, ft, null).map_err(qrd_error_to_py)?;
         Ok(())
     }
     
-    /// SIMD-accelerated delta encoding untuk i32
-    pub fn delta_encode_i32(&self, data: &[i32]) -> Result<Vec<i32>> {
-        if data.is_empty() { return Ok(Vec::new()); }
-        
-        let mut result = Vec::with_capacity(data.len());
-        result.push(data[0]);
-        
-        if !self.enabled || data.len() < 8 {
-            // Scalar
-            for i in 1..data.len() {
-                result.push(data[i].wrapping_sub(data[i-1]));
-            }
-            return Ok(result);
-        }
-        
-        // SIMD: proses 8 i32 sekaligus
-        let chunks = (data.len() - 1) / 8;
-        for chunk in 0..chunks {
-            let base = chunk * 8 + 1;
-            let curr = i32x8::from(&data[base..base+8]);
-            let prev = i32x8::from(&data[base-1..base+7]);
-            let deltas = curr - prev;
-            result.extend_from_slice(deltas.as_array_ref());
-        }
-        
-        // Scalar tail
-        let processed = chunks * 8 + 1;
-        for i in processed..data.len() {
-            result.push(data[i].wrapping_sub(data[i-1]));
-        }
-        
-        Ok(result)
-    }
-    
-    /// SIMD-accelerated delta decoding untuk i32
-    pub fn delta_decode_i32(&self, deltas: &[i32]) -> Result<Vec<i32>> {
-        if deltas.is_empty() { return Ok(Vec::new()); }
-        
-        let mut result = Vec::with_capacity(deltas.len());
-        result.push(deltas[0]);
-        
-        // NOTE: Delta decoding sequential by nature (prefix sum),
-        // true SIMD prefix sum is complex. Use scalar with LLVM auto-vectorization hint.
-        for i in 1..deltas.len() {
-            result.push(result[i-1].wrapping_add(deltas[i]));
-        }
-        Ok(result)
-    }
-    
-    /// SIMD byte counting
-    pub fn count_bytes(&self, data: &[u8], target: u8) -> usize {
-        if !self.enabled {
-            return data.iter().filter(|&&b| b == target).count();
-        }
-        
-        let target_vec = u8x16::splat(target);
-        let mut count = 0usize;
-        let chunks = data.len() / 16;
-        
-        for i in 0..chunks {
-            let chunk = u8x16::from(&data[i*16..(i+1)*16]);
-            let eq = chunk.cmp_eq(target_vec);
-            // Count non-zero lanes
-            count += eq.as_array_ref().iter().filter(|&&b| b != 0).count();
-        }
-        
-        // Scalar tail
-        count += data[chunks*16..].iter().filter(|&&b| b == target).count();
-        count
+    fn build(&self) -> PyResult<PySchema> {
+        let schema = self.inner.clone().build().map_err(qrd_error_to_py)?;
+        Ok(PySchema { inner: schema })
     }
 }
-```
 
-### Update `detect_simd_support()`:
-```rust
-fn detect_simd_support() -> (bool, SimdInstructionSet) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") {
-            return (true, SimdInstructionSet::Avx2);
+#[pyclass(name = "Schema")]
+#[derive(Clone)]
+struct PySchema {
+    inner: qrd_core::schema::Schema,
+}
+
+#[pymethods]
+impl PySchema {
+    fn field_count(&self) -> usize { self.inner.fields.len() }
+    fn __repr__(&self) -> String { format!("Schema(fields={})", self.inner.fields.len()) }
+}
+
+#[pyclass(name = "Writer")]
+struct PyWriter {
+    inner: Option<FileWriter>,
+}
+
+#[pymethods]
+impl PyWriter {
+    #[new]
+    fn new(path: &str, schema: &PySchema) -> PyResult<Self> {
+        let writer = FileWriter::new(path, schema.inner.clone()).map_err(qrd_error_to_py)?;
+        Ok(PyWriter { inner: Some(writer) })
+    }
+    
+    /// Write a row. columns is list of bytes objects.
+    fn write_row(&mut self, columns: Vec<&[u8]>) -> PyResult<()> {
+        let writer = self.inner.as_mut().ok_or_else(|| PyValueError::new_err("Writer already finished"))?;
+        let row: Vec<Vec<u8>> = columns.iter().map(|c| c.to_vec()).collect();
+        writer.write_row(row).map_err(qrd_error_to_py)
+    }
+    
+    fn finish(&mut self) -> PyResult<()> {
+        let writer = self.inner.take().ok_or_else(|| PyValueError::new_err("Already finished"))?;
+        writer.finish().map_err(qrd_error_to_py)
+    }
+    
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
+    fn __exit__(&mut self, _exc_type: PyObject, _exc_val: PyObject, _exc_tb: PyObject) -> bool {
+        if self.inner.is_some() {
+            let _ = self.finish();
         }
-        if is_x86_feature_detected!("sse4.1") {
-            return (true, SimdInstructionSet::Sse4);
-        }
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        // NEON always available on AArch64
-        return (true, SimdInstructionSet::Neon);
-    }
-    (false, SimdInstructionSet::None)
-}
-```
-
-### Benchmark SIMD vs Scalar
-
-Tambahkan ke `benches/comprehensive_bench.rs`:
-```rust
-fn bench_simd_xor(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simd_xor");
-    
-    for size in [1_000, 10_000, 100_000, 1_000_000].iter() {
-        let mut dst = vec![0u8; *size];
-        let src = vec![0xFFu8; *size];
-        
-        group.bench_with_input(BenchmarkId::new("simd", size), size, |b, _| {
-            let ops = SimdOps::new();
-            b.iter(|| ops.xor(&mut dst, &src))
-        });
-        
-        group.bench_with_input(BenchmarkId::new("scalar", size), size, |b, _| {
-            b.iter(|| dst.iter_mut().zip(src.iter()).for_each(|(d, s)| *d ^= s))
-        });
+        false
     }
 }
-```
 
----
+#[pyclass(name = "Reader")]
+struct PyReader { inner: FileReader }
 
-## TASK 2: Fix StreamingWriter — Header Patch Issue
-
-### Masalah
-`StreamingWriter<W: Write>` tidak bisa patch row count di header karena `Write` tidak punya `Seek`.
-
-```rust
-// Saat ini di streaming_writer.rs — INI AKAN FAIL untuk non-seekable streams:
-pub fn finish(mut self) -> Result<()> {
-    // ...
-    // BUG: tidak ada cara untuk update row count di header untuk Write-only streams!
-}
-```
-
-### Solusi: Dua-pass approach + deferred header
-
-**Opsi A (Recommended):** Tulis row count di footer saja, bukan di header. Header pakai sentinel `u32::MAX` untuk "row count di footer":
-
-```rust
-fn write_header(writer: &mut W, schema: &Schema) -> Result<()> {
-    // ...
-    // Tulis sentinel untuk row count — akan dibaca dari footer
-    writer.write_u32::<LittleEndian>(u32::MAX)?;  // Sentinel: "baca dari footer"
-    // ...
-}
-
-pub fn finish(mut self) -> Result<()> {
-    self.flush_current_row_group()?;
-    
-    // Row count ada di footer — tidak perlu patch header
-    let footer = Footer::with_metadata_index(
-        self.schema.clone(),
-        self.total_rows,  // ← ada di footer
-        metadata_index,
-    );
-    
-    let footer_bytes = footer.serialize()?;
-    self.writer.write_all(&footer_bytes)?;
-    self.writer.write_u32::<LittleEndian>(footer_bytes.len() as u32)?;
-    
-    // Flush writer buffer
-    if let Some(ref mut w) = self.writer.as_mut() {
-        w.flush()?;
+#[pymethods]
+impl PyReader {
+    #[new]
+    fn new(path: &str) -> PyResult<Self> {
+        let reader = FileReader::new(path).map_err(qrd_error_to_py)?;
+        Ok(PyReader { inner: reader })
     }
     
+    fn row_count(&self) -> u32 { self.inner.row_count() }
+    fn schema(&self) -> PySchema { PySchema { inner: self.inner.schema().clone() } }
+}
+
+fn parse_field_type(s: &str) -> PyResult<FieldType> {
+    match s.to_uppercase().as_str() {
+        "BOOLEAN" | "BOOL" => Ok(FieldType::Boolean),
+        "INT8" | "I8" => Ok(FieldType::Int8),
+        "INT16" | "I16" => Ok(FieldType::Int16),
+        "INT32" | "I32" | "INT" => Ok(FieldType::Int32),
+        "INT64" | "I64" | "LONG" => Ok(FieldType::Int64),
+        "FLOAT32" | "F32" | "FLOAT" => Ok(FieldType::Float32),
+        "FLOAT64" | "F64" | "DOUBLE" => Ok(FieldType::Float64),
+        "STRING" | "STR" | "UTF8" => Ok(FieldType::String),
+        "BLOB" | "BYTES" | "BINARY" => Ok(FieldType::Blob),
+        "TIMESTAMP" | "TS" => Ok(FieldType::Timestamp),
+        _ => Err(PyValueError::new_err(format!("Unknown field type: {}", s))),
+    }
+}
+
+#[pymodule]
+fn qrd(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySchemaBuilder>()?;
+    m.add_class::<PySchema>()?;
+    m.add_class::<PyWriter>()?;
+    m.add_class::<PyReader>()?;
     Ok(())
 }
 ```
 
-**Update `FileReader` untuk handle sentinel:**
-```rust
-// Di reader/mod.rs saat parse header:
-let row_count_header = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
-let row_count = if row_count_header == u32::MAX {
-    // Baca dari footer (sudah di-parse di bawah)
-    footer.row_count
-} else {
-    row_count_header
-};
+### Update `sdk/python/Cargo.toml`:
+```toml
+[package]
+name = "qrd-python"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pyo3 = { version = "0.21", features = ["extension-module"] }
+qrd-core = { path = "../../core/qrd-core" }
+
+[lib]
+name = "qrd"
+crate-type = ["cdylib"]
 ```
 
-**Opsi B:** Split trait bound:
-```rust
-pub struct StreamingWriter<W: Write> { ... }       // untuk streams
-pub struct SeekableWriter<W: Write + Seek> { ... } // untuk files dengan header patch
+### Update `sdk/python/setup.py` → Gunakan `maturin`:
+```toml
+# sdk/python/pyproject.toml
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "qrd-sdk"
+version = "0.1.0"
+description = "QRD columnar binary format SDK"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
 ```
 
-**Implementasikan Opsi A**, lalu:
+### Python test (`sdk/python/tests/test_qrd.py`):
+```python
+import qrd
+import struct
 
-### Tambahkan test StreamingWriter:
-```rust
-#[test]
-fn test_streaming_writer_to_vec() {
-    // Tulis ke Vec<u8> (tidak seekable)
-    let mut buf = Vec::new();
-    let mut writer = StreamingWriter::new(Cursor::new(&mut buf), schema)?;
-    for i in 0..1000 {
-        writer.write_row(make_row(i))?;
-    }
-    writer.finish()?;
+def test_basic_write_read():
+    schema = (qrd.SchemaBuilder()
+        .add_field("id", "INT64")
+        .add_field("name", "STRING")
+        .build())
     
-    // Baca kembali dari buf
-    let reader = FileReader::from_bytes(buf)?;
-    assert_eq!(reader.row_count(), 1000);
+    with qrd.Writer("/tmp/test.qrd", schema) as w:
+        for i in range(100):
+            id_bytes = struct.pack("<q", i)       # i64 LE
+            name_bytes = f"user_{i}".encode()
+            name_bytes = struct.pack("<I", len(name_bytes)) + name_bytes  # length-prefix
+            w.write_row([id_bytes, name_bytes])
+    
+    reader = qrd.Reader("/tmp/test.qrd")
+    assert reader.row_count() == 100
+```
+
+---
+
+## TASK 3: TypeScript/WASM Binding
+
+### Update `core/qrd-wasm/src/lib.rs`:
+```rust
+use wasm_bindgen::prelude::*;
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::writer::StreamingWriter;
+use std::io::Cursor;
+
+#[wasm_bindgen]
+pub struct QrdSchemaBuilder {
+    inner: SchemaBuilder,
 }
 
-#[test]
-fn test_streaming_writer_bounded_memory() {
-    // Verifikasi memory tidak naik proporsional dengan data size
-    // Gunakan 1M rows tapi row_group_size = 1000
-    // Peak memory seharusnya < 10MB (bukan proportional ke 1M rows)
+#[wasm_bindgen]
+impl QrdSchemaBuilder {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Self {
+        QrdSchemaBuilder { inner: SchemaBuilder::new() }
+    }
+    
+    pub fn add_field(&mut self, name: &str, field_type: &str) -> Result<(), JsValue> {
+        let ft = parse_field_type(field_type).map_err(|e| JsValue::from_str(&e))?;
+        self.inner.add_field(name, ft, Nullability::Required)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(())
+    }
+    
+    pub fn build(self) -> Result<QrdSchema, JsValue> {
+        let schema = self.inner.build().map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(QrdSchema { inner: schema })
+    }
 }
 
-#[test]
-fn test_streaming_writer_multiple_row_groups() {
-    // row_group_size = 100, tulis 350 rows
-    // Harus ada 4 row groups (100, 100, 100, 50)
+#[wasm_bindgen]
+pub struct QrdSchema {
+    inner: qrd_core::schema::Schema,
+}
+
+/// In-memory writer — returns bytes when finished
+#[wasm_bindgen]
+pub struct QrdMemWriter {
+    buffer: Vec<u8>,
+    writer: Option<StreamingWriter<Cursor<Vec<u8>>>>,
+}
+
+#[wasm_bindgen]
+impl QrdMemWriter {
+    #[wasm_bindgen(constructor)]
+    pub fn new(schema: &QrdSchema) -> Result<Self, JsValue> {
+        let buf = Vec::new();
+        let cursor = Cursor::new(buf);
+        let writer = StreamingWriter::new(cursor, schema.inner.clone())
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        Ok(QrdMemWriter { buffer: Vec::new(), writer: Some(writer) })
+    }
+    
+    pub fn write_row(&mut self, columns: Vec<js_sys::Uint8Array>) -> Result<(), JsValue> {
+        let writer = self.writer.as_mut().ok_or("Writer finished")?;
+        let row: Vec<Vec<u8>> = columns.iter().map(|a| a.to_vec()).collect();
+        writer.write_row(row).map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+    
+    pub fn finish(mut self) -> Result<js_sys::Uint8Array, JsValue> {
+        let writer = self.writer.take().ok_or("Already finished")?;
+        let cursor = writer.finish_into_inner()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let bytes = cursor.into_inner();
+        Ok(js_sys::Uint8Array::from(bytes.as_slice()))
+    }
+}
+```
+
+### Update `sdk/typescript/src/index.ts`:
+```typescript
+import init, { QrdSchemaBuilder, QrdMemWriter } from '../pkg/qrd_wasm';
+
+export async function createQrdFile(
+  fields: Array<{ name: string; type: string }>,
+  rows: Array<Array<Uint8Array>>
+): Promise<Uint8Array> {
+  await init();
+  
+  const builder = new QrdSchemaBuilder();
+  for (const field of fields) {
+    builder.addField(field.name, field.type);
+  }
+  const schema = builder.build();
+  
+  const writer = new QrdMemWriter(schema);
+  for (const row of rows) {
+    writer.writeRow(row);
+  }
+  
+  return writer.finish();
 }
 ```
 
 ---
 
-## TASK 3: Wire Footer Statistics ke Binary
+## TASK 4: Go Binding Update
 
-### Masalah
-Di `rowgroup/mod.rs`, null_count dan distinct_count ditulis sebagai hardcoded 0:
+Update `sdk/go/qrd.go` agar link ke real compiled library:
+```go
+package qrd
 
-```rust
-result.write_u32::<LittleEndian>(0)?; // null_count (placeholder)
-result.write_u32::<LittleEndian>(0)?; // distinct_count (placeholder)
-```
+/*
+#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lqrd_ffi
+#include "../../sdk/include/qrd.h"
+#include <stdlib.h>
+*/
+import "C"
+import (
+    "errors"
+    "unsafe"
+)
 
-Padahal `RowGroupStats` sudah dikumpulkan di writer. Tinggal di-wire.
-
-### Implementasi
-
-**Step 1:** Update `RowGroup` struct untuk terima statistics:
-```rust
-pub struct RowGroup {
-    pub row_count: u32,
-    pub columns: Vec<ColumnChunk>,
-    pub column_stats: Option<Vec<ColumnChunkStats>>,  // ← TAMBAHKAN
+type SchemaBuilder struct {
+    ptr *C.QrdSchemaBuilder
 }
 
-pub struct ColumnChunkStats {
-    pub null_count: u32,
-    pub distinct_count: u32,
-    pub min_value: Option<Vec<u8>>,
-    pub max_value: Option<Vec<u8>>,
-}
-```
-
-**Step 2:** Update serialization di `rowgroup/mod.rs` untuk pakai stats actual:
-```rust
-fn serialize_column_header(column: &ColumnChunk, stats: Option<&ColumnChunkStats>) -> Result<Vec<u8>> {
-    let null_count = stats.map(|s| s.null_count).unwrap_or(0);
-    let distinct_count = stats.map(|s| s.distinct_count).unwrap_or(0);
-    result.write_u32::<LittleEndian>(null_count)?;
-    result.write_u32::<LittleEndian>(distinct_count)?;
-    // Tulis min/max jika ada
-}
-```
-
-**Step 3:** Di `writer/mod.rs`, pass `RowGroupStats` ke `RowGroup::process_column()`:
-```rust
-// flush_row_group():
-let rg_stats = self.current_row_group_stats.column_stats();
-for (col_idx, column) in columns.iter().enumerate() {
-    let col_stats = rg_stats.get(col_idx);
-    row_group.process_column_with_stats(column, encoding, codec, level, col_stats)?;
-}
-```
-
-### Test statistik:
-```rust
-#[test]
-fn test_column_statistics_null_count() {
-    // Tulis 10 rows, 3 di antaranya null di kolom Optional
-    // Baca footer → null_count harus 3
+func NewSchemaBuilder() *SchemaBuilder {
+    return &SchemaBuilder{ptr: C.qrd_schema_builder_new()}
 }
 
-#[test]
-fn test_column_statistics_min_max() {
-    // Tulis kolom Int64 dengan nilai 1-100
-    // Footer stats harus: min=1, max=100
+func (sb *SchemaBuilder) Free() {
+    C.qrd_schema_builder_free(sb.ptr)
+}
+
+func (sb *SchemaBuilder) AddField(name string, fieldType int, nullable bool) error {
+    cName := C.CString(name)
+    defer C.free(unsafe.Pointer(cName))
+    nullability := C.int(0)
+    if nullable { nullability = 1 }
+    if C.qrd_schema_builder_add_field(sb.ptr, cName, C.int(fieldType), nullability) != 0 {
+        return errors.New(C.GoString(C.qrd_last_error()))
+    }
+    return nil
 }
 ```
 
 ---
 
-## VALIDASI PHASE 3
+## VALIDASI PHASE 4
 
 ```bash
-# Build dengan fitur SIMD
-cargo build --package qrd-core --release 2>&1
+# 1. FFI compiles
+cargo build --package qrd-ffi --release 2>&1 | grep -E "error|Finished"
 
-# SIMD tests
-cargo test --package qrd-core simd 2>&1
+# 2. Python binding
+cd sdk/python
+pip install maturin
+maturin develop 2>&1 | tail -5
+python -c "import qrd; print('Python binding OK:', dir(qrd))"
+python tests/test_qrd.py
 
-# Benchmark SIMD (lihat apakah ada speedup)
-cargo bench --package qrd-core simd_xor 2>&1
+# 3. WASM binding
+cargo install wasm-pack
+cd core/qrd-wasm
+wasm-pack build --target web 2>&1 | tail -5
 
-# Streaming writer tests
-cargo test --package qrd-core streaming 2>&1
+# 4. Go binding (perlu libqrd_ffi.so di PATH)
+cd sdk/go
+go test ./... 2>&1
 
-# Statistics tests
-cargo test --package qrd-core statistics 2>&1
-
-# Full test suite
-cargo test --package qrd-core 2>&1 | tail -30
+# 5. Java build
+cd sdk/java
+mvn compile test 2>&1 | grep -E "BUILD|ERROR|Tests run"
 ```
 
 **Expected:**
 ```
-test utils::simd::tests::test_simd_xor_correctness ... ok
-test utils::simd::tests::test_simd_delta_encode ... ok
-test writer::streaming_writer::tests::test_streaming_writer_to_vec ... ok
-test writer::streaming_writer::tests::test_streaming_writer_multiple_row_groups ... ok
-```
-
-**Benchmark output harus menunjukkan SIMD > scalar untuk data >= 10KB:**
-```
-simd_xor/simd/100000   time: [XX µs]
-simd_xor/scalar/100000 time: [YY µs]
-# SIMD should be 2-5x faster for large inputs
+Python binding OK: ['Reader', 'Schema', 'SchemaBuilder', 'Writer']
+[INFO] BUILD SUCCESS
+WASM pkg generated at: pkg/
 ```
 
 ---
 
 ## CONSTRAINT
 
-- `wide` crate versi 0.7+ untuk stable Rust SIMD
-- Scalar fallback WAJIB ada untuk platform tanpa SIMD (WASM, old x86)
-- SIMD code tidak boleh `unsafe` — `wide` crate adalah safe abstraction
-- StreamingWriter fix harus backward compatible dengan FileReader existing
-- Statistics null_count HARUS akurat — ini critical untuk query optimization
+- FFI must be `#[no_mangle]` extern "C" — tidak boleh mangling
+- Memory ownership HARUS jelas: setiap `*mut T` yang dikembalikan HARUS ada `_free` function
+- Python binding harus support context manager (`with` statement)
+- WASM binding tidak boleh pakai `std::fs` (tidak ada filesystem di browser)
+- Go binding harus ada `Free()` method untuk semua opaque handles
+- Java: gunakan JNA (bukan JNI) untuk simplicity — map langsung ke C FFI
 
-**Lanjut ke PHASE 4 setelah semua validasi passing.**
+**Lanjut ke PHASE 5 setelah semua validasi passing.**
