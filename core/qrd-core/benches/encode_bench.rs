@@ -246,8 +246,7 @@ fn ecc_benchmarks(c: &mut Criterion) {
 
     group.bench_function("reed_solomon/decode", |b| {
         b.iter(|| {
-            let shards = encoded.shards_as_options();
-            let recovered = qrd_core::ecc::decode_and_recover(&shards, &config).unwrap();
+            let recovered = qrd_core::ecc::decode_and_recover(&encoded, &config).unwrap();
             black_box(recovered);
         });
     });
