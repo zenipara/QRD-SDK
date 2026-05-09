@@ -30,7 +30,7 @@ Offset  Size  Type    Field                Notes
 16      4     U32LE   TOTAL_ROW_COUNT      All rows in file
 20      4     U32LE   COLUMN_COUNT         Number of columns
 24      4     U32LE   ROW_GROUP_SIZE       Rows per row group
-28      4     U32BE   FLAGS                Reserved
+28      4     U32LE   FLAGS                Reserved (currently zero)
 ```
 
 ### Magic Verification
