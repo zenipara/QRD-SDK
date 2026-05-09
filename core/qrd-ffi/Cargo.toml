@@ -8,6 +8,7 @@ description = "QRD C FFI bindings for language native interfaces"
 
 [dependencies]
 qrd-core = { path = "../qrd-core" }
+tempfile = "3"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

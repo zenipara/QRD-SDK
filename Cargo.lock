@@ -940,6 +940,7 @@ name = "qrd-ffi"
 version = "0.1.0"
 dependencies = [
  "qrd-core",
+ "tempfile",
 ]
 
 [[package]]

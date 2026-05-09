@@ -344,13 +344,15 @@ mod fallback {
             return;
         }
 
-        let mut prev = *data;
-        *result = *data.add(1) - prev;
-
-        for i in 1..len {
-            let current = *data.add(i + 1);
-            *result.add(i) = current - prev;
-            prev = current;
+        // Guard: assume pointers are valid; implement safe delta encoding
+        // Semantics: result[0] = data[0]; for i>0: result[i] = data[i] - data[i-1]
+        *result.add(0) = *data.add(0);
+        let mut i = 1usize;
+        while i < len {
+            let curr = *data.add(i);
+            let prev = *data.add(i - 1);
+            *result.add(i) = curr.wrapping_sub(prev);
+            i += 1;
         }
     }
 
@@ -360,12 +362,15 @@ mod fallback {
             return;
         }
 
-        let mut current = *data;
-        *result = current + *data.add(1);
-
-        for i in 1..len {
-            current = *result.add(i - 1);
-            *result.add(i) = current + *data.add(i + 1);
+        // Semantics: input data is [first_value, delta1, delta2, ...]
+        // Reconstruct: result[0] = data[0]; for i>0: result[i] = result[i-1] + data[i]
+        *result.add(0) = *data.add(0);
+        let mut i = 1usize;
+        while i < len {
+            let prev = *result.add(i - 1);
+            let delta = *data.add(i);
+            *result.add(i) = prev.wrapping_add(delta);
+            i += 1;
         }
     }
 }

@@ -10,6 +10,8 @@
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
 use crate::error::Result;
+use crate::encryption::EncryptionConfig;
+use crate::ecc::{EccConfig, EccCodec};
 use crate::schema::Schema;
 use crate::writer::buffer_pool::{BufferPool, BufferPoolConfig};
 use std::io::Write;
@@ -23,6 +25,10 @@ pub struct StreamingWriterConfig {
     pub compression_level: u8,
     /// Buffer pool configuration
     pub buffer_pool_config: BufferPoolConfig,
+    /// Optional encryption configuration for row groups
+    pub encryption: Option<EncryptionConfig>,
+    /// Optional ECC configuration for row groups
+    pub ecc: Option<EccConfig>,
 }
 
 impl Default for StreamingWriterConfig {
@@ -31,6 +37,8 @@ impl Default for StreamingWriterConfig {
             row_group_size: crate::DEFAULT_ROW_GROUP_SIZE,
             compression_level: 3,
             buffer_pool_config: BufferPoolConfig::default(),
+            encryption: None,
+            ecc: None,
         }
     }
 }
@@ -169,8 +177,25 @@ impl<W: Write> StreamingWriter<W> {
         row_group.column_stats = Some(stats_for_group.column_stats.clone());
 
         let rg_bytes = row_group.serialize()?;
-        self.writer.write_all(&rg_bytes)?;
-        self.current_offset += rg_bytes.len() as u64;
+
+        // STEP 1: Encryption (if enabled)
+        let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
+            crate::encryption::encrypt(&rg_bytes, enc_config)?
+        } else {
+            rg_bytes
+        };
+
+        // STEP 2: ECC encoding (if enabled)
+        if let Some(ref ecc_config) = self.config.ecc {
+            let mut codec = crate::ecc::EccCodec::new(ecc_config.clone())?;
+            let encoded = codec.encode(&encrypted_bytes)?;
+            let final_bytes = encoded.to_bytes()?;
+            self.writer.write_all(&final_bytes)?;
+            self.current_offset += final_bytes.len() as u64;
+        } else {
+            self.writer.write_all(&encrypted_bytes)?;
+            self.current_offset += encrypted_bytes.len() as u64;
+        }
 
         // Clear buffer for reuse
         self.row_buffer.clear();

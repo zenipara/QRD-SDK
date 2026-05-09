@@ -5,19 +5,19 @@ use qrd_core::reader::FileReader as CoreFileReader;
 use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ffi::CStr;
-use std::fs;
 use std::io::{self, Write};
 use std::os::raw::c_char;
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::slice;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-static TEMP_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
+use tempfile::NamedTempFile;
 
 extern "C" {
     fn malloc(size: usize) -> *mut c_void;
 }
+
+static TEMP_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 struct SharedVecWriter {
@@ -58,6 +58,7 @@ pub struct FFISchema {
 pub struct FFIWriter {
     inner: Option<qrd_core::writer::StreamingWriter<SharedVecWriter>>,
     buffer: SharedVecWriter,
+    schema: Schema,
 }
 
 /// FFI wrapper for reader.
@@ -113,30 +114,93 @@ fn split_row_bytes(row_bytes: &[u8], schema: &Schema) -> Option<Vec<Vec<u8>>> {
 
 fn collect_rows(reader: &CoreFileReader, schema: &Schema) -> Option<Vec<Vec<u8>>> {
     let mut all_rows = Vec::new();
-    let row_groups = reader.read_all_row_groups().ok()?;
+    let row_groups = match reader.read_all_row_groups() {
+        Ok(rg) => rg,
+        Err(e) => {
+            eprintln!("collect_rows: read_all_row_groups() error: {:?}", e);
+            return None;
+        }
+    };
 
-    for row_group in row_groups {
-        let decoded_columns = row_group.decode_columns().ok()?;
+    eprintln!("collect_rows: found {} row_groups", row_groups.len());
+
+    for (rg_idx, row_group) in row_groups.into_iter().enumerate() {
+        eprintln!("collect_rows: processing row_group {}: row_count={}, columns={}", rg_idx, row_group.row_count, row_group.columns.len());
+
+        let decoded_columns = match row_group.decode_columns() {
+            Ok(dc) => dc,
+            Err(e) => {
+                eprintln!("collect_rows: row_group.decode_columns() failed: {:?}", e);
+                return None;
+            }
+        };
+
         let row_count = row_group.row_count as usize;
         let mut col_offsets = vec![0usize; row_group.columns.len()];
+
+        for (col_idx, col_buf) in decoded_columns.iter().enumerate() {
+            let encoded_len = row_group.columns.get(col_idx).map(|c| c.encoded_data.len()).unwrap_or(0);
+            let encoding_id = row_group.columns.get(col_idx).map(|c| c.encoding.to_id()).unwrap_or(255);
+            eprintln!("collect_rows: decoded column {} length={} encoding={} encoded_len={}", col_idx, col_buf.len(), encoding_id, encoded_len);
+            if col_buf.len() > 0 {
+                let preview = &col_buf[..std::cmp::min(8, col_buf.len())];
+                eprintln!("collect_rows: col {} preview={:02x?}", col_idx, preview);
+            }
+        }
 
         for row_idx in 0..row_count {
             let mut row_data = Vec::new();
 
             for (col_idx, field) in schema.fields.iter().enumerate() {
-                let decoded_column = decoded_columns.get(col_idx)?;
+                let decoded_column = match decoded_columns.get(col_idx) {
+                    Some(dc) => dc,
+                    None => {
+                        eprintln!("collect_rows: missing decoded column {}", col_idx);
+                        return None;
+                    }
+                };
 
                 match field.field_type.fixed_size() {
                     Some(field_size) => {
-                        let start = row_idx.checked_mul(field_size)?;
-                        let end = start.checked_add(field_size)?;
-                        let slice = decoded_column.get(start..end)?;
+                        let start = match row_idx.checked_mul(field_size) {
+                            Some(s) => s,
+                            None => {
+                                eprintln!("collect_rows: overflow computing start for fixed field");
+                                return None;
+                            }
+                        };
+                        let end = match start.checked_add(field_size) {
+                            Some(e) => e,
+                            None => {
+                                eprintln!("collect_rows: overflow computing end for fixed field");
+                                return None;
+                            }
+                        };
+                        let slice = match decoded_column.get(start..end) {
+                            Some(s) => s,
+                            None => {
+                                eprintln!("collect_rows: fixed field slice out of bounds: start={} end={} col_len={}", start, end, decoded_column.len());
+                                return None;
+                            }
+                        };
                         row_data.extend_from_slice(slice);
                     }
                     None => {
                         let offset = col_offsets[col_idx];
-                        let len_end = offset.checked_add(4)?;
-                        let len_bytes = decoded_column.get(offset..len_end)?;
+                        let len_end = match offset.checked_add(4) {
+                            Some(le) => le,
+                            None => {
+                                eprintln!("collect_rows: overflow computing len_end");
+                                return None;
+                            }
+                        };
+                        let len_bytes = match decoded_column.get(offset..len_end) {
+                            Some(lb) => lb,
+                            None => {
+                                eprintln!("collect_rows: varlen len_bytes out of bounds: offset={} len_end={} col_len={}", offset, len_end, decoded_column.len());
+                                return None;
+                            }
+                        };
                         let len = u32::from_le_bytes([
                             len_bytes[0],
                             len_bytes[1],
@@ -144,8 +208,20 @@ fn collect_rows(reader: &CoreFileReader, schema: &Schema) -> Option<Vec<Vec<u8>>
                             len_bytes[3],
                         ]) as usize;
                         let value_start = len_end;
-                        let value_end = value_start.checked_add(len)?;
-                        let value = decoded_column.get(value_start..value_end)?;
+                        let value_end = match value_start.checked_add(len) {
+                            Some(ve) => ve,
+                            None => {
+                                eprintln!("collect_rows: overflow computing value_end");
+                                return None;
+                            }
+                        };
+                        let value = match decoded_column.get(value_start..value_end) {
+                            Some(v) => v,
+                            None => {
+                                eprintln!("collect_rows: varlen value out of bounds: start={} end={} col_len={}", value_start, value_end, decoded_column.len());
+                                return None;
+                            }
+                        };
 
                         row_data.extend_from_slice(len_bytes);
                         row_data.extend_from_slice(value);
@@ -159,6 +235,42 @@ fn collect_rows(reader: &CoreFileReader, schema: &Schema) -> Option<Vec<Vec<u8>>
     }
 
     Some(all_rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qrd_core::writer::StreamingWriter;
+
+    #[test]
+    fn test_collect_rows_roundtrip() {
+        let mut builder = SchemaBuilder::new();
+        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
+        builder = builder.add_field("name", FieldType::String, Nullability::Required).unwrap();
+        let schema = builder.build().unwrap();
+
+        let buffer = SharedVecWriter::new();
+        let mut writer = StreamingWriter::new(buffer.clone(), schema.clone()).unwrap();
+
+        for i in 0..3 {
+            let mut row: Vec<Vec<u8>> = Vec::new();
+            row.push((i as i64).to_le_bytes().to_vec());
+            let name = format!("name{}", i);
+            let mut s = Vec::new();
+            s.extend_from_slice(&(name.len() as u32).to_le_bytes());
+            s.extend_from_slice(name.as_bytes());
+            row.push(s);
+            writer.write_row(row).unwrap();
+        }
+
+        writer.finish().unwrap();
+        let bytes = buffer.bytes();
+        let mut tmp = NamedTempFile::new().unwrap();
+        tmp.as_file_mut().write_all(&bytes).unwrap();
+        let reader = CoreFileReader::new(tmp.path()).unwrap();
+        let collected = collect_rows(&reader, &schema).expect("collect_rows failed");
+        assert_eq!(collected.len(), 3);
+    }
 }
 
 fn field_type_from_ffi(value: i32) -> Option<FieldType> {
@@ -302,6 +414,7 @@ pub extern "C" fn qrd_writer_new_ffi(schema: *const FFISchema) -> *mut FFIWriter
         let ffi_writer = FFIWriter {
             inner: Some(writer),
             buffer,
+            schema: (*schema).inner.clone(),
         };
         Box::into_raw(Box::new(ffi_writer))
     }
@@ -328,7 +441,21 @@ pub extern "C" fn qrd_writer_write_row_ffi(writer: *mut FFIWriter, row: *const F
         let writer_ref = &mut *writer;
         if let Some(ref mut w) = writer_ref.inner {
             let row_ref = &*row;
-            match w.write_row(row_ref.values.clone()) {
+            // Normalize variable-length optional empty values to length-prefix zero
+            let mut normalized: Vec<Vec<u8>> = Vec::with_capacity(row_ref.values.len());
+            for (i, val) in row_ref.values.iter().enumerate() {
+                if val.is_empty() {
+                    if let Some(field) = writer_ref.schema.fields.get(i) {
+                        if field.nullability == qrd_core::schema::Nullability::Optional && field.field_type.fixed_size().is_none() {
+                            normalized.push(vec![0, 0, 0, 0]);
+                            continue;
+                        }
+                    }
+                }
+                normalized.push(val.clone());
+            }
+
+            match w.write_row(normalized) {
                 Ok(_) => 0,
                 Err(_) => -1,
             }
@@ -380,18 +507,29 @@ pub extern "C" fn qrd_reader_new_ffi(data: *const u8, size: usize) -> *mut FFIRe
 
     unsafe {
         let slice = slice::from_raw_parts(data, size);
-        let temp_path = temp_reader_path();
+        eprintln!("qrd_reader_new_ffi: incoming size={}", size);
+        if size > 0 {
+            let preview_len = std::cmp::min(8, size);
+            eprintln!("qrd_reader_new_ffi: preview={:02x?}", &slice[..preview_len]);
+        }
+        // Use NamedTempFile for safer temporary file handling
+        let mut tmp = match NamedTempFile::new() {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("qrd_reader_new_ffi: failed to create temp file: {:?}", e);
+                return std::ptr::null_mut();
+            }
+        };
 
-        if fs::write(&temp_path, slice).is_err() {
+        if tmp.as_file_mut().write_all(slice).is_err() {
             eprintln!("qrd_reader_new_ffi: failed to write temp file");
             return std::ptr::null_mut();
         }
 
-        let reader = match CoreFileReader::new(&temp_path) {
+        let reader = match CoreFileReader::new(tmp.path()) {
             Ok(reader) => reader,
             Err(_) => {
                 eprintln!("qrd_reader_new_ffi: CoreFileReader::new failed");
-                let _ = fs::remove_file(&temp_path);
                 return std::ptr::null_mut();
             }
         };
@@ -401,12 +539,11 @@ pub extern "C" fn qrd_reader_new_ffi(data: *const u8, size: usize) -> *mut FFIRe
             Some(rows) => rows,
             None => {
                 eprintln!("qrd_reader_new_ffi: collect_rows() failed");
-                let _ = fs::remove_file(&temp_path);
                 return std::ptr::null_mut();
             }
         };
 
-        let _ = fs::remove_file(&temp_path);
+        // `tmp` will be removed when dropped after this function returns
 
         let ffi_reader = FFIReader {
             schema,
