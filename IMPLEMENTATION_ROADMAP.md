@@ -32,33 +32,33 @@
 
 ---
 
-## Serious Work — Next 2 Weeks
+## Serious Work
 
 ### S2: Per-Column Encryption Keys (HIGH PRIORITY)
 
-**Effort:** 3-4 days | **Complexity:** HIGH
+**Effort:**  | **Complexity:** HIGH
 
 **Implementation Plan:**
 
-1. **Design** (0.5 day)
+1. **Design** 
    - Finalize per-column key derivation strategy
    - Decide on key storage location (header metadata vs footer)
    - Define binary format for per-column key indices
 
-2. **Implementation** (2 days)
+2. **Implementation** 
    - Add `ColumnEncryptionInfo` struct to store per-column metadata
    - Implement `derive_column_key(master_key, column_name) -> Vec<u8>`
    - Update `FileWriter.flush_row_group()` to encrypt with per-column keys
    - Update `FileReader.read_row_group()` to decrypt with per-column keys
    - Update footer serialization to include column key metadata
 
-3. **Testing** (1 day)
+3. **Testing** 
    - Write roundtrip tests: write with per-column keys → read with per-column keys
    - Verify columns encrypted with different keys
    - Test key derivation consistency
    - Add integration test with different passwords per operation
 
-4. **Documentation** (0.5 day)
+4. **Documentation** 
    - Update SPECIFICATION.md with per-column encryption section
    - Add examples in README.md
    - Document in rustdoc comments
@@ -80,11 +80,11 @@
 
 ### S5: TypeScript Reader Implementation (MEDIUM PRIORITY)
 
-**Effort:** 2-3 days | **Complexity:** MEDIUM
+**Effort:** | **Complexity:** MEDIUM
 
 **Implementation Plan:**
 
-1. **API Design** (0.5 day)
+1. **API Design** 
    ```typescript
    // Design WASM bindings
    export class QrdReader {
@@ -99,24 +99,24 @@
    }
    ```
 
-2. **WASM Binding Enhancement** (0.5 day)
+2. **WASM Binding Enhancement** 
    - Extend `sdk/typescript-wasm/src/lib.rs` with reader exports
    - Implement `QrdMemReader` struct in WASM
    - Export to JavaScript/TypeScript
 
-3. **TypeScript Wrapper** (1 day)
+3. **TypeScript Wrapper** 
    - Implement `QrdReader` class in `sdk/typescript/src/index.ts`
    - Handle Uint8Array → WASM memory transfer
    - Implement all read methods with proper error handling
    - Add proper typing for Row objects
 
-4. **Testing** (0.5 day)
+4. **Testing** 
    - Write round-trip test: create file with writer → read with reader
    - Test various column types (Int64, String, Float64, etc.)
    - Test partial reads and column filtering
    - Test with encrypted/ECC-protected files
 
-5. **Documentation** (0.5 day)
+5. **Documentation** 
    - Add examples to `sdk/typescript/README.md`
    - Document API in JSDoc comments
    - Add quick start guide
@@ -163,19 +163,19 @@
 
 ## Sprint Planning
 
-### Sprint 1 (This Week)
+### Sprint 1 
 - [ ] Verify all completed fixes
 - [ ] Run full test suite
 - [ ] Build all language bindings
 - [ ] Merge all changes to main branch
 
-### Sprint 2 (Next 2 Weeks)
+### Sprint 2 
 - [ ] Complete S2 (per-column encryption)
 - [ ] Complete S5 (TypeScript reader)
 - [ ] Full integration testing
 - [ ] Security audit for new features
 
-### Sprint 3 (Final Week)
+### Sprint 3 
 - [ ] Polish documentation
 - [ ] Performance optimization
 - [ ] Release candidate testing
@@ -195,7 +195,7 @@
 - [ ] Performance benchmarks within targets
 - [ ] Security audit passed
 
-### Production Readiness (Target: 2-4 weeks)
+### Production Readiness 
 - [ ] Zero critical issues in issue tracker
 - [ ] All CVEs addressed
 - [ ] Load testing completed
@@ -228,21 +228,7 @@
 - [ ] Support documentation
 - [ ] FAQ for common issues
 
----
 
-## Timeline
-
-```
-Week 1: Code review + testing + PR merge
-↓
-Week 2: Per-column encryption implementation
-↓
-Week 3: TypeScript reader implementation + integration testing
-↓
-Week 4: Polish + release candidate
-↓
-1.0.0 Release Target: Mid-June 2026
-```
 
 ---
 
