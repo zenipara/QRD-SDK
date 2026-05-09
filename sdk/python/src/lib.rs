@@ -2,6 +2,7 @@
 
 use pyo3::prelude::*;
 use pyo3::exceptions::PyValueError;
+use pyo3::types::PyList;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::writer::FileWriter;
 use qrd_core::reader::FileReader;
@@ -12,7 +13,7 @@ fn qrd_error_to_py(e: qrd_core::error::Error) -> PyErr {
 
 #[pyclass(name = "SchemaBuilder")]
 struct PySchemaBuilder {
-    inner: SchemaBuilder,
+    inner: Option<SchemaBuilder>,
 }
 
 #[pymethods]
@@ -20,7 +21,7 @@ impl PySchemaBuilder {
     #[new]
     fn new() -> Self {
         PySchemaBuilder {
-            inner: SchemaBuilder::new(),
+            inner: Some(SchemaBuilder::new()),
         }
     }
 
@@ -31,15 +32,29 @@ impl PySchemaBuilder {
         } else {
             Nullability::Optional
         };
-        self.inner
-            .add_field(name, ft, null)
-            .map_err(qrd_error_to_py)?;
-        Ok(())
+        
+        match self.inner.take() {
+            Some(inner) => {
+                match inner.add_field(name, ft, null) {
+                    Ok(new_inner) => {
+                        self.inner = Some(new_inner);
+                        Ok(())
+                    }
+                    Err(e) => Err(qrd_error_to_py(e))
+                }
+            }
+            None => Err(PyValueError::new_err("Builder has been consumed"))
+        }
     }
 
-    fn build(&self) -> PyResult<PySchema> {
-        let schema = self.inner.clone().build().map_err(qrd_error_to_py)?;
-        Ok(PySchema { inner: schema })
+    fn build(&mut self) -> PyResult<PySchema> {
+        match self.inner.take() {
+            Some(inner) => {
+                let schema = inner.build().map_err(qrd_error_to_py)?;
+                Ok(PySchema { inner: schema })
+            }
+            None => Err(PyValueError::new_err("Builder has been consumed"))
+        }
     }
 }
 
@@ -76,12 +91,20 @@ impl PyWriter {
     }
 
     /// Write a row. columns is list of bytes objects.
-    fn write_row(&mut self, columns: Vec<&[u8]>) -> PyResult<()> {
+    fn write_row(&mut self, columns: &Bound<'_, PyList>) -> PyResult<()> {
         let writer = self
             .inner
             .as_mut()
             .ok_or_else(|| PyValueError::new_err("Writer already finished"))?;
-        let row: Vec<Vec<u8>> = columns.iter().map(|c| c.to_vec()).collect();
+        
+        let row: Vec<Vec<u8>> = columns
+            .iter()
+            .map(|item| {
+                let bytes: &[u8] = item.extract()?;
+                Ok(bytes.to_vec())
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        
         writer.write_row(row).map_err(qrd_error_to_py)
     }
 

@@ -7,7 +7,7 @@ use std::io::Cursor;
 
 #[wasm_bindgen]
 pub struct QrdSchemaBuilder {
-    inner: SchemaBuilder,
+    inner: Option<SchemaBuilder>,
 }
 
 #[wasm_bindgen]
@@ -15,21 +15,35 @@ impl QrdSchemaBuilder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         QrdSchemaBuilder {
-            inner: SchemaBuilder::new(),
+            inner: Some(SchemaBuilder::new()),
         }
     }
 
     pub fn add_field(&mut self, name: &str, field_type: &str) -> Result<(), JsValue> {
         let ft = parse_field_type(field_type).map_err(|e| JsValue::from_str(&e))?;
-        self.inner
-            .add_field(name, ft, Nullability::Required)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(())
+        
+        match self.inner.take() {
+            Some(inner) => {
+                match inner.add_field(name, ft, Nullability::Required) {
+                    Ok(new_inner) => {
+                        self.inner = Some(new_inner);
+                        Ok(())
+                    }
+                    Err(e) => Err(JsValue::from_str(&e.to_string()))
+                }
+            }
+            None => Err(JsValue::from_str("Builder has been consumed"))
+        }
     }
 
-    pub fn build(self) -> Result<QrdSchema, JsValue> {
-        let schema = self.inner.build().map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(QrdSchema { inner: schema })
+    pub fn build(mut self) -> Result<QrdSchema, JsValue> {
+        match self.inner.take() {
+            Some(inner) => {
+                let schema = inner.build().map_err(|e| JsValue::from_str(&e.to_string()))?;
+                Ok(QrdSchema { inner: schema })
+            }
+            None => Err(JsValue::from_str("Builder has been consumed"))
+        }
     }
 }
 
@@ -61,7 +75,7 @@ impl QrdMemWriter {
         let writer = self
             .writer
             .as_mut()
-            .ok_or("Writer finished")?;
+            .ok_or_else(|| JsValue::from_str("Writer finished"))?;
         let row: Vec<Vec<u8>> = columns.iter().map(|a| a.to_vec()).collect();
         writer.write_row(row).map_err(|e| JsValue::from_str(&e.to_string()))
     }
@@ -70,7 +84,7 @@ impl QrdMemWriter {
         let writer = self
             .writer
             .take()
-            .ok_or("Already finished")?;
+            .ok_or_else(|| JsValue::from_str("Already finished"))?;
         let cursor = writer.finish_into_inner()
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         let bytes = cursor.into_inner();
@@ -95,53 +109,5 @@ fn parse_field_type(s: &str) -> Result<FieldType, String> {
         "UUID" => Ok(FieldType::Uuid),
         "DECIMAL" => Ok(FieldType::Decimal),
         _ => Err(format!("Unknown field type: {}", s)),
-    }
-}
-    }
-
-    /// Get the schema
-    #[wasm_bindgen]
-    pub fn schema(&self) -> Result<WasmSchema, JsValue> {
-        if let Some(reader) = &self.inner {
-            let schema = reader.schema().clone();
-            Ok(WasmSchema { inner: schema })
-        } else {
-            Err(JsValue::from_str("Reader not initialized"))
-        }
-    }
-
-    /// Get row count
-    #[wasm_bindgen]
-    pub fn row_count(&self) -> Result<u64, JsValue> {
-        if let Some(reader) = &self.inner {
-            Ok(reader.row_count())
-        } else {
-            Err(JsValue::from_str("Reader not initialized"))
-        }
-    }
-
-    /// Read next row
-    #[wasm_bindgen]
-    pub fn read_row(&mut self) -> Result<JsValue, JsValue> {
-        if let Some(reader) = &mut self.inner {
-            match reader.read_row() {
-                Ok(Some(row)) => {
-                    // Convert row to JS object
-                    self.row_to_js_value(&row)
-                }
-                Ok(None) => Ok(JsValue::null()),
-                Err(e) => Err(JsValue::from_str(&e.to_string())),
-            }
-        } else {
-            Err(JsValue::from_str("Reader not initialized"))
-        }
-    }
-
-    /// Convert internal row to JS value
-    fn row_to_js_value(&self, _row: &[qrd_core::schema::Value]) -> Result<JsValue, JsValue> {
-        // Simplified implementation - in practice you'd convert the row data
-        // to a JS object based on the schema
-        let obj = Object::new();
-        Ok(obj.into())
     }
 }

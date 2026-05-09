@@ -10,4 +10,4 @@ description = "QRD C FFI bindings for language native interfaces"
 qrd-core = { path = "../qrd-core" }
 
 [lib]
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "staticlib"]

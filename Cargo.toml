@@ -6,6 +6,8 @@ edition = "2021"
 members = [
     "core/qrd-core",
     "core/qrd-ffi",
+    "core/qrd-wasm",
+    "sdk/python",
 ]
 
 resolver = "2"
