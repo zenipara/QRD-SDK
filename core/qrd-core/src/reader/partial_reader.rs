@@ -10,6 +10,7 @@
 use crate::error::Result;
 use crate::footer::{Footer, FooterParser};
 use crate::schema::Schema;
+use crate::metadata::{ColumnFilterSpec, MetadataIndex};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Configuration for partial reads
@@ -146,6 +147,110 @@ impl<R: Read + Seek> PartialReader<R> {
 
         // Read entire row group for now (full implementation would skip non-selected columns)
         self.read_row_group(rg_index)
+    }
+
+    /// Get metadata index if available
+    pub fn metadata_index(&self) -> Option<&MetadataIndex> {
+        self.footer.metadata_index.as_ref()
+    }
+
+    /// Read columns by name with query pushdown optimization
+    pub fn read_columns_by_name(&mut self, column_names: &[&str], filters: &[ColumnFilterSpec]) -> Result<Vec<Vec<u8>>> {
+        // Convert column names to indices
+        let column_indices: Vec<usize> = column_names
+            .iter()
+            .filter_map(|name| {
+                self.footer.schema.fields
+                    .iter()
+                    .position(|field| &field.name == name)
+            })
+            .collect();
+
+        if column_indices.len() != column_names.len() {
+            return Err(crate::error::Error::InvalidData(
+                "Some column names not found in schema".to_string(),
+            ));
+        }
+
+        self.read_columns_with_filters(&column_indices, filters)
+    }
+
+    /// Read columns with query pushdown optimization
+    pub fn read_columns_with_filters(&mut self, column_indices: &[usize], filters: &[ColumnFilterSpec]) -> Result<Vec<Vec<u8>>> {
+        // Use metadata index for query pushdown if available
+        if let Some(metadata_index) = &self.footer.metadata_index {
+            let accessible_groups = metadata_index.get_accessible_row_groups(filters);
+
+            if accessible_groups.is_empty() {
+                // No row groups can satisfy the filters
+                return Ok(Vec::new());
+            }
+
+            // Read only accessible row groups
+            let mut result = Vec::new();
+            for &rg_idx in &accessible_groups {
+                let rows = self.read_columns(rg_idx, column_indices)?;
+                result.extend(rows);
+            }
+            Ok(result)
+        } else {
+            // Fallback: read all row groups
+            self.read_columns_range(0, self.row_group_count(), column_indices)
+        }
+    }
+
+    /// Estimate result count for query without executing it
+    pub fn estimate_query_result_count(&self, filters: &[ColumnFilterSpec]) -> u64 {
+        if let Some(metadata_index) = &self.footer.metadata_index {
+            let optimizer = crate::metadata::QueryOptimizer::new(self.footer.schema.clone());
+            optimizer.estimate_result_count(&metadata_index.row_group_stats, filters)
+        } else {
+            // Fallback: assume all rows might match
+            self.footer.row_count as u64
+        }
+    }
+
+    /// Get column statistics for a specific column
+    pub fn get_column_statistics(&self, column_name: &str) -> Option<Vec<crate::metadata::ColumnStats>> {
+        if let Some(metadata_index) = &self.footer.metadata_index {
+            if let Some(col_idx) = metadata_index.get_column_index(column_name) {
+                Some(metadata_index.get_column_stats(col_idx).into_iter().cloned().collect())
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Read partial row (only specified columns) from a specific row group
+    pub fn read_partial_row(&mut self, rg_index: usize, column_indices: &[usize]) -> Result<Option<Vec<Option<Vec<u8>>>>> {
+        if rg_index >= self.footer.row_group_offsets.len() {
+            return Ok(None);
+        }
+
+        // For now, read the full row group and extract columns
+        // In a full implementation, this would read only the requested columns
+        let full_rows = self.read_columns(rg_index, column_indices)?;
+
+        if full_rows.is_empty() {
+            return Ok(None);
+        }
+
+        // Convert to partial row format (Option<Vec<u8>> where None = not selected)
+        // This is a simplified implementation
+        let partial_row: Vec<Option<Vec<u8>>> = column_indices
+            .iter()
+            .map(|&col_idx| {
+                if col_idx < full_rows.len() {
+                    Some(full_rows[col_idx].clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Ok(Some(partial_row))
     }
 
     /// Get row group byte range for direct range requests

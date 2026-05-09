@@ -1,5 +1,12 @@
 //! Metadata structures and utilities
 
+pub mod column_stats;
+
+pub use column_stats::{
+    ColumnStats, RowGroupStats, ColumnFilter, ColumnFilterSpec,
+    FilterResult, QueryOptimizer, MetadataIndex
+};
+
 use serde::{Deserialize, Serialize};
 
 /// Column metadata

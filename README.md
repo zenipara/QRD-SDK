@@ -441,10 +441,10 @@ QRD is the right choice when you need to **write structured data to a file, effi
 
 ### v1.1.0 — Q4 2026 (Partial Reads)
 
-- [ ] Footer-based column-selective reads
-- [ ] Column statistics collection
-- [ ] Query pushdown optimization
-- [ ] Metadata indexing
+- [x] Footer-based column-selective reads
+- [x] Column statistics collection
+- [x] Query pushdown optimization
+- [x] Metadata indexing
 
 ### v1.2.0 — Q4 2026 (Security)
 

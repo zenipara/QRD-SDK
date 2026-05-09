@@ -13,6 +13,7 @@ pub use parser::FooterParser;
 
 use crate::schema::Schema;
 use crate::error::Result;
+use crate::metadata::MetadataIndex;
 use serde::{Deserialize, Serialize};
 
 /// Footer structure
@@ -28,6 +29,8 @@ pub struct Footer {
     pub created_at: u32,
     /// Modification timestamp (Unix seconds)
     pub modified_at: u32,
+    /// Metadata index for efficient access
+    pub metadata_index: Option<MetadataIndex>,
     /// CRC32 checksum of footer
     pub checksum: u32,
 }
@@ -46,6 +49,25 @@ impl Footer {
             row_count,
             created_at: now,
             modified_at: now,
+            metadata_index: None,
+            checksum: 0,
+        }
+    }
+
+    /// Create footer with metadata index
+    pub fn with_metadata_index(schema: Schema, row_count: u32, metadata_index: MetadataIndex) -> Self {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32;
+
+        Footer {
+            schema,
+            row_group_offsets: Vec::new(),
+            row_count,
+            created_at: now,
+            modified_at: now,
+            metadata_index: Some(metadata_index),
             checksum: 0,
         }
     }

@@ -16,6 +16,7 @@ use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
 use crate::error::Result;
 use crate::footer::Footer;
+use crate::metadata::{RowGroupStats, MetadataIndex};
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
 use byteorder::{LittleEndian, WriteBytesExt};
@@ -51,6 +52,9 @@ pub struct FileWriter {
     total_rows: u32,
     row_group_offsets: Vec<u64>,
     current_offset: u64,
+    // Statistics collection
+    current_row_group_stats: RowGroupStats,
+    row_group_stats: Vec<RowGroupStats>,
 }
 
 impl FileWriter {
@@ -91,11 +95,21 @@ impl FileWriter {
             total_rows: 0,
             row_group_offsets: Vec::new(),
             current_offset: 32, // After header
+            current_row_group_stats: RowGroupStats::new(&schema),
+            row_group_stats: Vec::new(),
         })
     }
 
     /// Write a single row (as column data)
     pub fn write_row(&mut self, row: Vec<Vec<u8>>) -> Result<()> {
+        // Convert row data to Option<Vec<u8>> for statistics (empty vec = null)
+        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
+            .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
+            .collect();
+
+        // Update statistics
+        self.current_row_group_stats.update_row(&stats_row);
+
         self.row_buffer.add_row(row)?;
         self.total_rows += 1;
 
@@ -168,6 +182,10 @@ impl FileWriter {
         self.row_buffer.clear();
         self.row_group_count += 1;
 
+        // Save current row group statistics and reset for next group
+        let completed_stats = std::mem::replace(&mut self.current_row_group_stats, RowGroupStats::new(&self.schema));
+        self.row_group_stats.push(completed_stats);
+
         Ok(())
     }
 
@@ -176,8 +194,19 @@ impl FileWriter {
         // Flush final row group
         self.flush_row_group()?;
 
-        // Build footer
-        let mut footer = Footer::new(self.schema.clone(), self.total_rows);
+        // Create metadata index
+        let metadata_index = MetadataIndex::new(
+            &self.schema,
+            self.row_group_offsets.clone(),
+            self.row_group_stats,
+        );
+
+        // Build footer with metadata index
+        let mut footer = Footer::with_metadata_index(
+            self.schema.clone(),
+            self.total_rows,
+            metadata_index
+        );
         footer.row_group_offsets = self.row_group_offsets;
 
         let footer_bytes = footer.serialize()?;

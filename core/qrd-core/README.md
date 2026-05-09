@@ -46,6 +46,34 @@ cargo run --example basic_reader --release
 cargo run --example streaming_read --release
 cargo run --example memory_profiling --release
 cargo run --example encoding_showcase --release
+cargo run --example partial_reads --release
+```
+
+## Partial Reads & Query Pushdown
+
+QRD supports efficient column-selective reads and query pushdown optimization:
+
+```rust
+use qrd_core::reader::PartialReader;
+use qrd_core::metadata::{ColumnFilter, ColumnFilterSpec};
+
+// Open file with partial reader
+let mut reader = PartialReader::new(file, config)?;
+
+// Read only specific columns
+let data = reader.read_columns_with_filters(&[0, 2], &[])?;
+
+// Query with pushdown optimization
+let filters = vec![
+    ColumnFilterSpec {
+        column_index: 1,
+        filter: ColumnFilter::Equal(value_bytes),
+    }
+];
+let filtered_data = reader.read_columns_with_filters(&[0, 1], &filters)?;
+
+// Estimate query results without execution
+let estimate = reader.estimate_query_result_count(&filters);
 ```
 
 ## Memory Profiling
