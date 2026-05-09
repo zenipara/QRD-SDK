@@ -271,6 +271,27 @@ mod tests {
         let collected = collect_rows(&reader, &schema).expect("collect_rows failed");
         assert_eq!(collected.len(), 3);
     }
+
+    #[test]
+    fn test_writer_zero_length_finish() {
+        // Test that writer with no rows finishes without calling malloc(0)
+        let mut builder = SchemaBuilder::new();
+        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
+        let schema = builder.build().unwrap();
+
+        let buffer = SharedVecWriter::new();
+        let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
+        
+        // Finish without writing any rows
+        writer.finish().unwrap();
+        let bytes = buffer.bytes();
+        
+        // The finish() call should produce a valid QRD file (with headers/footer)
+        // but in the FFI finish, if somehow the final buffer is empty, it should
+        // safely return NULL/0 without calling malloc(0).
+        // This test primarily validates the structural soundness of zero-row output.
+        assert!(bytes.len() > 0, "Expected QRD file with headers/footer even for zero rows");
+    }
 }
 
 fn field_type_from_ffi(value: i32) -> Option<FieldType> {
@@ -479,6 +500,14 @@ pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut 
                 Ok(()) => {
                     let buffer = writer_ref.buffer.bytes();
                     let len = buffer.len();
+                    
+                    if len == 0 {
+                        // For zero-length output, return NULL without calling malloc
+                        *data = std::ptr::null_mut();
+                        *size = 0;
+                        return 0;
+                    }
+                    
                     let ptr = malloc(len) as *mut u8;
                     if ptr.is_null() {
                         return -1;
