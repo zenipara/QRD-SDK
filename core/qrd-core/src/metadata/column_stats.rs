@@ -5,10 +5,8 @@
 //! - Query pushdown: Filter evaluation using column statistics
 //! - Metadata indexing: Efficient column lookup and access
 
-use crate::error::Result;
 use crate::schema::{FieldType, Schema};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 
 /// Column statistics for a single column
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -129,7 +129,7 @@ pub fn get_encoder(encoding: EncodingType) -> Result<Box<dyn Encoder>> {
 }
 
 /// Select appropriate encoding for a field type
-pub fn select_encoding(field_type: &crate::schema::FieldType, data: &[u8]) -> EncodingType {
+pub fn select_encoding(field_type: &crate::schema::FieldType, _data: &[u8]) -> EncodingType {
     match field_type.fixed_size() {
         Some(_) => EncodingType::Plain,
         None => EncodingType::Passthrough,

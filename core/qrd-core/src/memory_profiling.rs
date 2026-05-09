@@ -5,7 +5,6 @@
 
 use crate::error::Result;
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 /// Global memory profiler allocator

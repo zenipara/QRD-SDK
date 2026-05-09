@@ -132,7 +132,7 @@ impl<R: Read + Seek> Read for RangeReader<R> {
 }
 
 impl<R: Read + Seek> Seek for RangeReader<R> {
-    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         let new_pos = match pos {
             SeekFrom::Start(offset) => {
                 if offset > self.range.size() {

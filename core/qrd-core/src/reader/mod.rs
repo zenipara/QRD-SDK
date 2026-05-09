@@ -344,7 +344,7 @@ impl FileReader {
         for row_idx in 0..row_count {
             let mut row_data = Vec::new();
 
-            for (col_idx, column) in row_group.columns.iter().enumerate() {
+            for (col_idx, _column) in row_group.columns.iter().enumerate() {
                 if col_idx >= self.schema.fields.len() {
                     return Err(crate::error::Error::InvalidSchema(
                         format!(

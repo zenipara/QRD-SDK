@@ -3,7 +3,6 @@
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::schema::Schema;
-use byteorder::{LittleEndian, WriteBytesExt};
 
 /// Builder for deterministic footer construction
 pub struct FooterBuilder {
