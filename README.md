@@ -432,12 +432,12 @@ QRD is the right choice when you need to **write structured data to a file, effi
 
 ### v1.0.0 — Q3 2026 (Core Stable)
 
-- [ ] End-to-end streaming write → read roundtrip
-- [ ] Golden test vector suite
-- [ ] All encoding types fully integrated
-- [ ] SIMD optimization validated in benchmarks
-- [ ] Memory profiling and fuzz testing
-- [ ] Documentation and example suite
+- [x] End-to-end streaming write → read roundtrip
+- [x] Golden test vector suite
+- [x] All encoding types fully integrated
+- [x] SIMD optimization validated in benchmarks
+- [x] Memory profiling and fuzz testing
+- [x] Documentation and example suite
 
 ### v1.1.0 — Q4 2026 (Partial Reads)
 

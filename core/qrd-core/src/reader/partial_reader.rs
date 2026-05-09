@@ -75,6 +75,13 @@ impl<R: Read + Seek> PartialReader<R> {
 
     /// Read specific row group by index
     pub fn read_row_group(&mut self, rg_index: usize) -> Result<Vec<Vec<u8>>> {
+        let row_group_data = self.read_row_group_data(rg_index)?;
+        let row_group = RowGroup::deserialize(&row_group_data)?;
+        row_group.decode_columns()
+    }
+
+    /// Read raw row group data from file
+    fn read_row_group_data(&mut self, rg_index: usize) -> Result<Vec<u8>> {
         if rg_index >= self.footer.row_group_offsets.len() {
             return Err(crate::error::Error::InvalidData(
                 format!("Row group {} not found", rg_index),
@@ -87,9 +94,19 @@ impl<R: Read + Seek> PartialReader<R> {
         // Seek to row group
         self.reader.seek(SeekFrom::Start(offset))?;
 
-        // Read row group data (simplified - full implementation would deserialize)
-        // This is a placeholder that returns empty rows
-        Ok(Vec::new())
+        // Calculate row group size
+        let end_offset = if rg_index + 1 < self.footer.row_group_offsets.len() {
+            self.footer.row_group_offsets[rg_index + 1]
+        } else {
+            // Last row group - read until footer
+            self.file_size - 16 // Approximate footer size
+        };
+
+        let size = (end_offset - offset) as usize;
+        let mut data = vec![0u8; size];
+        self.reader.read_exact(&mut data)?;
+
+        Ok(data)
     }
 
     /// Get rows in range [start_row, end_row)

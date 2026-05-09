@@ -62,6 +62,7 @@ pub mod encryption;
 pub mod error;
 pub mod footer;
 pub mod io;
+pub mod memory_profiling;
 pub mod metadata;
 pub mod reader;
 pub mod rowgroup;

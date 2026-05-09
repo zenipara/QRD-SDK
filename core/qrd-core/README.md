@@ -44,9 +44,40 @@ cargo test --all
 cargo run --example basic_writer --release
 cargo run --example basic_reader --release
 cargo run --example streaming_read --release
+cargo run --example memory_profiling --release
+cargo run --example encoding_showcase --release
+```
+
+## Memory Profiling
+
+QRD includes built-in memory profiling utilities to track memory usage during operations:
+
+```rust
+use qrd_core::memory_profiling::{profile_writer_memory_usage, MemoryProfileScope};
+
+// Profile memory usage during write operations
+let stats = profile_writer_memory_usage(&path, &schema, row_count)?;
+
+// Scoped profiling
+{
+    let _scope = MemoryProfileScope::new("my_operation");
+    // Operations here will be profiled
+}
 ```
 
 ## Benchmarking
+
+Run performance benchmarks to validate SIMD optimizations:
+
+```bash
+cargo bench
+```
+
+Benchmarks include:
+- Encoding/decoding performance across all algorithms
+- Compression/decompression with ZSTD and LZ4
+- Streaming write/read operations
+- Memory usage patterns
 
 ```bash
 cargo bench

@@ -123,15 +123,40 @@ impl FileWriter {
         // Create row group
         let mut row_group = RowGroup::new(self.row_buffer.row_count());
 
-        // Process each column
-        for column in columns {
-            let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
-            row_group.process_column(
-                column,
-                encoding,
-                crate::compression::CompressionCodec::Zstd,
-                CompressionLevel::new(self.config.compression_level),
-            )?;
+        // Process each column (parallel if threading enabled)
+        #[cfg(feature = "threading")]
+        {
+            use rayon::prelude::*;
+            let processed_columns: Result<Vec<_>> = columns
+                .into_par_iter()
+                .map(|column| {
+                    let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
+                    let mut temp_row_group = RowGroup::new(self.row_buffer.row_count());
+                    temp_row_group.process_column(
+                        column,
+                        encoding,
+                        crate::compression::CompressionCodec::Zstd,
+                        CompressionLevel::new(self.config.compression_level),
+                    )?;
+                    Ok(temp_row_group.columns.into_iter().next().unwrap())
+                })
+                .collect();
+
+            row_group.columns = processed_columns?;
+        }
+
+        #[cfg(not(feature = "threading"))]
+        {
+            // Sequential processing
+            for column in columns {
+                let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
+                row_group.process_column(
+                    column,
+                    encoding,
+                    crate::compression::CompressionCodec::Zstd,
+                    CompressionLevel::new(self.config.compression_level),
+                )?;
+            }
         }
 
         // Serialize and write row group

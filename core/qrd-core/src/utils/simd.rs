@@ -1,6 +1,15 @@
-//! SIMD-accelerated operations for performance optimization
-
-use crate::error::{Error, Result};
+/// SIMD instruction set support
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdInstructionSet {
+    /// No SIMD support
+    None,
+    /// SSE4.1 instruction set
+    Sse4,
+    /// AVX2 instruction set
+    Avx2,
+    /// ARM NEON instruction set
+    Neon,
+}
 
 /// SIMD-accelerated operations
 #[derive(Debug)]
@@ -12,14 +21,18 @@ pub struct SimdOps {
 impl SimdOps {
     /// Create new SIMD operations instance
     pub fn new() -> Self {
-        // Check if SIMD is available at runtime
-        let enabled = is_simd_available();
-        SimdOps { enabled }
+        let (enabled, instruction_set) = detect_simd_support();
+        SimdOps { enabled, instruction_set }
     }
 
     /// Check if SIMD operations are available
     pub fn is_available(&self) -> bool {
         self.enabled
+    }
+
+    /// Get the detected instruction set
+    pub fn instruction_set(&self) -> SimdInstructionSet {
+        self.instruction_set
     }
 
     /// SIMD-accelerated memory copy
@@ -124,6 +137,30 @@ pub fn is_simd_available() -> bool {
     // In a real implementation, this would check CPU features
     // For now, we'll assume AVX2 is available on x86_64
     cfg!(target_arch = "x86_64")
+}
+
+/// Detect SIMD instruction set support at runtime
+pub fn detect_simd_support() -> (bool, SimdInstructionSet) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // Check for AVX2 first (most advanced)
+        if std::is_x86_feature_detected!("avx2") {
+            return (true, SimdInstructionSet::Avx2);
+        }
+        // Fall back to SSE4.1
+        if std::is_x86_feature_detected!("sse4.1") {
+            return (true, SimdInstructionSet::Sse4);
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    {
+        // ARM NEON is available on all aarch64 targets
+        return (true, SimdInstructionSet::Neon);
+    }
+
+    // No SIMD support
+    (false, SimdInstructionSet::None)
 }
 
 /// Fallback implementations for when SIMD is not available

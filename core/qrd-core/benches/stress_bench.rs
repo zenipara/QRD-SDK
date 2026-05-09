@@ -141,6 +141,104 @@ fn benchmark_many_small_rows(c: &mut Criterion) {
     });
 }
 
+/// Long-running stress test - 1M+ rows with memory monitoring
+fn benchmark_long_running_stress(c: &mut Criterion) {
+    let mut group = c.benchmark_group("long_running_stress");
+    group.sample_size(5); // Fewer samples for long tests
+    group.measurement_time(Duration::from_secs(30)); // Longer measurement time
+
+    group.bench_function("1m_rows_memory_stability", |b| {
+        b.iter(|| {
+            let schema = make_schema(5);
+            let buffer = Cursor::new(Vec::new());
+            let mut config = StreamingWriterConfig::default();
+            config.row_group_size = 10000; // 100 row groups
+
+            let mut writer = StreamingWriter::with_config(buffer, schema, config).unwrap();
+
+            for i in 0..1_000_000 {
+                let mut row = Vec::with_capacity(5);
+                row.push((i as u32).to_le_bytes().to_vec());
+                row.push((i as u64).to_le_bytes().to_vec());
+                row.push(format!("data_{}", i).into_bytes());
+                row.push(vec![(i % 256) as u8; 32]); // Fixed-size blob
+                row.push((i.wrapping_mul(7) as u64).to_le_bytes().to_vec());
+                writer.write_row(row).unwrap();
+            }
+
+            let (cached, cap) = writer.buffer_pool_stats();
+            println!("  Memory stability: {} cached buffers, {} bytes capacity", cached, cap);
+
+            writer.finish().unwrap();
+        });
+    });
+
+    group.finish();
+}
+
+/// Streaming read stress test - partial reads on large dataset
+fn benchmark_streaming_read_stress(c: &mut Criterion) {
+    c.bench_function("streaming_read_stress_500k", |b| {
+        // First create a large dataset
+        let schema = make_schema(10);
+        let mut write_buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 5000;
+
+        let mut writer = StreamingWriter::with_config(write_buffer, schema.clone(), config).unwrap();
+
+        for i in 0..500_000 {
+            let mut row = Vec::with_capacity(10);
+            for j in 0..10 {
+                row.push(((i + j as u32) as u64).to_le_bytes().to_vec());
+            }
+            writer.write_row(row).unwrap();
+        }
+
+        let data = writer.finish().unwrap();
+        let read_buffer = Cursor::new(data);
+
+        b.iter(|| {
+            let config = PartialReadConfig::default();
+            let mut reader = PartialReader::new(read_buffer.clone(), config).unwrap();
+
+            // Read random row groups and columns
+            for rg_idx in 0..reader.row_group_count() {
+                let columns = reader.read_columns(rg_idx, &[0, 2, 5, 7]).unwrap();
+                assert_eq!(columns.len(), 4);
+            }
+        });
+    });
+}
+
+/// Memory leak detection - repeated large operations
+fn benchmark_memory_leak_detection(c: &mut Criterion) {
+    c.bench_function("memory_leak_detection_100k_cycles", |b| {
+        b.iter(|| {
+            for cycle in 0..100 {
+                let schema = make_schema(3);
+                let buffer = Cursor::new(Vec::new());
+                let mut config = StreamingWriterConfig::default();
+                config.row_group_size = 1000;
+
+                let mut writer = StreamingWriter::with_config(buffer, schema, config).unwrap();
+
+                for i in 0..1000 {
+                    let row_id = cycle * 1000 + i;
+                    let mut row = Vec::with_capacity(3);
+                    row.push((row_id as u32).to_le_bytes().to_vec());
+                    row.push(format!("cycle_{}_row_{}", cycle, i).into_bytes());
+                    row.push(vec![(row_id % 256) as u8; 64]);
+                    writer.write_row(row).unwrap();
+                }
+
+                writer.finish().unwrap();
+                // Writer should be dropped here, freeing memory
+            }
+        });
+    });
+}
+
 /// Test variable-size rows - allocation variability
 fn benchmark_variable_row_sizes(c: &mut Criterion) {
     c.bench_function("variable_row_sizes_500k", |b| {
