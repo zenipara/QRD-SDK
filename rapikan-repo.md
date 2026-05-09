@@ -1,6 +1,3 @@
-# PROMPT: Rapikan Repositori & Dokumentasi QRD-SDK
-
----
 
 ## KONTEKS
 
