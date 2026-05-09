@@ -83,7 +83,7 @@ pub extern "C" fn qrd_schema_builder_add_field(
     field_type: c_int,
     nullability: c_int,
 ) -> c_int {
-    let builder = unsafe { &mut (*builder).0 };
+    let builder_ref = unsafe { &mut (*builder).0 };
     let name = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
 
     let ft = match field_type_from_int(field_type) {
@@ -101,8 +101,14 @@ pub extern "C" fn qrd_schema_builder_add_field(
         }
     };
 
-    match builder.add_field(&name, ft, null) {
-        Ok(_) => 0,
+    // Since add_field takes ownership, we need to replace the builder
+    // by taking ownership, calling add_field, and putting it back
+    let old_builder = std::mem::replace(builder_ref, SchemaBuilder::new());
+    match old_builder.add_field(&name, ft, null) {
+        Ok(new_builder) => {
+            *builder_ref = new_builder;
+            0
+        }
         Err(e) => {
             set_last_error(e.to_string());
             -1
