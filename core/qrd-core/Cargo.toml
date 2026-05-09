@@ -21,7 +21,6 @@ hkdf = { workspace = true }
 argon2 = { workspace = true }
 reed-solomon-erasure = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 num_cpus = { workspace = true }
 rayon = { workspace = true, optional = true }

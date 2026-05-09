@@ -56,13 +56,13 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
     println!("  Schema: {} columns", schema.fields.len());
 
     // Create writer with small row groups for demonstration
+    let mut config = qrd_core::writer::WriterConfig::default();
+    config.row_group_size = 100; // Small groups to show pushdown
+    
     let mut writer = qrd_core::writer::FileWriter::with_config(
         std::fs::File::create(&temp)?,
         schema,
-        qrd_core::writer::WriterConfig {
-            row_group_size: 100, // Small groups to show pushdown
-            compression_level: 3,
-        }
+        config
     )?;
 
     // Generate sample data
