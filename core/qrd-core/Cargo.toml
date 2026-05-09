@@ -81,3 +81,7 @@ harness = false
 [[bench]]
 name = "stress_bench"
 harness = false
+
+[[bench]]
+name = "comprehensive_bench"
+harness = false
