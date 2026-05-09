@@ -25,7 +25,7 @@ npm install qrd-sdk
 ### Go
 
 ```bash
-go get github.com/zenipara/qrd-sdk-go
+go get github.com/zenipara/QRD-SDK/sdk/go
 ```
 
 ## Basic Usage
@@ -146,7 +146,7 @@ package main
 
 import (
     "fmt"
-    qrd "github.com/zenipara/qrd-sdk-go"
+    qrd "github.com/zenipara/QRD-SDK/sdk/go"
 )
 
 func main() {
