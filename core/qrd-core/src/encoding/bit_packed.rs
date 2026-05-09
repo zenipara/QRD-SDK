@@ -23,7 +23,7 @@ impl Encoder for BitPackedEncoder {
                 let mut byte = 0u8;
                 for (i, &bit) in chunk.iter().enumerate() {
                     if bit == 1 {
-                        byte |= 1 << i;
+                        byte |= 1 << (7 - i);
                     }
                 }
                 packed.push(byte);
@@ -41,7 +41,7 @@ impl Encoder for BitPackedEncoder {
                 if unpacked.len() >= expected_length {
                     break;
                 }
-                let bit = if (byte & (1 << i)) != 0 { 1 } else { 0 };
+                let bit = if (byte & (1 << (7 - i))) != 0 { 1 } else { 0 };
                 unpacked.push(bit);
             }
         }

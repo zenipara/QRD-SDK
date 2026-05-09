@@ -51,10 +51,10 @@ impl EntropyCalculator {
     /// High entropy → ratio near 1.0 (incompressible)
     /// Low entropy → ratio near 0.3-0.5 (compressible)
     pub fn estimate_compression_ratio(entropy: f64) -> f64 {
-        // Empirical model: high entropy = low compression
-        // Uses sigmoid curve to smooth transition
-        let normalized = entropy / 8.0; // 8.0 is max entropy for bytes
-        1.0 / (1.0 + (-10.0 * (normalized - 0.85)).exp()) // Inflection at 0.85
+        // Empirical model: high entropy = low compression gain.
+        // The curve is intentionally steep so near-random data maps close to 1.0.
+        let normalized = entropy.clamp(0.0, 8.0) / 8.0;
+        1.0 / (1.0 + (-15.0 * (normalized - 0.6)).exp())
     }
 
     /// Detect if data is likely already compressed
