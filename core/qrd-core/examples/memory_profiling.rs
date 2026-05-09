@@ -27,7 +27,15 @@ fn main() -> Result<()> {
 
     // Profile memory usage during writing
     println!("\nProfiling memory usage during write operation...");
-    let write_stats = profile_writer_memory_usage(&temp_file.path(), &schema, 1000)?;
+    let (_res, write_stats) = qrd_core::memory_profiling::MemoryProfiler::profile(|| {
+        // Perform a write workload
+        let mut writer = qrd_core::writer::FileWriter::new(temp_file.path(), schema.clone()).unwrap();
+        for i in 0..1000 {
+            let data = serialize_blob(&vec![(i % 256) as u8; 128]);
+            writer.write_row(vec![data]).unwrap();
+        }
+        writer.finish().unwrap();
+    });
 
     println!("Write operation memory statistics:");
     println!("  Peak memory usage: {}", format_memory_size(write_stats.peak_bytes));
@@ -36,7 +44,11 @@ fn main() -> Result<()> {
 
     // Profile memory usage during reading
     println!("\nProfiling memory usage during read operation...");
-    let read_stats = profile_reader_memory_usage(&temp_file.path())?;
+    let (_rres, read_stats) = qrd_core::memory_profiling::MemoryProfiler::profile(|| {
+        let reader = qrd_core::reader::FileReader::new(temp_file.path()).unwrap();
+        // Trigger a read-all (may be noop if file empty)
+        let _ = reader.schema();
+    });
 
     println!("Read operation memory statistics:");
     println!("  Peak memory usage: {}", format_memory_size(read_stats.peak_bytes));

@@ -47,6 +47,9 @@ criterion = "0.5"
 # Async
 tokio = { version = "1", features = ["full"] }
 
+# SIMD
+wide = "0.7"
+
 # Platform
 num_cpus = "1.16"
 parking_lot = "0.12"

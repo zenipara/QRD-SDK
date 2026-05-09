@@ -40,6 +40,8 @@ pub struct RowGroup {
     pub row_count: u32,
     /// Encoded columns
     pub columns: Vec<EncodedColumnChunk>,
+    /// Optional per-column statistics collected during writing
+    pub column_stats: Option<Vec<crate::metadata::ColumnStats>>,
 }
 
 impl RowGroup {
@@ -48,6 +50,7 @@ impl RowGroup {
         RowGroup {
             row_count,
             columns: Vec::new(),
+            column_stats: None,
         }
     }
 
@@ -106,8 +109,20 @@ impl RowGroup {
             result.push(column.compression.to_id());
             result.write_u32::<LittleEndian>(column.encoded_data.len() as u32)?;
             result.write_u32::<LittleEndian>(column.compressed_data.len() as u32)?;
-            result.write_u32::<LittleEndian>(0)?; // null_count (placeholder)
-            result.write_u32::<LittleEndian>(0)?; // distinct_count (placeholder)
+            // Write statistics if available
+            if let Some(ref stats_vec) = self.column_stats {
+                let col_idx = column.column_index;
+                if let Some(col_stats) = stats_vec.get(col_idx) {
+                    result.write_u32::<LittleEndian>(col_stats.null_count as u32)?;
+                    result.write_u32::<LittleEndian>(col_stats.distinct_count as u32)?;
+                } else {
+                    result.write_u32::<LittleEndian>(0)?;
+                    result.write_u32::<LittleEndian>(0)?;
+                }
+            } else {
+                result.write_u32::<LittleEndian>(0)?; // null_count (placeholder)
+                result.write_u32::<LittleEndian>(0)?; // distinct_count (placeholder)
+            }
             result.extend_from_slice(&column.compressed_data);
             result.write_u32::<LittleEndian>(column.crc32)?;
         }

@@ -1,4 +1,6 @@
 use crate::error::{Error, Result};
+use wide::{u8x16, u8x32, i32x8};
+use core::mem;
 
 /// SIMD instruction set support
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,7 +47,39 @@ impl SimdOps {
             return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
         }
 
-        dst.copy_from_slice(src);
+        if !self.enabled {
+            dst.copy_from_slice(src);
+            return Ok(());
+        }
+
+        let len = dst.len();
+        let mut offset = 0usize;
+
+        // Process 32-byte chunks
+        while offset + 32 <= len {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&src[offset..offset + 32]);
+            let v = u8x32::new(arr);
+            let out: [u8; 32] = unsafe { mem::transmute(v) };
+            dst[offset..offset + 32].copy_from_slice(&out);
+            offset += 32;
+        }
+
+        // Process 16-byte chunks
+        while offset + 16 <= len {
+            let mut arr = [0u8; 16];
+            arr.copy_from_slice(&src[offset..offset + 16]);
+            let v = u8x16::new(arr);
+            let out: [u8; 16] = unsafe { mem::transmute(v) };
+            dst[offset..offset + 16].copy_from_slice(&out);
+            offset += 16;
+        }
+
+        // Tail
+        if offset < len {
+            dst[offset..].copy_from_slice(&src[offset..]);
+        }
+
         Ok(())
     }
 
@@ -55,9 +89,49 @@ impl SimdOps {
             return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
         }
 
-        // Fallback to scalar XOR
-        for i in 0..dst.len() {
-            dst[i] ^= src[i];
+        if !self.enabled {
+            for i in 0..dst.len() {
+                dst[i] ^= src[i];
+            }
+            return Ok(());
+        }
+
+        let len = dst.len();
+        let mut offset = 0usize;
+
+        // 32-byte lanes
+        while offset + 32 <= len {
+            let mut a_arr = [0u8; 32];
+            let mut b_arr = [0u8; 32];
+            a_arr.copy_from_slice(&dst[offset..offset + 32]);
+            b_arr.copy_from_slice(&src[offset..offset + 32]);
+            let a = u8x32::new(a_arr);
+            let b = u8x32::new(b_arr);
+            let r = a ^ b;
+            let out: [u8; 32] = unsafe { mem::transmute(r) };
+            dst[offset..offset + 32].copy_from_slice(&out);
+            offset += 32;
+        }
+
+        // 16-byte lanes
+        while offset + 16 <= len {
+            let mut a_arr = [0u8; 16];
+            let mut b_arr = [0u8; 16];
+            a_arr.copy_from_slice(&dst[offset..offset + 16]);
+            b_arr.copy_from_slice(&src[offset..offset + 16]);
+            let a = u8x16::new(a_arr);
+            let b = u8x16::new(b_arr);
+            let r = a ^ b;
+            let out: [u8; 16] = unsafe { mem::transmute(r) };
+            dst[offset..offset + 16].copy_from_slice(&out);
+            offset += 16;
+        }
+
+        // Tail
+        if offset < len {
+            for i in offset..len {
+                dst[i] ^= src[i];
+            }
         }
 
         Ok(())
@@ -65,7 +139,31 @@ impl SimdOps {
 
     /// SIMD-accelerated byte counting
     pub fn count_bytes(&self, data: &[u8], target: u8) -> usize {
-        data.iter().filter(|&&b| b == target).count()
+        if !self.enabled {
+            return data.iter().filter(|&&b| b == target).count();
+        }
+
+        let mut count = 0usize;
+        let len = data.len();
+        let mut offset = 0usize;
+
+        let t16 = u8x16::splat(target);
+        while offset + 16 <= len {
+            let mut arr = [0u8; 16];
+            arr.copy_from_slice(&data[offset..offset + 16]);
+            let chunk = u8x16::new(arr);
+            let mask = chunk.cmp_eq(t16);
+            let mask_arr: [u8; 16] = unsafe { mem::transmute(mask) };
+            count += mask_arr.iter().filter(|&&b| b != 0).count();
+            offset += 16;
+        }
+
+        // Tail
+        if offset < len {
+            count += data[offset..].iter().filter(|&&b| b == target).count();
+        }
+
+        count
     }
 
     /// SIMD-accelerated run-length encoding detection
@@ -99,11 +197,38 @@ impl SimdOps {
         }
 
         let mut result = Vec::with_capacity(data.len());
-        result.push(data[0]); // First value unchanged
+        result.push(data[0]);
 
-        // Scalar implementation
-        for i in 1..data.len() {
-            result.push(data[i] - data[i - 1]);
+        if !self.enabled || data.len() < 8 {
+            for i in 1..data.len() {
+                result.push(data[i].wrapping_sub(data[i - 1]));
+            }
+            return Ok(result);
+        }
+
+        // Process in chunks of 8 i32 lanes
+        let mut i = 1usize;
+        while i + 8 <= data.len() {
+            let mut curr_arr = [0i32; 8];
+            let mut prev_arr = [0i32; 8];
+            for k in 0..8 {
+                curr_arr[k] = data[i + k];
+                prev_arr[k] = data[i - 1 + k];
+            }
+            let curr = i32x8::new(curr_arr);
+            let prev = i32x8::new(prev_arr);
+            let deltas = curr - prev;
+            let deltas_arr: [i32; 8] = unsafe { mem::transmute(deltas) };
+            for k in 0..8 {
+                result.push(deltas_arr[k]);
+            }
+            i += 8;
+        }
+
+        // Tail
+        while i < data.len() {
+            result.push(data[i].wrapping_sub(data[i - 1]));
+            i += 1;
         }
 
         Ok(result)
@@ -116,13 +241,12 @@ impl SimdOps {
         }
 
         let mut result = Vec::with_capacity(data.len());
-        result.push(data[0]); // First value unchanged
+        result.push(data[0]);
 
-        // Scalar implementation
-        let mut current = data[0];
-        for &delta in &data[1..] {
-            current += delta;
-            result.push(current);
+        // Prefix-sum is inherently sequential — use scalar with wrapping add
+        for i in 1..data.len() {
+            let val = result[i - 1].wrapping_add(data[i]);
+            result.push(val);
         }
 
         Ok(result)

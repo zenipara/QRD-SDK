@@ -118,7 +118,7 @@ impl FileReader {
 
         let schema_id = u32::from_le_bytes([header[8], header[9], header[10], header[11]]);
         let _created_at = u32::from_le_bytes([header[12], header[13], header[14], header[15]]);
-        let row_count = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
+        let header_row_count = u32::from_le_bytes([header[16], header[17], header[18], header[19]]);
 
         // Read footer length from end
         let file_len = file_slice.len();
@@ -141,6 +141,12 @@ impl FileReader {
                 "Schema ID mismatch".to_string(),
             ));
         }
+
+        let row_count = if header_row_count == u32::MAX {
+            footer.row_count
+        } else {
+            header_row_count
+        };
 
         Ok(FileReader {
             file_data,

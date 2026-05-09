@@ -47,6 +47,9 @@ pub struct StreamingWriter<W: Write> {
     row_group_offsets: Vec<u64>,
     current_offset: u64,
     is_finished: bool,
+    // Statistics collection for current and completed row groups
+    current_row_group_stats: crate::metadata::RowGroupStats,
+    row_group_stats: Vec<crate::metadata::RowGroupStats>,
 }
 
 impl<W: Write> StreamingWriter<W> {
@@ -75,6 +78,8 @@ impl<W: Write> StreamingWriter<W> {
             row_group_offsets: Vec::new(),
             current_offset: 32, // After header
             is_finished: false,
+            current_row_group_stats: crate::metadata::RowGroupStats::new(&schema),
+            row_group_stats: Vec::new(),
         })
     }
 
@@ -95,8 +100,8 @@ impl<W: Write> StreamingWriter<W> {
             .unwrap_or_default()
             .as_secs() as u32;
         writer.write_u32::<LittleEndian>(now)?;
-        // Placeholder for row count (will update at finish)
-        writer.write_u32::<LittleEndian>(0)?;
+        // Placeholder for row count — sentinel means "read from footer"
+        writer.write_u32::<LittleEndian>(u32::MAX)?;
         // Column count
         writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
         // Row group size
@@ -114,6 +119,12 @@ impl<W: Write> StreamingWriter<W> {
                 "Cannot write to finished writer".to_string(),
             ));
         }
+
+        // Update statistics similar to FileWriter
+        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
+            .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
+            .collect();
+        self.current_row_group_stats.update_row(&stats_row);
 
         self.row_buffer.add_row(row)?;
         self.total_rows += 1;
@@ -153,6 +164,10 @@ impl<W: Write> StreamingWriter<W> {
         }
 
         // Serialize row group
+        // Attach statistics and serialize
+        let stats_for_group = self.current_row_group_stats.clone();
+        row_group.column_stats = Some(stats_for_group.column_stats.clone());
+
         let rg_bytes = row_group.serialize()?;
         self.writer.write_all(&rg_bytes)?;
         self.current_offset += rg_bytes.len() as u64;
@@ -160,6 +175,10 @@ impl<W: Write> StreamingWriter<W> {
         // Clear buffer for reuse
         self.row_buffer.clear();
         self.row_group_count += 1;
+
+        // Save and reset statistics
+        let completed_stats = std::mem::replace(&mut self.current_row_group_stats, crate::metadata::RowGroupStats::new(&self.schema));
+        self.row_group_stats.push(completed_stats);
 
         Ok(())
     }
@@ -188,8 +207,18 @@ impl<W: Write> StreamingWriter<W> {
         // Flush any remaining rows
         self.flush_row_group()?;
 
-        // Build and write footer
-        let mut footer = crate::footer::Footer::new(self.schema, self.total_rows);
+        // Create metadata index from collected row group stats
+        let metadata_index = crate::metadata::MetadataIndex::new(
+            &self.schema,
+            self.row_group_offsets.clone(),
+            self.row_group_stats.clone(),
+        );
+
+        let mut footer = crate::footer::Footer::with_metadata_index(
+            self.schema.clone(),
+            self.total_rows,
+            metadata_index,
+        );
         footer.row_group_offsets = self.row_group_offsets;
 
         let footer_bytes = footer.serialize()?;
@@ -201,10 +230,6 @@ impl<W: Write> StreamingWriter<W> {
         // Write footer length
         use byteorder::{LittleEndian, WriteBytesExt};
         self.writer.write_u32::<LittleEndian>(footer_length)?;
-
-        // Write footer CRC32
-        let footer_crc = crate::validation::Validator::calculate_crc32(&footer_bytes);
-        self.writer.write_u32::<LittleEndian>(footer_crc)?;
 
         self.is_finished = true;
         Ok(())
@@ -236,6 +261,44 @@ mod tests {
         // Should initialize successfully
         assert_eq!(writer.row_count(), 0);
         assert_eq!(writer.row_group_count(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_to_vec_non_seekable() -> Result<()> {
+        let schema = make_schema(vec!["col1"]);
+        // Use shared buffer so we can inspect it after finish
+        use std::sync::{Arc, Mutex};
+        struct SharedSink(Arc<Mutex<Vec<u8>>>);
+        impl std::io::Write for SharedSink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                let mut inner = self.0.lock().unwrap();
+                inner.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+        }
+
+        let shared = Arc::new(Mutex::new(Vec::new()));
+        let sink = SharedSink(shared.clone());
+        let mut writer = StreamingWriter::new(sink, schema)?;
+
+        for i in 0..1000u32 {
+            writer.write_row(vec![(i as u8).to_le_bytes().to_vec()])?;
+        }
+
+        writer.finish()?; // consumes writer but shared buffer remains accessible
+
+        // Read footer from shared buffer
+        let buf = shared.lock().unwrap();
+        let len = buf.len();
+        assert!(len > 12);
+        let footer_len = u32::from_le_bytes([buf[len - 4], buf[len - 3], buf[len - 2], buf[len - 1]]) as usize;
+        let footer_start = len - 4 - footer_len;
+        let footer_bytes = &buf[footer_start..footer_start + footer_len];
+        let footer = crate::footer::Footer::deserialize(footer_bytes)?;
+        assert_eq!(footer.row_count, 1000);
 
         Ok(())
     }

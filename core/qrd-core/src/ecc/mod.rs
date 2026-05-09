@@ -306,6 +306,37 @@ pub fn decode_and_recover(encoded_data: &EccEncodedData, config: &EccConfig) -> 
     codec.decode_and_recover(encoded_data)
 }
 
+/// Decode and recover using an external shard options view (some shards may be None)
+pub fn decode_and_recover_with_options(
+    encoded: &EccEncodedData,
+    shard_options: &[Option<Vec<u8>>],
+    config: &EccConfig,
+) -> Result<Vec<u8>> {
+    if shard_options.len() != encoded.total_shards() {
+        return Err(Error::EccError("Shard count mismatch".to_string()));
+    }
+
+    // Make a mutable copy for reconstruction
+    let mut shard_data: Vec<Option<Vec<u8>>> = shard_options.to_vec();
+
+    let rs = ReedSolomon::new(encoded.data_shards, encoded.parity_shards)
+        .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec: {}", e)))?;
+
+    rs.reconstruct(&mut shard_data)
+        .map_err(|e| Error::EccError(format!("Failed to reconstruct data: {}", e)))?;
+
+    // Collect recovered data from first data_shards
+    let mut recovered = Vec::new();
+    for i in 0..encoded.data_shards {
+        if let Some(shard) = &shard_data[i] {
+            recovered.extend_from_slice(shard);
+        }
+    }
+
+    recovered.truncate(encoded.original_size);
+    Ok(recovered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,8 +375,7 @@ mod tests {
         let encoded = encode(original_data, &config).unwrap();
         assert_eq!(encoded.parity_shards, 2);
 
-        let shards = encoded.shards_as_options();
-        let recovered = decode_and_recover(&shards, &config).unwrap();
+        let recovered = decode_and_recover(&encoded, &config).unwrap();
 
         // Should recover original data
         assert_eq!(&recovered[..original_data.len()], original_data);
@@ -362,7 +392,7 @@ mod tests {
         let missing_indices = vec![0, 2]; // Missing first and third data shards
         let damaged_shards = encoded.with_missing_shards(&missing_indices);
 
-        let recovered = decode_and_recover(&damaged_shards, &config).unwrap();
+        let recovered = decode_and_recover_with_options(&encoded, &damaged_shards, &config).unwrap();
         assert_eq!(&recovered[..original_data.len()], original_data);
     }
 
@@ -385,8 +415,7 @@ mod tests {
         let encoded = encode(&original_data, &config).unwrap();
         assert!(encoded.data_shards > 1); // Should be split into multiple chunks
 
-        let shards = encoded.shards_as_options();
-        let recovered = decode_and_recover(&shards, &config).unwrap();
+        let recovered = decode_and_recover(&encoded, &config).unwrap();
 
         assert_eq!(&recovered[..original_data.len()], original_data.as_slice());
     }

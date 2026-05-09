@@ -18,7 +18,8 @@ criterion_group!(
         bench_various_sizes,
         bench_encoding_performance,
         bench_encryption_throughput,
-        bench_ecc_performance
+        bench_ecc_performance,
+        bench_simd_xor
 );
 criterion_main!(benches);
 
@@ -342,6 +343,34 @@ fn bench_ecc_performance(c: &mut Criterion) {
                 });
             },
         );
+    }
+
+    group.finish();
+}
+
+fn bench_simd_xor(c: &mut Criterion) {
+    use qrd_core::utils::simd::SimdOps;
+
+    let mut group = c.benchmark_group("simd_xor");
+
+    for size in [1_000usize, 10_000, 100_000, 1_000_000].iter() {
+        let mut dst = vec![0u8; *size];
+        let src = vec![0xFFu8; *size];
+
+        group.bench_with_input(BenchmarkId::new("simd", size), size, |b, _| {
+            let ops = SimdOps::new();
+            b.iter(|| {
+                let mut d = dst.clone();
+                ops.xor(&mut d, &src).unwrap();
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("scalar", size), size, |b, _| {
+            b.iter(|| {
+                let mut d = dst.clone();
+                d.iter_mut().zip(src.iter()).for_each(|(x, s)| *x ^= s);
+            })
+        });
     }
 
     group.finish();

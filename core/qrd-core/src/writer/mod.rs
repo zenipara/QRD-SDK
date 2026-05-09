@@ -91,8 +91,8 @@ impl FileWriter {
             .as_secs() as u32;
         file.write_u32::<LittleEndian>(now)?; // created_at
 
-        // Placeholder for row count (will be updated at finish)
-        file.write_u32::<LittleEndian>(0)?;
+        // Placeholder for row count — sentinel indicates value stored in footer
+        file.write_u32::<LittleEndian>(u32::MAX)?;
         file.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
         file.write_u32::<LittleEndian>(config.row_group_size)?;
         file.write_u32::<LittleEndian>(0)?; // reserved
@@ -132,8 +132,8 @@ impl FileWriter {
             })
             .collect();
 
-        // Convert row data to Option<Vec<u8>> for statistics (empty vec = null)
-        let stats_row: Vec<Option<Vec<u8>>> = normalized_row.iter()
+        // Convert original row data to Option<Vec<u8>> for statistics (empty vec = null)
+        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
             .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
             .collect();
 
@@ -203,6 +203,10 @@ impl FileWriter {
             }
         }
 
+        // Capture statistics for this row group and attach to row_group before serialization
+        let stats_for_group = self.current_row_group_stats.clone();
+        row_group.column_stats = Some(stats_for_group.column_stats.clone());
+
         // Serialize and write row group with security pipeline
         let rg_bytes = row_group.serialize()?;
         
@@ -260,15 +264,17 @@ impl FileWriter {
 
         let footer_bytes = footer.serialize()?;
 
+        // CRC computed over serialized footer bytes
+        
         // Encrypt footer if enabled and configured
         let final_footer_bytes = if self.config.encrypt_footer {
             if let Some(ref enc_config) = self.config.encryption {
                 crate::encryption::encrypt(&footer_bytes, enc_config)?
             } else {
-                footer_bytes
+                footer_bytes.clone()
             }
         } else {
-            footer_bytes
+            footer_bytes.clone()
         };
 
         let footer_length = final_footer_bytes.len() as u32;
@@ -280,10 +286,8 @@ impl FileWriter {
         // Write footer length
         self.file.write_u32::<LittleEndian>(footer_length)?;
 
-        // Update row count in header
-        self.file.seek(SeekFrom::Start(16))?;
-        self.file.write_u32::<LittleEndian>(self.total_rows)?;
-
+        // We store the authoritative row_count in the footer and use a sentinel
+        // in the header for compatibility with non-seekable writers. No seek/patch required.
         self.file.sync_all()?;
         Ok(())
     }
@@ -379,6 +383,88 @@ mod tests {
     }
 
     #[test]
+    fn test_column_statistics_null_count_roundtrip() {
+        use tempfile::NamedTempFile;
+        use crate::reader::FileReader;
+        let temp = NamedTempFile::new().unwrap();
+
+        let schema = crate::schema::SchemaBuilder::new()
+            .add_field("opt", crate::schema::FieldType::String, crate::schema::Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Write 10 rows, with 3 nulls
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..10 {
+                if i == 1 || i == 4 || i == 7 {
+                    writer.write_row(vec![vec![]]).unwrap(); // null represented as empty
+                } else {
+                    let s = format!("row_{}", i);
+                    let mut v = Vec::new(); v.extend_from_slice(&(s.len() as u32).to_le_bytes()); v.extend_from_slice(s.as_bytes());
+                    writer.write_row(vec![v]).unwrap();
+                }
+            }
+            writer.finish().unwrap();
+        }
+
+        // Read file bytes and parse footer to inspect metadata index
+        let mut raw = std::fs::read(temp.path()).unwrap();
+        let len = raw.len();
+        let footer_len = u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
+        let footer_start = len - 4 - footer_len;
+        let footer_bytes = &raw[footer_start..footer_start + footer_len];
+        let footer = crate::footer::Footer::deserialize(footer_bytes).unwrap();
+
+        assert!(footer.metadata_index.is_some());
+        let mi = footer.metadata_index.unwrap();
+        assert_eq!(mi.row_group_stats.len(), 1);
+        let col_stats = &mi.row_group_stats[0].column_stats[0];
+        assert_eq!(col_stats.null_count as usize, 3);
+    }
+
+    #[test]
+    fn test_column_statistics_min_max_roundtrip() {
+        use tempfile::NamedTempFile;
+        let temp = NamedTempFile::new().unwrap();
+
+        let schema = crate::schema::SchemaBuilder::new()
+            .add_field("v", crate::schema::FieldType::Int32, crate::schema::Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Write values 1..=100
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 1..=100 {
+                writer.write_row(vec![(i as i32).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let raw = std::fs::read(temp.path()).unwrap();
+        let len = raw.len();
+        // Footer format: [footer_bytes][footer_length: u32]
+        // footer_length is the last 4 bytes
+        let footer_len = u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
+        let footer_start = len - 4 - footer_len;
+        let footer_bytes = &raw[footer_start..footer_start + footer_len];
+        let footer = crate::footer::Footer::deserialize(footer_bytes).unwrap();
+
+        let mi = footer.metadata_index.expect("metadata index present");
+        let col_stats = &mi.row_group_stats[0].column_stats[0];
+        // min_value and max_value are serialized bytes — decode int32 little-endian
+        let min_bytes = col_stats.min_value.as_ref().unwrap();
+        let max_bytes = col_stats.max_value.as_ref().unwrap();
+        let min = i32::from_le_bytes([min_bytes[0], min_bytes[1], min_bytes[2], min_bytes[3]]);
+        let max = i32::from_le_bytes([max_bytes[0], max_bytes[1], max_bytes[2], max_bytes[3]]);
+        assert_eq!(min, 1);
+        assert_eq!(max, 100);
+    }
+
+    #[test]
     fn test_writer_config() {
         let temp = NamedTempFile::new().unwrap();
         let file = File::create(temp.path()).unwrap();
@@ -388,10 +474,9 @@ mod tests {
             .build()
             .unwrap();
 
-        let config = WriterConfig {
-            row_group_size: 100,
-            compression_level: 5,
-        };
+        let mut config = WriterConfig::default();
+        config.row_group_size = 100;
+        config.compression_level = 5;
 
         let writer = FileWriter::with_config(file, schema, config).unwrap();
         assert_eq!(writer.config.row_group_size, 100);
