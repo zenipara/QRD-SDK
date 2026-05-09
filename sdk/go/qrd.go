@@ -1,18 +1,16 @@
 // Package qrd provides Go bindings for the QRD columnar binary format.
 //
-// This package uses CGO to interface with the Rust QRD core library.
+// This package uses CGO to interface with the Rust QRD FFI layer.
 package qrd
 
 /*
-#cgo CFLAGS: -I../../core/qrd-ffi
 #cgo LDFLAGS: -L../../target/release -lqrd_ffi
-#include "qrd.h"
+#include "../../core/qrd-ffi/src/lib.rs"
 */
 import "C"
 
 import (
 	"errors"
-	"runtime"
 	"unsafe"
 )
 
@@ -34,11 +32,9 @@ const (
 	FieldTypeTimestamp
 	FieldTypeDate
 	FieldTypeTime
-	FieldTypeDuration
 	FieldTypeString
-	FieldTypeEnum
-	FieldTypeUUID
 	FieldTypeBlob
+	FieldTypeUuid
 	FieldTypeDecimal
 )
 
@@ -48,156 +44,178 @@ type Nullability int
 const (
 	NullabilityRequired Nullability = iota
 	NullabilityOptional
-	NullabilityRepeated
 )
-
-// Field represents a schema field definition
-type Field struct {
-	Name        string
-	Type        FieldType
-	Nullability Nullability
-	Metadata    string
-}
-
-// Schema represents a QRD schema
-type Schema struct {
-	handle unsafe.Pointer
-	id     uint64
-}
-
-// NewSchema creates a new schema builder
-func NewSchema() *SchemaBuilder {
-	return &SchemaBuilder{
-		fields: make([]Field, 0),
-	}
-}
 
 // SchemaBuilder builds QRD schemas
 type SchemaBuilder struct {
-	fields []Field
+	ptr unsafe.Pointer
+}
+
+// NewSchemaBuilder creates a new schema builder
+func NewSchemaBuilder() *SchemaBuilder {
+	return &SchemaBuilder{ptr: unsafe.Pointer(C.qrd_schema_builder_new())}
+}
+
+// Free releases the schema builder resources
+func (sb *SchemaBuilder) Free() {
+	if sb.ptr != nil {
+		C.qrd_schema_builder_free((*C.QrdSchemaBuilder)(sb.ptr))
+		sb.ptr = nil
+	}
 }
 
 // AddField adds a field to the schema
-func (sb *SchemaBuilder) AddField(name string, fieldType FieldType, nullability Nullability, metadata string) *SchemaBuilder {
-	sb.fields = append(sb.fields, Field{
-		Name:        name,
-		Type:        fieldType,
-		Nullability: nullability,
-		Metadata:    metadata,
-	})
-	return sb
+func (sb *SchemaBuilder) AddField(name string, fieldType int, nullability int) error {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+
+	result := C.qrd_schema_builder_add_field(
+		(*C.QrdSchemaBuilder)(sb.ptr),
+		cName,
+		C.int(fieldType),
+		C.int(nullability),
+	)
+	if result != 0 {
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return errors.New(C.GoString(cErr))
+		}
+		return errors.New("failed to add field to schema")
+	}
+	return nil
 }
 
 // Build creates the schema
 func (sb *SchemaBuilder) Build() (*Schema, error) {
-	// Create C schema
-	cSchema := C.qrd_schema_new()
-	if cSchema == nil {
-		return nil, errors.New("failed to create schema")
-	}
-
-	// Add fields
-	for _, field := range sb.fields {
-		cName := C.CString(field.Name)
-		defer C.free(unsafe.Pointer(cName))
-
-		var cMetadata *C.char
-		if field.Metadata != "" {
-			cMetadata = C.CString(field.Metadata)
-			defer C.free(unsafe.Pointer(cMetadata))
+	ptr := C.qrd_schema_builder_build((*C.QrdSchemaBuilder)(sb.ptr))
+	if ptr == nil {
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return nil, errors.New(C.GoString(cErr))
 		}
-
-		result := C.qrd_schema_add_field(cSchema, cName, C.int(field.Type), C.int(field.Nullability), cMetadata)
-		if result != 0 {
-			C.qrd_schema_free(cSchema)
-			return nil, errors.New("failed to add field to schema")
-		}
+		return nil, errors.New("failed to build schema")
 	}
-
-	schema := &Schema{
-		handle: cSchema,
-		id:     uint64(C.qrd_schema_id(cSchema)),
-	}
-
-	// Set finalizer to free C resources
-	runtime.SetFinalizer(schema, func(s *Schema) {
-		C.qrd_schema_free(s.handle)
-	})
-
-	return schema, nil
+	return &Schema{ptr: unsafe.Pointer(ptr)}, nil
 }
 
-// ID returns the schema ID
-func (s *Schema) ID() uint64 {
-	return s.id
+// Schema represents a QRD schema
+type Schema struct {
+	ptr unsafe.Pointer
 }
 
-// FieldCount returns the number of fields in the schema
-func (s *Schema) FieldCount() int {
-	return int(C.qrd_schema_field_count(s.handle))
+// Free releases the schema resources
+func (s *Schema) Free() {
+	if s.ptr != nil {
+		C.qrd_schema_free((*C.QrdSchema)(s.ptr))
+		s.ptr = nil
+	}
 }
 
 // FileWriter writes QRD files
 type FileWriter struct {
-	handle unsafe.Pointer
+	ptr unsafe.Pointer
 }
 
 // NewFileWriter creates a new file writer
-func NewFileWriter(schema *Schema) (*FileWriter, error) {
-	handle := C.qrd_writer_new(schema.handle)
-	if handle == nil {
+func NewFileWriter(path string, schema *Schema) (*FileWriter, error) {
+	cPath := C.CString(path)
+	defer C.free(unsafe.Pointer(cPath))
+
+	ptr := C.qrd_writer_new(cPath, (*C.QrdSchema)(schema.ptr))
+	if ptr == nil {
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return nil, errors.New(C.GoString(cErr))
+		}
 		return nil, errors.New("failed to create writer")
 	}
-
-	writer := &FileWriter{handle: handle}
-	runtime.SetFinalizer(writer, func(w *FileWriter) {
-		C.qrd_writer_free(w.handle)
-	})
-
-	return writer, nil
+	return &FileWriter{ptr: unsafe.Pointer(ptr)}, nil
 }
 
-// WriteRow writes a row of data
-func (w *FileWriter) WriteRow(row []interface{}) error {
-	// Convert Go row to C representation
-	// This is a simplified implementation - in practice you'd need proper type conversion
-	cRow := C.qrd_row_new()
-	if cRow == nil {
-		return errors.New("failed to create row")
+// Free releases the writer resources  
+func (w *FileWriter) Free() {
+	if w.ptr != nil {
+		C.qrd_writer_free((*C.QrdWriter)(w.ptr))
+		w.ptr = nil
 	}
-	defer C.qrd_row_free(cRow)
+}
 
-	// Add values to row (simplified)
-	for _, value := range row {
-		switch v := value.(type) {
-		case int64:
-			C.qrd_row_add_int64(cRow, C.longlong(v))
-		case float64:
-			C.qrd_row_add_float64(cRow, C.double(v))
-		case string:
-			cStr := C.CString(v)
-			C.qrd_row_add_string(cRow, cStr)
-			C.free(unsafe.Pointer(cStr))
-		// Add other types...
+// WriteRow writes a row of data. columnData is array of byte slices.
+func (w *FileWriter) WriteRow(columns [][]byte) error {
+	// Convert to C arrays
+	dataPtrs := make([]*C.uint8_t, len(columns))
+	dataLens := make([]C.uint, len(columns))
+
+	for i, col := range columns {
+		if len(col) > 0 {
+			dataPtrs[i] = (*C.uint8_t)(unsafe.Pointer(&col[0]))
 		}
+		dataLens[i] = C.uint(len(col))
 	}
 
-	result := C.qrd_writer_write_row(w.handle, cRow)
+	result := C.qrd_writer_write_row(
+		(*C.QrdWriter)(w.ptr),
+		C.uint(len(columns)),
+		&dataPtrs[0],
+		&dataLens[0],
+	)
 	if result != 0 {
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return errors.New(C.GoString(cErr))
+		}
 		return errors.New("failed to write row")
 	}
-
 	return nil
 }
 
-// Finish finishes writing and returns the data
-func (w *FileWriter) Finish() ([]byte, error) {
-	var cData *C.uint8_t
-	var cSize C.size_t
-
-	result := C.qrd_writer_finish(w.handle, &cData, &cSize)
+// Finish finishes writing the file
+func (w *FileWriter) Finish() error {
+	result := C.qrd_writer_finish((*C.QrdWriter)(w.ptr))
 	if result != 0 {
-		return nil, errors.New("failed to finish writing")
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return errors.New(C.GoString(cErr))
+		}
+		return errors.New("failed to finish writing")
+	}
+	w.ptr = nil
+	return nil
+}
+
+// FileReader reads QRD files
+type FileReader struct {
+	ptr unsafe.Pointer
+}
+
+// NewFileReader creates a new file reader
+func NewFileReader(path string) (*FileReader, error) {
+	cPath := C.CString(path)
+	defer C.free(unsafe.Pointer(cPath))
+
+	ptr := C.qrd_reader_new(cPath)
+	if ptr == nil {
+		cErr := C.qrd_last_error()
+		if cErr != nil {
+			return nil, errors.New(C.GoString(cErr))
+		}
+		return nil, errors.New("failed to create reader")
+	}
+	return &FileReader{ptr: unsafe.Pointer(ptr)}, nil
+}
+
+// Free releases the reader resources
+func (r *FileReader) Free() {
+	if r.ptr != nil {
+		C.qrd_reader_free((*C.QrdReader)(r.ptr))
+		r.ptr = nil
+	}
+}
+
+// RowCount returns the number of rows in the file
+func (r *FileReader) RowCount() uint32 {
+	return uint32(C.qrd_reader_row_count((*C.QrdReader)(r.ptr)))
+}
 	}
 
 	// Copy C data to Go slice

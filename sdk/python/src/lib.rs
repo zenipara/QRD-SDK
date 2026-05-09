@@ -1,23 +1,18 @@
-//! Python bindings for QRD SDK
+//! Python bindings for QRD SDK using PyO3
 
 use pyo3::prelude::*;
-use qrd_core::prelude::*;
+use pyo3::exceptions::PyValueError;
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::writer::FileWriter;
+use qrd_core::reader::FileReader;
 
-/// Python module for QRD columnar format
-#[pymodule]
-fn qrd(_py: Python, m: &PyModule) -> PyResult<()> {
-    m.add_class::<PySchemaBuilder>()?;
-    m.add_class::<PyFileWriter>()?;
-    m.add_class::<PyFileReader>()?;
-    m.add_class::<PyFieldType>()?;
-    m.add_class::<PyNullability>()?;
-    Ok(())
+fn qrd_error_to_py(e: qrd_core::error::Error) -> PyErr {
+    PyValueError::new_err(e.to_string())
 }
 
-/// Schema builder for Python
-#[pyclass]
+#[pyclass(name = "SchemaBuilder")]
 struct PySchemaBuilder {
-    builder: SchemaBuilder,
+    inner: SchemaBuilder,
 }
 
 #[pymethods]
@@ -25,175 +20,148 @@ impl PySchemaBuilder {
     #[new]
     fn new() -> Self {
         PySchemaBuilder {
-            builder: SchemaBuilder::new(),
+            inner: SchemaBuilder::new(),
         }
     }
 
-    fn add_field(
-        &mut self,
-        name: String,
-        field_type: PyFieldType,
-        nullability: PyNullability,
-    ) -> PyResult<PyObject> {
-        // This is a placeholder - need proper error handling
-        match self.builder.add_field(&name, field_type.0, nullability.0) {
-            Ok(builder) => {
-                self.builder = builder;
-                Ok(PyObject::from(())) // Return self for chaining
-            }
-            Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Failed to add field")),
-        }
+    fn add_field(&mut self, name: &str, field_type: &str, required: bool) -> PyResult<()> {
+        let ft = parse_field_type(field_type)?;
+        let null = if required {
+            Nullability::Required
+        } else {
+            Nullability::Optional
+        };
+        self.inner
+            .add_field(name, ft, null)
+            .map_err(qrd_error_to_py)?;
+        Ok(())
     }
 
     fn build(&self) -> PyResult<PySchema> {
-        match self.builder.build() {
-            Ok(schema) => Ok(PySchema { schema }),
-            Err(_) => Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Failed to build schema")),
-        }
+        let schema = self.inner.clone().build().map_err(qrd_error_to_py)?;
+        Ok(PySchema { inner: schema })
     }
 }
 
-/// Schema wrapper
-#[pyclass]
+#[pyclass(name = "Schema")]
+#[derive(Clone)]
 struct PySchema {
-    schema: Schema,
+    inner: qrd_core::schema::Schema,
 }
 
 #[pymethods]
 impl PySchema {
-    #[getter]
-    fn column_count(&self) -> usize {
-        self.schema.fields.len()
+    fn field_count(&self) -> usize {
+        self.inner.fields.len()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Schema(fields={})", self.inner.fields.len())
     }
 }
 
-/// File writer for Python with high-level API
-#[pyclass]
-struct PyFileWriter {
-    writer: Option<FileWriter<std::fs::File>>,
-    schema: PySchema,
+#[pyclass(name = "Writer")]
+struct PyWriter {
+    inner: Option<FileWriter>,
 }
 
 #[pymethods]
-impl PyFileWriter {
+impl PyWriter {
     #[new]
-    fn new(path: String, schema: PySchema) -> PyResult<Self> {
-        match FileWriter::new(std::path::Path::new(&path), schema.schema.clone()) {
-            Ok(writer) => Ok(PyFileWriter { writer: Some(writer), schema }),
-            Err(_) => Err(PyErr::new::<pyo3::exceptions::PyIOError, _>("Failed to create writer")),
-        }
+    fn new(path: &str, schema: &PySchema) -> PyResult<Self> {
+        let writer = FileWriter::new(path, schema.inner.clone()).map_err(qrd_error_to_py)?;
+        Ok(PyWriter {
+            inner: Some(writer),
+        })
     }
 
-    /// Write a row using Python objects (high-level API)
-    fn write_row_py(&mut self, row: Vec<PyObject>, py: Python) -> PyResult<()> {
-        if row.len() != self.schema.schema.fields.len() {
-            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                format!("Row has {} columns but schema has {}", row.len(), self.schema.schema.fields.len())
-            ));
-        }
-
-        let mut serialized_row = Vec::new();
-        for (i, obj) in row.iter().enumerate() {
-            let field_type = &self.schema.schema.fields[i].field_type;
-            let bytes = serialize_py_object(obj, field_type, py)?;
-            serialized_row.push(bytes);
-        }
-
-        self.write_row(serialized_row)
-    }
-
-    /// Write a row using raw bytes (low-level API)
-    fn write_row(&mut self, row: Vec<Vec<u8>>) -> PyResult<()> {
-        if let Some(ref mut writer) = self.writer {
-            match writer.write_row(row) {
-                Ok(_) => Ok(()),
-                Err(_) => Err(PyErr::new::<pyo3::exceptions::PyIOError, _>("Failed to write row")),
-            }
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Writer already finished"))
-        }
+    /// Write a row. columns is list of bytes objects.
+    fn write_row(&mut self, columns: Vec<&[u8]>) -> PyResult<()> {
+        let writer = self
+            .inner
+            .as_mut()
+            .ok_or_else(|| PyValueError::new_err("Writer already finished"))?;
+        let row: Vec<Vec<u8>> = columns.iter().map(|c| c.to_vec()).collect();
+        writer.write_row(row).map_err(qrd_error_to_py)
     }
 
     fn finish(&mut self) -> PyResult<()> {
-        if let Some(writer) = self.writer.take() {
-            match writer.finish() {
-                Ok(_) => Ok(()),
-                Err(_) => Err(PyErr::new::<pyo3::exceptions::PyIOError, _>("Failed to finish writing")),
-            }
-        } else {
-            Err(PyErr::new::<pyo3::exceptions::PyValueError, _>("Writer already finished"))
+        let writer = self
+            .inner
+            .take()
+            .ok_or_else(|| PyValueError::new_err("Already finished"))?;
+        writer.finish().map_err(qrd_error_to_py)
+    }
+
+    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __exit__(
+        &mut self,
+        _exc_type: PyObject,
+        _exc_val: PyObject,
+        _exc_tb: PyObject,
+    ) -> bool {
+        if self.inner.is_some() {
+            let _ = self.finish();
+        }
+        false
+    }
+}
+
+#[pyclass(name = "Reader")]
+struct PyReader {
+    inner: FileReader,
+}
+
+#[pymethods]
+impl PyReader {
+    #[new]
+    fn new(path: &str) -> PyResult<Self> {
+        let reader = FileReader::new(path).map_err(qrd_error_to_py)?;
+        Ok(PyReader { inner: reader })
+    }
+
+    fn row_count(&self) -> u32 {
+        self.inner.row_count()
+    }
+
+    fn schema(&self) -> PySchema {
+        PySchema {
+            inner: self.inner.schema().clone(),
         }
     }
 }
 
-/// Serialize Python object to bytes based on field type
-fn serialize_py_object(obj: &PyObject, field_type: &FieldType, py: Python) -> PyResult<Vec<u8>> {
-    match field_type {
-        FieldType::Int64 => {
-            let value: i64 = obj.extract(py)?;
-            Ok(value.to_le_bytes().to_vec())
-        }
-        FieldType::Int32 => {
-            let value: i32 = obj.extract(py)?;
-            Ok(value.to_le_bytes().to_vec())
-        }
-        FieldType::Float64 => {
-            let value: f64 = obj.extract(py)?;
-            Ok(value.to_le_bytes().to_vec())
-        }
-        FieldType::Float32 => {
-            let value: f32 = obj.extract(py)?;
-            Ok(value.to_le_bytes().to_vec())
-        }
-        FieldType::Boolean => {
-            let value: bool = obj.extract(py)?;
-            Ok(vec![if value { 1 } else { 0 }])
-        }
-        FieldType::String => {
-            let value: String = obj.extract(py)?;
-            let mut result = Vec::new();
-            let bytes = value.as_bytes();
-            result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-            result.extend_from_slice(bytes);
-            Ok(result)
-        }
-        _ => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-            format!("Unsupported field type: {:?}", field_type)
-        )),
+fn parse_field_type(s: &str) -> PyResult<FieldType> {
+    match s.to_uppercase().as_str() {
+        "BOOLEAN" | "BOOL" => Ok(FieldType::Boolean),
+        "INT8" | "I8" => Ok(FieldType::Int8),
+        "INT16" | "I16" => Ok(FieldType::Int16),
+        "INT32" | "I32" | "INT" => Ok(FieldType::Int32),
+        "INT64" | "I64" | "LONG" => Ok(FieldType::Int64),
+        "FLOAT32" | "F32" | "FLOAT" => Ok(FieldType::Float32),
+        "FLOAT64" | "F64" | "DOUBLE" => Ok(FieldType::Float64),
+        "STRING" | "STR" | "UTF8" => Ok(FieldType::String),
+        "BLOB" | "BYTES" | "BINARY" => Ok(FieldType::Blob),
+        "TIMESTAMP" | "TS" => Ok(FieldType::Timestamp),
+        "DATE" => Ok(FieldType::Date),
+        "TIME" => Ok(FieldType::Time),
+        "UUID" => Ok(FieldType::Uuid),
+        "DECIMAL" => Ok(FieldType::Decimal),
+        _ => Err(PyValueError::new_err(format!(
+            "Unknown field type: {}",
+            s
+        ))),
     }
 }
 
-/// File reader for Python
-#[pyclass]
-struct PyFileReader {
-    reader: Option<FileReader<std::fs::File>>,
-}
-
-/// Field type enum for Python
-#[pyclass]
-struct PyFieldType(FieldType);
-
-#[pymethods]
-impl PyFieldType {
-    #[classattr]
-    const INT64: Self = Self(FieldType::Int64);
-
-    #[classattr]
-    const STRING: Self = Self(FieldType::String);
-
-    #[classattr]
-    const FLOAT64: Self = Self(FieldType::Float64);
-}
-
-/// Nullability enum for Python
-#[pyclass]
-struct PyNullability(Nullability);
-
-#[pymethods]
-impl PyNullability {
-    #[classattr]
-    const REQUIRED: Self = Self(Nullability::Required);
-
-    #[classattr]
-    const OPTIONAL: Self = Self(Nullability::Optional);
+#[pymodule]
+fn qrd(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PySchemaBuilder>()?;
+    m.add_class::<PySchema>()?;
+    m.add_class::<PyWriter>()?;
+    m.add_class::<PyReader>()?;
+    Ok(())
 }
