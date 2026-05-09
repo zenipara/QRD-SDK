@@ -9,6 +9,8 @@ pub struct ColumnChunk {
     pub column_index: usize,
     /// Column name
     pub column_name: String,
+    /// Field type
+    pub field_type: crate::schema::FieldType,
     /// Raw data bytes
     pub data: Vec<u8>,
     /// Number of rows
@@ -17,10 +19,11 @@ pub struct ColumnChunk {
 
 impl ColumnChunk {
     /// Create new column chunk
-    pub fn new(column_index: usize, column_name: String) -> Self {
+    pub fn new(column_index: usize, column_name: String, field_type: crate::schema::FieldType) -> Self {
         ColumnChunk {
             column_index,
             column_name,
+            field_type,
             data: Vec::new(),
             row_count: 0,
         }
@@ -85,22 +88,30 @@ impl RowBuffer {
     }
 
     /// Transpose to columnar format
-    pub fn transpose(&self) -> Result<Vec<ColumnChunk>> {
+    pub fn transpose(&self, field_types: &[crate::schema::FieldType]) -> Result<Vec<ColumnChunk>> {
         if self.rows.is_empty() {
             return Ok(Vec::new());
         }
 
+        if field_types.len() != self.num_columns {
+            return Err(crate::error::Error::ColumnCountMismatch {
+                expected: self.num_columns as u32,
+                actual: field_types.len() as u32,
+            });
+        }
+
         let mut columns: Vec<ColumnChunk> = (0..self.num_columns)
-            .map(|i| ColumnChunk::new(i, format!("col_{}", i)))
+            .map(|i| ColumnChunk::new(i, format!("col_{}", i), field_types[i].clone()))
             .collect();
 
         for row in &self.rows {
             for (col_idx, col_data) in row.iter().enumerate() {
                 columns[col_idx].append(col_data);
             }
-            for col in &mut columns {
-                col.row_count += 1;
-            }
+        }
+
+        for col in &mut columns {
+            col.row_count = self.rows.len() as u32;
         }
 
         Ok(columns)

@@ -59,18 +59,22 @@ impl RowGroup {
         compression: CompressionCodec,
         compression_level: CompressionLevel,
     ) -> Result<()> {
-        // Calculate CRC32 of original data
-        let crc32 = Validator::calculate_crc32(&chunk.data);
+        // Apply encoding
+        let encoder = crate::encoding::get_encoder(encoding)?;
+        let encoded_data = encoder.encode(&chunk.data)?;
+
+        // Calculate CRC32 of encoded data
+        let crc32 = Validator::calculate_crc32(&encoded_data);
 
         // Apply compression
-        let compressed_data = compress(&chunk.data, compression, compression_level)?;
+        let compressed_data = compress(&encoded_data, compression, compression_level)?;
 
         let encoded_column = EncodedColumnChunk {
             column_index: chunk.column_index,
             column_name: chunk.column_name,
             encoding,
             compression,
-            encoded_data: chunk.data,
+            encoded_data,
             compressed_data,
             crc32,
         };
@@ -166,6 +170,19 @@ impl RowGroup {
         }
 
         Ok(row_group)
+    }
+
+    /// Decode all columns in the row group
+    pub fn decode_columns(&self) -> Result<Vec<Vec<u8>>> {
+        let mut result = Vec::with_capacity(self.columns.len());
+
+        for column in &self.columns {
+            let encoder = crate::encoding::get_encoder(column.encoding)?;
+            let decoded = encoder.decode(&column.encoded_data, self.row_count as usize)?;
+            result.push(decoded);
+        }
+
+        Ok(result)
     }
 
     /// Calculate row group size in bytes

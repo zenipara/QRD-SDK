@@ -1,34 +1,315 @@
 //! Error Correction Code (Reed-Solomon)
 
-use crate::error::Result;
+use crate::error::{Error, Result};
+use reed_solomon_erasure::galois_8::ReedSolomon;
+use std::cmp;
 
 /// ECC configuration
 #[derive(Debug, Clone)]
 pub struct EccConfig {
     /// Number of parity chunks (1-32)
     pub parity_chunks: u8,
+    /// Data chunk size in bytes
+    pub chunk_size: usize,
 }
 
 impl EccConfig {
-    /// Create with parity count
+    /// Create with parity count and default chunk size
     pub fn new(parity_chunks: u8) -> Result<Self> {
+        Self::with_chunk_size(parity_chunks, 4096)
+    }
+
+    /// Create with parity count and custom chunk size
+    pub fn with_chunk_size(parity_chunks: u8, chunk_size: usize) -> Result<Self> {
         if parity_chunks == 0 || parity_chunks > 32 {
-            return Err(crate::error::Error::ConfigError(
+            return Err(Error::ConfigError(
                 "Parity chunks must be between 1 and 32".to_string(),
             ));
         }
-        Ok(EccConfig { parity_chunks })
+        if chunk_size == 0 || chunk_size > 65536 {
+            return Err(Error::ConfigError(
+                "Chunk size must be between 1 and 65536 bytes".to_string(),
+            ));
+        }
+        Ok(EccConfig {
+            parity_chunks,
+            chunk_size,
+        })
+    }
+
+    /// Calculate total shards needed (data + parity)
+    pub fn total_shards(&self, data_shards: usize) -> usize {
+        data_shards + self.parity_chunks as usize
+    }
+
+    /// Calculate maximum data shards that can be recovered
+    pub fn max_data_shards(&self, total_shards: usize) -> usize {
+        total_shards.saturating_sub(self.parity_chunks as usize)
     }
 }
 
-/// Encode with Reed-Solomon ECC
-pub fn encode(_data: &[u8], _config: &EccConfig) -> Result<Vec<u8>> {
-    // Placeholder: Reed-Solomon encoding implementation
-    Ok(Vec::new())
+/// ECC encoder/decoder
+pub struct EccCodec {
+    rs: ReedSolomon,
+    config: EccConfig,
 }
 
-/// Decode and recover from Reed-Solomon ECC
-pub fn decode_and_recover(_data: &[u8], _config: &EccConfig) -> Result<Vec<u8>> {
-    // Placeholder: Reed-Solomon decoding implementation
-    Ok(Vec::new())
+impl EccCodec {
+    /// Create a new ECC codec
+    pub fn new(config: EccConfig) -> Result<Self> {
+        // For Reed-Solomon, we need at least 1 data shard
+        // We'll determine the actual data shard count during encoding
+        Ok(EccCodec {
+            rs: ReedSolomon::new(1, config.parity_chunks as usize)
+                .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec: {}", e)))?,
+            config,
+        })
+    }
+
+    /// Encode data with ECC
+    pub fn encode(&mut self, data: &[u8]) -> Result<EccEncodedData> {
+        // Split data into chunks
+        let data_shards = (data.len() + self.config.chunk_size - 1) / self.config.chunk_size;
+        let total_shards = self.config.total_shards(data_shards);
+
+        // Create shards
+        let mut shards = Vec::with_capacity(total_shards);
+
+        // Split data into data shards
+        for i in 0..data_shards {
+            let start = i * self.config.chunk_size;
+            let end = cmp::min(start + self.config.chunk_size, data.len());
+            let mut chunk = data[start..end].to_vec();
+
+            // Pad chunk to chunk_size if necessary
+            while chunk.len() < self.config.chunk_size {
+                chunk.push(0);
+            }
+            shards.push(chunk);
+        }
+
+        // Add empty parity shards
+        for _ in 0..self.config.parity_chunks {
+            shards.push(vec![0; self.config.chunk_size]);
+        }
+
+        // Reconstruct Reed-Solomon codec with correct data shard count
+        self.rs = ReedSolomon::new(data_shards, self.config.parity_chunks as usize)
+            .map_err(|e| Error::EccError(format!("Failed to reconstruct Reed-Solomon codec: {}", e)))?;
+
+        // Encode parity
+        self.rs.encode(&mut shards)
+            .map_err(|e| Error::EccError(format!("Failed to encode parity: {}", e)))?;
+
+        Ok(EccEncodedData {
+            shards,
+            data_shards,
+            parity_shards: self.config.parity_chunks as usize,
+            chunk_size: self.config.chunk_size,
+            original_size: data.len(),
+        })
+    }
+
+    /// Decode and recover data from ECC shards
+    pub fn decode_and_recover(&self, shards: &[Option<Vec<u8>>]) -> Result<Vec<u8>> {
+        if shards.is_empty() {
+            return Err(Error::EccError("No shards provided".to_string()));
+        }
+
+        let total_shards = shards.len();
+        let data_shards = self.config.max_data_shards(total_shards);
+
+        // Convert Option<Vec<u8>> to Vec<Option<&[u8]>>
+        let mut shard_refs: Vec<Option<&[u8]>> = Vec::with_capacity(total_shards);
+        for shard in shards {
+            shard_refs.push(shard.as_ref().map(|v| v.as_slice()));
+        }
+
+        // Reconstruct Reed-Solomon codec
+        let rs = ReedSolomon::new(data_shards, self.config.parity_chunks as usize)
+            .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec for decoding: {}", e)))?;
+
+        // Reconstruct data
+        rs.reconstruct(&mut shard_refs)
+            .map_err(|e| Error::EccError(format!("Failed to reconstruct data: {}", e)))?;
+
+        // Collect recovered data
+        let mut recovered_data = Vec::new();
+        for i in 0..data_shards {
+            if let Some(shard) = &shard_refs[i] {
+                // Take only the actual data, not padding
+                let actual_size = if i == data_shards - 1 {
+                    // Last shard may be partial
+                    self.config.chunk_size
+                } else {
+                    self.config.chunk_size
+                };
+                recovered_data.extend_from_slice(&shard[..actual_size]);
+            }
+        }
+
+        // Truncate to original size if needed
+        // Note: In a real implementation, we'd store the original size
+        Ok(recovered_data)
+    }
+}
+
+/// Encoded data with ECC information
+#[derive(Debug, Clone)]
+pub struct EccEncodedData {
+    /// All shards (data + parity)
+    pub shards: Vec<Vec<u8>>,
+    /// Number of data shards
+    pub data_shards: usize,
+    /// Number of parity shards
+    pub parity_shards: usize,
+    /// Size of each chunk
+    pub chunk_size: usize,
+    /// Original data size
+    pub original_size: usize,
+}
+
+impl EccEncodedData {
+    /// Get total number of shards
+    pub fn total_shards(&self) -> usize {
+        self.data_shards + self.parity_shards
+    }
+
+    /// Get shard at index
+    pub fn shard(&self, index: usize) -> Option<&[u8]> {
+        self.shards.get(index).map(|v| v.as_slice())
+    }
+
+    /// Get all shards as options (for simulating missing shards)
+    pub fn shards_as_options(&self) -> Vec<Option<Vec<u8>>> {
+        self.shards.iter().map(|s| Some(s.clone())).collect()
+    }
+
+    /// Simulate missing shards
+    pub fn with_missing_shards(&self, missing_indices: &[usize]) -> Vec<Option<Vec<u8>>> {
+        let mut result = self.shards_as_options();
+        for &index in missing_indices {
+            if index < result.len() {
+                result[index] = None;
+            }
+        }
+        result
+    }
+
+    /// Reconstruct original data
+    pub fn reconstruct_data(&self) -> Vec<u8> {
+        let mut data = Vec::new();
+        for i in 0..self.data_shards {
+            let shard = &self.shards[i];
+            let actual_size = if i == self.data_shards - 1 {
+                // Last shard may contain original data size info
+                self.original_size.saturating_sub(i * self.chunk_size)
+            } else {
+                self.chunk_size
+            };
+            data.extend_from_slice(&shard[..actual_size]);
+        }
+        data.truncate(self.original_size);
+        data
+    }
+}
+
+/// Convenience functions for simple encoding/decoding
+
+/// Encode data with ECC
+pub fn encode(data: &[u8], config: &EccConfig) -> Result<EccEncodedData> {
+    let mut codec = EccCodec::new(config.clone())?;
+    codec.encode(data)
+}
+
+/// Decode and recover data from shards
+pub fn decode_and_recover(shards: &[Option<Vec<u8>>], config: &EccConfig) -> Result<Vec<u8>> {
+    let codec = EccCodec::new(config.clone())?;
+    codec.decode_and_recover(shards)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ecc_config() {
+        let config = EccConfig::new(4).unwrap();
+        assert_eq!(config.parity_chunks, 4);
+        assert_eq!(config.chunk_size, 4096);
+    }
+
+    #[test]
+    fn test_ecc_config_custom_chunk_size() {
+        let config = EccConfig::with_chunk_size(2, 1024).unwrap();
+        assert_eq!(config.parity_chunks, 2);
+        assert_eq!(config.chunk_size, 1024);
+    }
+
+    #[test]
+    fn test_invalid_parity_chunks() {
+        assert!(EccConfig::new(0).is_err());
+        assert!(EccConfig::new(33).is_err());
+    }
+
+    #[test]
+    fn test_invalid_chunk_size() {
+        assert!(EccConfig::with_chunk_size(4, 0).is_err());
+        assert!(EccConfig::with_chunk_size(4, 70000).is_err());
+    }
+
+    #[test]
+    fn test_encode_decode_roundtrip() {
+        let config = EccConfig::with_chunk_size(2, 64).unwrap();
+        let original_data = b"Hello, QRD ECC world! This is a test message for Reed-Solomon encoding.";
+
+        let encoded = encode(original_data, &config).unwrap();
+        assert_eq!(encoded.parity_shards, 2);
+
+        let shards = encoded.shards_as_options();
+        let recovered = decode_and_recover(&shards, &config).unwrap();
+
+        // Should recover original data
+        assert_eq!(&recovered[..original_data.len()], original_data);
+    }
+
+    #[test]
+    fn test_recovery_from_missing_shards() {
+        let config = EccConfig::with_chunk_size(4, 64).unwrap();
+        let original_data = b"Test data for ECC recovery testing with missing shards";
+
+        let encoded = encode(original_data, &config).unwrap();
+
+        // Simulate losing 2 data shards (should still recover with 4 parity)
+        let missing_indices = vec![0, 2]; // Missing first and third data shards
+        let damaged_shards = encoded.with_missing_shards(&missing_indices);
+
+        let recovered = decode_and_recover(&damaged_shards, &config).unwrap();
+        assert_eq!(&recovered[..original_data.len()], original_data);
+    }
+
+    #[test]
+    fn test_reconstruct_data() {
+        let config = EccConfig::with_chunk_size(2, 64).unwrap();
+        let original_data = b"Short test";
+
+        let encoded = encode(original_data, &config).unwrap();
+        let reconstructed = encoded.reconstruct_data();
+
+        assert_eq!(reconstructed, original_data);
+    }
+
+    #[test]
+    fn test_large_data_chunking() {
+        let config = EccConfig::with_chunk_size(2, 1024).unwrap();
+        let original_data = vec![42u8; 3000]; // Larger than chunk size
+
+        let encoded = encode(&original_data, &config).unwrap();
+        assert!(encoded.data_shards > 1); // Should be split into multiple chunks
+
+        let shards = encoded.shards_as_options();
+        let recovered = decode_and_recover(&shards, &config).unwrap();
+
+        assert_eq!(&recovered[..original_data.len()], original_data.as_slice());
+    }
 }

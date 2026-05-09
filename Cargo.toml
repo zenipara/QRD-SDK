@@ -7,6 +7,7 @@ members = [
     "core/qrd-core",
     "core/qrd-ffi",
     "core/qrd-wasm",
+    "python",
 ]
 
 resolver = "2"
@@ -35,6 +36,7 @@ sha2 = "0.10"
 aes-gcm = "0.10"
 hkdf = "0.12"
 rand = "0.8"
+reed-solomon-erasure = "6.0"
 
 # Encoding
 tracing = "0.1"

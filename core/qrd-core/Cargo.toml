@@ -18,8 +18,7 @@ crc32fast = { workspace = true }
 sha2 = { workspace = true }
 aes-gcm = { workspace = true }
 hkdf = { workspace = true }
-rand = { workspace = true }
-tracing = { workspace = true }
+reed-solomon-erasure = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, optional = true }
 parking_lot = { workspace = true }

@@ -14,20 +14,23 @@ fn main() -> Result<()> {
     println!("Schema created with {} columns", schema.column_count());
 
     // Create temporary file
-    let temp_file = NamedTempFile::new()?;
-    let path = temp_file.path().to_path_buf();
+    let temp_file = "test_output.qrd";
 
     // Create writer
-    let mut writer = FileWriter::new(&path, schema)?;
+    let mut writer = FileWriter::new(temp_file, schema)?;
 
-    // Simulate writing rows
+    // Write some sample rows
     println!("Writing rows...");
-    for i in 0..100 {
-        // In a real implementation, we'd write actual row data
-        // For now, this is a placeholder
-        writer.write_row(vec![FieldType::Int64; 3])?;
+    for i in 0..10 {
+        // Serialize data for each column
+        let id_bytes = (i as i64).to_le_bytes().to_vec();
+        let name_str = format!("user_{}", i);
+        let name_bytes = serialize_string(&name_str);
+        let score_bytes = (i as f64 * 1.5).to_le_bytes().to_vec();
 
-        if (i + 1) % 25 == 0 {
+        writer.write_row(vec![id_bytes, name_bytes, score_bytes])?;
+
+        if (i + 1) % 5 == 0 {
             println!("  Wrote {} rows", i + 1);
         }
     }
@@ -39,4 +42,13 @@ fn main() -> Result<()> {
     println!("Successfully wrote {} rows", row_count);
 
     Ok(())
+}
+
+/// Serialize a string with length prefix
+fn serialize_string(s: &str) -> Vec<u8> {
+    let mut result = Vec::new();
+    let bytes = s.as_bytes();
+    result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+    result.extend_from_slice(bytes);
+    result
 }

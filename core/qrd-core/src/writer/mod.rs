@@ -106,16 +106,18 @@ impl FileWriter {
         self.row_group_offsets.push(self.current_offset);
 
         // Transpose rows to columns
-        let columns = self.row_buffer.transpose()?;
+        let field_types: Vec<_> = self.schema.fields.iter().map(|f| f.field_type).collect();
+        let columns = self.row_buffer.transpose(&field_types)?;
 
         // Create row group
         let mut row_group = RowGroup::new(self.row_buffer.row_count());
 
         // Process each column
         for column in columns {
+            let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
             row_group.process_column(
                 column,
-                EncodingType::Plain,
+                encoding,
                 crate::compression::CompressionCodec::Zstd,
                 CompressionLevel::new(self.config.compression_level),
             )?;
@@ -183,6 +185,14 @@ mod tests {
     use crate::schema::{FieldType, Nullability, SchemaBuilder};
     use tempfile::NamedTempFile;
 
+    fn serialize_string(s: &str) -> Vec<u8> {
+        let mut result = Vec::new();
+        let bytes = s.as_bytes();
+        result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        result.extend_from_slice(bytes);
+        result
+    }
+
     #[test]
     fn test_writer_creation() {
         let temp = NamedTempFile::new().unwrap();
@@ -197,7 +207,58 @@ mod tests {
     }
 
     #[test]
-    fn test_writer_with_config() {
+    fn test_round_trip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Write data
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+
+            for i in 0..10 {
+                let id_bytes = (i as i64).to_le_bytes().to_vec();
+                let name_str = format!("user_{}", i);
+                let name_bytes = serialize_string(&name_str);
+
+                writer.write_row(vec![id_bytes, name_bytes]).unwrap();
+            }
+
+            writer.finish().unwrap();
+        }
+
+        // Read data back
+        {
+            let reader = FileReader::new(temp.path()).unwrap();
+            assert_eq!(reader.row_count(), 10);
+            assert_eq!(reader.schema().fields.len(), 2);
+
+            // Read first row group
+            let decoded_columns = reader.read_decoded_row_group(0).unwrap();
+            assert_eq!(decoded_columns.len(), 2);
+
+            // Check first column (IDs)
+            let id_data = &decoded_columns[0];
+            for i in 0..10 {
+                let expected_id = (i as i64).to_le_bytes();
+                let actual_id = &id_data[i * 8..(i + 1) * 8];
+                assert_eq!(actual_id, expected_id);
+            }
+        }
+    }
+
+    fn serialize_string(s: &str) -> Vec<u8> {
+        let mut result = Vec::new();
+        let bytes = s.as_bytes();
+        result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        result.extend_from_slice(bytes);
+        result
+    }
         let temp = NamedTempFile::new().unwrap();
         let file = File::create(temp.path()).unwrap();
         let schema = SchemaBuilder::new()

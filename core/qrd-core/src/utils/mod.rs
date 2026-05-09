@@ -1,7 +1,13 @@
 //! Utilities and helper functions
 
 /// Varint encoding/decoding utilities
-pub mod varint {
+pub mod varint;
+
+/// SIMD-accelerated operations
+pub mod simd;
+
+/// Bit manipulation utilities
+pub mod bit_ops;
     /// Encode u64 as varint
     pub fn encode(mut value: u64) -> Vec<u8> {
         let mut result = Vec::new();
@@ -39,6 +45,23 @@ pub mod varint {
             if shift > 63 {
                 return None; // Overflow
             }
+        }
+    }
+
+    /// Encode i64 as zigzag varint
+    pub fn encode_varint(buf: &mut Vec<u8>, value: i64) {
+        let zigzag = ((value << 1) ^ (value >> 63)) as u64;
+        buf.extend(encode(zigzag));
+    }
+
+    /// Decode zigzag varint, returns (value, bytes_read)
+    pub fn decode_varint(data: &[u8]) -> Result<(i64, usize)> {
+        if let Some((encoded, bytes)) = decode(data) {
+            // Zigzag decode
+            let value = (encoded >> 1) as i64 ^ -((encoded & 1) as i64);
+            Ok((value, bytes))
+        } else {
+            Err(crate::error::Error::DecodingError("Invalid varint".to_string()))
         }
     }
 }

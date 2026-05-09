@@ -56,6 +56,7 @@
 
 pub mod columnar;
 pub mod compression;
+pub mod ecc;
 pub mod encoding;
 pub mod encryption;
 pub mod error;
@@ -65,6 +66,7 @@ pub mod metadata;
 pub mod reader;
 pub mod rowgroup;
 pub mod schema;
+pub mod test_vectors;
 pub mod utils;
 pub mod validation;
 pub mod writer;

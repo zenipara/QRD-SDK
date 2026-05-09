@@ -98,6 +98,40 @@ impl FileReader {
         &self.row_group_offsets
     }
 
+    /// Read a specific row group
+    pub fn read_row_group(&self, index: usize) -> Result<RowGroup> {
+        if index >= self.row_group_offsets.len() {
+            return Err(crate::error::Error::InvalidData(
+                "Row group index out of bounds".to_string(),
+            ));
+        }
+
+        let offset = self.row_group_offsets[index] as usize;
+        let end_offset = if index + 1 < self.row_group_offsets.len() {
+            self.row_group_offsets[index + 1] as usize
+        } else {
+            self.footer_offset as usize
+        };
+
+        let row_group_data = &self.file_data[offset..end_offset];
+        RowGroup::deserialize(row_group_data)
+    }
+
+    /// Read all row groups
+    pub fn read_all_row_groups(&self) -> Result<Vec<RowGroup>> {
+        let mut row_groups = Vec::with_capacity(self.row_group_offsets.len());
+        for i in 0..self.row_group_offsets.len() {
+            row_groups.push(self.read_row_group(i)?);
+        }
+        Ok(row_groups)
+    }
+
+    /// Get decoded data for a specific row group
+    pub fn read_decoded_row_group(&self, index: usize) -> Result<Vec<Vec<u8>>> {
+        let row_group = self.read_row_group(index)?;
+        row_group.decode_columns()
+    }
+
     /// Iterate over rows
     pub fn rows(&self) -> Result<Vec<Vec<u8>>> {
         let mut all_rows = Vec::new();
