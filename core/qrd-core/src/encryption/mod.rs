@@ -7,6 +7,8 @@ use aes_gcm::{
 };
 use hkdf::Hkdf;
 use sha2::Sha256;
+use argon2::{Argon2, PasswordHasher};
+use argon2::password_hash::{SaltString, rand_core::OsRng as ArgonOsRng};
 
 /// Encryption configuration
 #[derive(Debug, Clone)]
@@ -70,6 +72,53 @@ impl EncryptionConfig {
         Ok(EncryptionConfig {
             key,
             salt: Some(salt.to_vec()),
+        })
+    }
+
+    /// Derive encryption key from user password using Argon2id + HKDF
+    /// 
+    /// This is the recommended method for user-provided passwords.
+    /// Uses Argon2id (password hashing) followed by HKDF (key derivation).
+    /// 
+    /// # Arguments
+    /// * `password` - User-provided password (any length)
+    /// * `argon2_salt` - Salt for Argon2 (16 bytes recommended, will be generated if None)
+    /// 
+    /// # Returns
+    /// EncryptionConfig with derived key and Argon2 salt stored
+    pub fn derive_from_user_password(password: &str, argon2_salt: Option<&[u8]>) -> Result<Self> {
+        // Generate or use provided salt for Argon2
+        let salt_str = if let Some(salt_bytes) = argon2_salt {
+            SaltString::encode_b64(salt_bytes)
+                .map_err(|_| Error::ConfigError("Invalid Argon2 salt".to_string()))?
+        } else {
+            SaltString::generate(ArgonOsRng)
+        };
+
+        // Hash password using Argon2id
+        let argon2 = Argon2::default();
+        let password_hash = argon2
+            .hash_password(password.as_bytes(), &salt_str)
+            .map_err(|_| Error::ConfigError("Failed to hash password with Argon2".to_string()))?;
+
+        // Convert hash output to owned bytes for HKDF
+        let hash_bytes = password_hash.hash
+            .ok_or_else(|| Error::ConfigError("Argon2 hash missing output".to_string()))?
+            .as_bytes()
+            .to_vec();
+
+        // Derive encryption key from hashed password using HKDF
+        let hkdf = Hkdf::<Sha256>::new(None, &hash_bytes);
+        let mut key = vec![0u8; 32];
+        hkdf.expand(b"qrd-encryption-key-from-password", &mut key)
+            .map_err(|_| Error::ConfigError("Failed to derive key from password hash".to_string()))?;
+
+        // Store the Argon2 salt for key derivation consistency
+        let argon2_salt_vec = salt_str.as_str().as_bytes().to_vec();
+
+        Ok(EncryptionConfig {
+            key,
+            salt: Some(argon2_salt_vec),
         })
     }
 }

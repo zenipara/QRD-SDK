@@ -41,7 +41,7 @@ npm install @qrd/sdk
 
 #### Go
 ```bash
-go get github.com/zenipara/qrd-go
+go get github.com/zenipara/QRD-SDK/sdk/go
 ```
 
 #### Java

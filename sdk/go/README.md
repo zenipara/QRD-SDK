@@ -5,7 +5,7 @@ Go bindings for the QRD columnar binary format using CGO.
 ## Installation
 
 ```bash
-go get github.com/zenipara/qrd-sdk/go
+go get github.com/zenipara/QRD-SDK/sdk/go
 ```
 
 ## Building
@@ -34,7 +34,7 @@ import (
     "fmt"
     "log"
 
-    qrd "github.com/zenipara/qrd-sdk/go"
+    qrd "github.com/zenipara/QRD-SDK/sdk/go"
 )
 
 func main() {

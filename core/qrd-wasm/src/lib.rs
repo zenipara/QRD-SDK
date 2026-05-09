@@ -97,8 +97,8 @@ fn parse_field_type(s: &str) -> Result<FieldType, String> {
         _ => Err(format!("Unknown field type: {}", s)),
     }
 }
-    }
 
+impl WasmReader {
     /// Get the schema
     #[wasm_bindgen]
     pub fn schema(&self) -> Result<WasmSchema, JsValue> {

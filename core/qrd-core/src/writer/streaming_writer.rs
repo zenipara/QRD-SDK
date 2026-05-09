@@ -72,8 +72,8 @@ impl<W: Write> StreamingWriter<W> {
         schema: Schema,
         config: StreamingWriterConfig,
     ) -> Result<Self> {
-        // Write QRD file header
-        Self::write_header(&mut writer, &schema)?;
+        // Write QRD file header using shared helper from parent module
+        super::write_header(&mut writer, &schema, config.row_group_size)?;
 
         Ok(StreamingWriter {
             writer,
@@ -89,35 +89,6 @@ impl<W: Write> StreamingWriter<W> {
             current_row_group_stats: crate::metadata::RowGroupStats::new(&schema),
             row_group_stats: Vec::new(),
         })
-    }
-
-    /// Write file header (magic + metadata)
-    fn write_header(writer: &mut W, schema: &Schema) -> Result<()> {
-        use byteorder::{LittleEndian, WriteBytesExt};
-
-        // Magic bytes
-        writer.write_all(crate::QRD_MAGIC)?;
-        // Version
-        writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
-        writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
-        // Schema ID
-        writer.write_u32::<LittleEndian>(schema.schema_id)?;
-        // Created timestamp
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u32;
-        writer.write_u32::<LittleEndian>(now)?;
-        // Placeholder for row count — sentinel means "read from footer"
-        writer.write_u32::<LittleEndian>(u32::MAX)?;
-        // Column count
-        writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
-        // Row group size
-        writer.write_u32::<LittleEndian>(crate::DEFAULT_ROW_GROUP_SIZE)?;
-        // Reserved
-        writer.write_u32::<LittleEndian>(0)?;
-
-        Ok(())
     }
 
     /// Ingest a row (as column values)

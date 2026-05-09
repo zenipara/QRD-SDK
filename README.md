@@ -292,7 +292,7 @@ qrd/
 ### Build
 
 ```bash
-git clone https://github.com/nafalfaturizki/qrd-sdk.git
+git clone https://github.com/zenipara/QRD-SDK.git
 cd qrd-sdk/core/qrd-core
 cargo build --release
 ```

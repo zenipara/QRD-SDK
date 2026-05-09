@@ -11,6 +11,7 @@ use std::rc::Rc;
 use std::slice;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
 
 extern "C" {
@@ -21,24 +22,26 @@ static TEMP_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 struct SharedVecWriter {
-    buffer: Rc<RefCell<Vec<u8>>>,
+    /// Thread-safe buffer using Arc<Mutex<>> instead of Rc<RefCell<>>
+    /// This allows safe sharing across thread boundaries if needed
+    buffer: Arc<Mutex<Vec<u8>>>,
 }
 
 impl SharedVecWriter {
     fn new() -> Self {
         Self {
-            buffer: Rc::new(RefCell::new(Vec::new())),
+            buffer: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     fn bytes(&self) -> Vec<u8> {
-        self.buffer.borrow().clone()
+        self.buffer.lock().unwrap().clone()
     }
 }
 
 impl Write for SharedVecWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.buffer.borrow_mut().extend_from_slice(buf);
+        self.buffer.lock().unwrap().extend_from_slice(buf);
         Ok(buf.len())
     }
 

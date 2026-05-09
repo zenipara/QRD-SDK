@@ -34,11 +34,11 @@ crc32fast = "1.3"
 sha2 = "0.10"
 aes-gcm = "0.10"
 hkdf = "0.12"
+argon2 = "0.5"
 rand = "0.8"
 reed-solomon-erasure = "6.0"
 
-# Encoding
-tracing = "0.1"
+# Encoding & Error Handling
 thiserror = "1.0"
 
 # Testing

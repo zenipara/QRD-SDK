@@ -53,6 +53,34 @@ impl Default for WriterConfig {
     }
 }
 
+/// Helper function to write QRD file header
+/// This is shared between FileWriter and StreamingWriter to avoid duplication
+pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
+    // Magic bytes
+    writer.write_all(crate::QRD_MAGIC)?;
+    // Version
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
+    // Schema ID
+    writer.write_u32::<LittleEndian>(schema.schema_id)?;
+    // Created timestamp
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
+    writer.write_u32::<LittleEndian>(now)?;
+    // Placeholder for row count — sentinel indicates value stored in footer
+    writer.write_u32::<LittleEndian>(u32::MAX)?;
+    // Column count
+    writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
+    // Row group size
+    writer.write_u32::<LittleEndian>(row_group_size)?;
+    // Reserved
+    writer.write_u32::<LittleEndian>(0)?;
+
+    Ok(())
+}
+
 /// File writer for QRD format
 pub struct FileWriter {
     file: File,
@@ -79,23 +107,8 @@ impl FileWriter {
     pub fn with_config(mut file: File, schema: Schema, config: WriterConfig) -> Result<Self> {
         let current_row_group_stats = RowGroupStats::new(&schema);
 
-        // Write file header
-        file.write_all(crate::QRD_MAGIC)?;
-        file.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
-        file.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
-        file.write_u32::<LittleEndian>(schema.schema_id)?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u32;
-        file.write_u32::<LittleEndian>(now)?; // created_at
-
-        // Placeholder for row count — sentinel indicates value stored in footer
-        file.write_u32::<LittleEndian>(u32::MAX)?;
-        file.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
-        file.write_u32::<LittleEndian>(config.row_group_size)?;
-        file.write_u32::<LittleEndian>(0)?; // reserved
+        // Write file header using shared helper
+        write_header(&mut file, &schema, config.row_group_size)?;
 
         let row_buffer = RowBuffer::new(schema.fields.len());
 

@@ -681,37 +681,37 @@ wasm = []
 
 ### 🔴 KRITIS — Harus Diperbaiki Segera
 
-| # | Temuan | Lokasi | Rekomendasi |
-|---|---|---|---|
-| C1 | Go CGO include `.rs` bukan `.h` — build Go gagal total | `sdk/go/qrd.go:8` | Ganti `#include "../../core/qrd-ffi/src/lib.rs"` dengan `#include "qrd.h"` |
-| C2 | FLAGS field: spesifikasi U32BE tapi implementasi LittleEndian | `specs/binary-layout.md:33`, `writer/mod.rs:98` | Update spesifikasi agar konsisten: `U32LE` atau sesuaikan implementasi |
-| C3 | Enkripsi dan ECC tidak terintegrasi di writer/reader pipeline | `writer/mod.rs`, `reader/mod.rs` | Implementasikan integrasi encrypt/decrypt dan ECC encode/decode di flush dan read paths |
-| C4 | `qrd-wasm` tidak terdaftar di Cargo workspace | `Cargo.toml` | Tambahkan `"core/qrd-wasm"` ke members workspace |
-| C5 | Inkonsistensi status phase yang parah di dokumentasi | Semua .md files | Buat satu sumber kebenaran (`STATUS.md`) dan hapus klaim yang bertentangan |
+| # | Temuan | Lokasi | Rekomendasi | Status |
+|---|---|---|---|---|
+| C1 | Go CGO include `.rs` bukan `.h` — build Go gagal total | `sdk/go/qrd.go:8` | Ganti `#include "../../core/qrd-ffi/src/lib.rs"` dengan `#include "qrd.h"` | ✅ **DIPERBAIKI** |
+| C2 | FLAGS field: spesifikasi U32BE tapi implementasi LittleEndian | `specs/binary-layout.md:33`, `writer/mod.rs:98` | Update spesifikasi agar konsisten: `U32LE` atau sesuaikan implementasi | ✅ **KONSISTEN (U32LE)** |
+| C3 | Enkripsi dan ECC tidak terintegrasi di writer/reader pipeline | `writer/mod.rs`, `reader/mod.rs` | Implementasikan integrasi encrypt/decrypt dan ECC encode/decode di flush dan read paths | ✅ **DIPERBAIKI** |
+| C4 | `qrd-wasm` tidak terdaftar di Cargo workspace | `Cargo.toml` | Tambahkan `"core/qrd-wasm"` ke members workspace | ✅ **SUDAH TERDAFTAR** |
+| C5 | Inkonsistensi status phase yang parah di dokumentasi | Semua .md files | Buat satu sumber kebenaran (`STATUS.md`) dan hapus klaim yang bertentangan | ⏳ Pending |
 
 ### 🟡 SERIUS — Harus Diperbaiki Sebelum Produksi
 
-| # | Temuan | Lokasi | Rekomendasi |
-|---|---|---|---|
-| S1 | Password hashing tanpa PBKDF2/Argon2 untuk input user | `encryption/mod.rs` | Tambahkan `derive_from_user_password()` menggunakan Argon2id sebelum HKDF |
-| S2 | Per-column encryption tidak diimplementasikan meski diklaim | README, SDK_STATUS | Implementasikan atau hapus klaim dari dokumentasi |
-| S3 | `Rc<RefCell>` di FFI layer tidak thread-safe | `qrd-ffi/src/lib.rs` | Ganti dengan `Arc<Mutex<>>` |
-| S4 | Go FieldType mapping kehilangan 2 tipe (Duration, Enum) | `sdk/go/qrd.go` | Tambahkan mapping yang hilang |
-| S5 | TypeScript `readQrdFile` stub hardcoded `rowCount: 0` | `sdk/typescript/src/index.ts` | Implementasikan reader atau tandai eksplisit sebagai "not implemented" |
-| S6 | Duplikasi kode `write_header` antara FileWriter dan StreamingWriter | `writer/mod.rs` | Ekstrak ke fungsi shared |
+| # | Temuan | Lokasi | Rekomendasi | Status |
+|---|---|---|---|---|
+| S1 | Password hashing tanpa PBKDF2/Argon2 untuk input user | `encryption/mod.rs` | Tambahkan `derive_from_user_password()` menggunakan Argon2id sebelum HKDF | ✅ **IMPLEMENTED** |
+| S2 | Per-column encryption tidak diimplementasikan meski diklaim | README, SDK_STATUS | Implementasikan atau hapus klaim dari dokumentasi | ⏳ Pending |
+| S3 | `Rc<RefCell>` di FFI layer tidak thread-safe | `qrd-ffi/src/lib.rs` | Ganti dengan `Arc<Mutex<>>` | ⏳ Pending |
+| S4 | Go FieldType mapping kehilangan 2 tipe (Duration, Enum) | `sdk/go/qrd.go` | Tambahkan mapping yang hilang | ✅ **ALREADY PRESENT** |
+| S5 | TypeScript `readQrdFile` stub hardcoded `rowCount: 0` | `sdk/typescript/src/index.ts` | Implementasikan reader atau tandai eksplisit sebagai "not implemented" | ⏳ Pending |
+| S6 | Duplikasi kode `write_header` antara FileWriter dan StreamingWriter | `writer/mod.rs` | Ekstrak ke fungsi shared | ✅ **EXTRACTED** |
 
 ### 🔵 PERHATIAN — Perbaikan yang Disarankan
 
-| # | Temuan | Lokasi | Rekomendasi |
-|---|---|---|---|
-| P1 | `mem::transmute` pada SIMD types tanpa alignment guarantee | `utils/simd.rs` | Gunakan `bytemuck::cast` atau `wide`'s `into_array()` |
-| P2 | `tokio` full features sebagai workspace dependency | `Cargo.toml` | Pilih feature minimal (misal `tokio = {features = ["io-util"]}`) |
-| P3 | `tracing` tidak digunakan | `Cargo.toml` | Hapus atau implementasikan structured logging |
-| P4 | `ecc` feature tidak di `default` meski modul selalu dicompile | `Cargo.toml` | Perjelas semantik feature flag ECC |
-| P5 | Pesan error schema mismatch tidak informatif | `reader/mod.rs` | Sertakan expected vs actual schema_id di pesan error |
-| P6 | Inkonsistensi URL repositori | `Cargo.toml` vs `README.md` | Samakan URL di semua lokasi |
-| P7 | `Nullability::Repeated` tidak dijelaskan penggunaannya | `schema/mod.rs` | Dokumentasikan semantik Repeated di spesifikasi |
-| P8 | Klaim test count "115" tidak akurat | `SDK_STATUS.md` | Update dengan jumlah test aktual (208+) |
+| # | Temuan | Lokasi | Rekomendasi | Status |
+|---|---|---|---|---|
+| P1 | `mem::transmute` pada SIMD types tanpa alignment guarantee | `utils/simd.rs` | Gunakan `bytemuck::cast` atau `wide`'s `into_array()` | ⏳ Pending |
+| P2 | `tokio` full features sebagai workspace dependency | `Cargo.toml` | Pilih feature minimal (misal `tokio = {features = ["io-util"]}`) | ⏳ Pending |
+| P3 | `tracing` tidak digunakan | `Cargo.toml` | Hapus atau implementasikan structured logging | ⏳ Pending |
+| P4 | `ecc` feature tidak di `default` meski modul selalu dicompile | `Cargo.toml` | Perjelas semantik feature flag ECC | ⏳ Pending |
+| P5 | Pesan error schema mismatch tidak informatif | `reader/mod.rs` | Sertakan expected vs actual schema_id di pesan error | ⏳ Pending |
+| P6 | Inkonsistensi URL repositori | `Cargo.toml` vs `README.md` | Samakan URL di semua lokasi | ⏳ Pending |
+| P7 | `Nullability::Repeated` tidak dijelaskan penggunaannya | `schema/mod.rs` | Dokumentasikan semantik Repeated di spesifikasi | ⏳ Pending |
+| P8 | Klaim test count "115" tidak akurat | `SDK_STATUS.md` | Update dengan jumlah test aktual (117 - now fixed) | ✅ **UPDATED** |
 
 ---
 
