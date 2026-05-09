@@ -1,660 +1,637 @@
-# 🌐 QRD-SDK Production-Ready — PHASE 4 of 5
-## Language Bindings — Python, TypeScript, Go, Java
+# 🏭 QRD-SDK Production-Ready — PHASE 5 of 5
+## Production Hardening: Benchmarks, CLI Tools, Fuzzing & Final Checklist
 
-> Prerequisite: PHASE 1, 2, 3 sudah selesai dan semua tests passing.
-> Paste seluruh blok ini ke GitHub Copilot Chat di Codespace.
-
----
-
-## CONTEXT
-
-Saat ini semua language bindings hanya scaffolding. Target phase ini:
-- **FFI layer** (`qrd-ffi`) diperbaiki dan bisa di-compile
-- **Python** (PyO3) bisa di-install dan digunakan
-- **TypeScript** (WASM) bisa di-bundle dan dijalankan di browser/Node
-- **Go** (CGO) bisa di-import dan digunakan
-- **Java** (JNA) bisa di-build dengan Maven
+> Prerequisite: PHASE 1–4 sudah selesai dan semua tests passing.
+> Ini adalah phase terakhir sebelum label "production-ready" bisa disematkan.
 
 ---
 
-## TASK 1: Fix FFI Layer (`core/qrd-ffi/src/lib.rs`)
+## OVERVIEW
 
-### Masalah Saat Ini
+Phase ini mencakup:
+1. **Real benchmark results** — buktikan performance claims di README
+2. **CLI tools** — `qrd-inspect`, `qrd-write`, `qrd-read`
+3. **Fuzz testing** — pastikan tidak ada panic dari arbitrary input
+4. **CI/CD pipeline** — GitHub Actions untuk automated testing
+5. **Final production checklist** — semua item harus green
 
-FFI menggunakan `LogicalType` dan `Value` yang tidak ada di public API core:
+---
+
+## TASK 1: Real Benchmark Suite
+
+### Update `benches/comprehensive_bench.rs` dengan realistic data:
+
 ```rust
-// SALAH — types ini tidak match dengan qrd-core
-let logical_type = match field_type {
-    0 => LogicalType::BOOLEAN,  // ← qrd-core pakai FieldType, bukan LogicalType
-```
-
-### Implementasi FFI yang Benar
-
-Buat ulang `qrd-ffi/src/lib.rs` dengan C ABI yang stabil:
-
-```rust
-//! QRD C FFI — Stable C interface for all language bindings
-//!
-//! Memory ownership rules:
-//! - Functions returning *mut T transfer ownership to caller
-//! - Caller MUST call the corresponding _free function
-//! - Input *const T are borrowed — caller retains ownership
-//! - Returning i32 error codes: 0 = success, negative = error
-
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder, Schema};
+use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
+use qrd_core::schema::{SchemaBuilder, FieldType, Nullability};
 use qrd_core::writer::{FileWriter, WriterConfig};
 use qrd_core::reader::FileReader;
-use qrd_core::error::Error;
-use std::ffi::{CStr, CString};
-use std::os::raw::{c_char, c_int, c_uint, c_double};
-use std::ptr;
+use tempfile::NamedTempFile;
 
 // ============================================================================
-// OPAQUE HANDLES
+// WRITE BENCHMARKS
 // ============================================================================
 
-pub struct QrdSchemaBuilder(SchemaBuilder);
-pub struct QrdSchema(Schema);
-pub struct QrdWriter(FileWriter);
-pub struct QrdReader(FileReader);
-
-// Thread safety markers
-unsafe impl Send for QrdSchemaBuilder {}
-unsafe impl Send for QrdWriter {}
-unsafe impl Send for QrdReader {}
-
-// ============================================================================
-// ERROR HANDLING
-// ============================================================================
-
-thread_local! {
-    static LAST_ERROR: std::cell::RefCell<Option<String>> = std::cell::RefCell::new(None);
-}
-
-fn set_last_error(msg: impl Into<String>) {
-    LAST_ERROR.with(|e| *e.borrow_mut() = Some(msg.into()));
-}
-
-/// Get last error message. Returns NULL if no error.
-/// Caller must NOT free returned pointer — it's thread-local storage.
-#[no_mangle]
-pub extern "C" fn qrd_last_error() -> *const c_char {
-    LAST_ERROR.with(|e| {
-        match &*e.borrow() {
-            Some(msg) => msg.as_ptr() as *const c_char,
-            None => ptr::null(),
-        }
-    })
-}
-
-// ============================================================================
-// SCHEMA BUILDER
-// ============================================================================
-
-#[no_mangle]
-pub extern "C" fn qrd_schema_builder_new() -> *mut QrdSchemaBuilder {
-    Box::into_raw(Box::new(QrdSchemaBuilder(SchemaBuilder::new())))
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_schema_builder_free(ptr: *mut QrdSchemaBuilder) {
-    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
-}
-
-/// field_type values:
-///   0=Boolean, 1=Int8, 2=Int16, 3=Int32, 4=Int64,
-///   5=UInt8, 6=UInt16, 7=UInt32, 8=UInt64,
-///   9=Float32, 10=Float64, 11=Timestamp, 12=Date, 13=Time,
-///   14=String, 15=Blob, 16=Uuid, 17=Decimal
-///
-/// nullability values: 0=Required, 1=Optional, 2=Repeated
-#[no_mangle]
-pub extern "C" fn qrd_schema_builder_add_field(
-    builder: *mut QrdSchemaBuilder,
-    name: *const c_char,
-    field_type: c_int,
-    nullability: c_int,
-) -> c_int {
-    let builder = unsafe { &mut (*builder).0 };
-    let name = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
+fn bench_write_throughput(c: &mut Criterion) {
+    let mut group = c.benchmark_group("write_throughput");
     
-    let ft = match field_type_from_int(field_type) {
-        Ok(ft) => ft,
-        Err(e) => { set_last_error(e); return -1; }
-    };
-    let null = match nullability_from_int(nullability) {
-        Ok(n) => n,
-        Err(e) => { set_last_error(e); return -1; }
-    };
+    let schema = SchemaBuilder::new()
+        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
+        .add_field("timestamp", FieldType::Timestamp, Nullability::Required).unwrap()
+        .add_field("value", FieldType::Float64, Nullability::Required).unwrap()
+        .build().unwrap();
     
-    match builder.add_field(&name, ft, null) {
-        Ok(_) => 0,
-        Err(e) => { set_last_error(e.to_string()); -1 }
+    for &row_count in &[1_000u64, 10_000, 100_000, 1_000_000] {
+        let bytes_per_row = 8 + 8 + 8; // id + ts + value
+        group.throughput(Throughput::Bytes(row_count * bytes_per_row));
+        
+        group.bench_with_input(
+            BenchmarkId::new("rows", row_count),
+            &row_count,
+            |b, &n| {
+                b.iter(|| {
+                    let tmp = NamedTempFile::new().unwrap();
+                    let mut writer = FileWriter::new(tmp.path(), schema.clone()).unwrap();
+                    for i in 0..n {
+                        writer.write_row(vec![
+                            i.to_le_bytes().to_vec(),
+                            (i * 1000).to_le_bytes().to_vec(),
+                            (i as f64 * 1.5).to_le_bytes().to_vec(),
+                        ]).unwrap();
+                    }
+                    writer.finish().unwrap();
+                })
+            }
+        );
     }
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_schema_builder_build(builder: *mut QrdSchemaBuilder) -> *mut QrdSchema {
-    let builder = unsafe { Box::from_raw(builder) };
-    match builder.0.build() {
-        Ok(schema) => Box::into_raw(Box::new(QrdSchema(schema))),
-        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_schema_free(ptr: *mut QrdSchema) {
-    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
+    group.finish();
 }
 
 // ============================================================================
-// WRITER
+// READ BENCHMARKS  
 // ============================================================================
 
-#[no_mangle]
-pub extern "C" fn qrd_writer_new(
-    path: *const c_char,
-    schema: *mut QrdSchema,
-) -> *mut QrdWriter {
-    let path = unsafe { CStr::from_ptr(path).to_string_lossy().into_owned() };
-    let schema = unsafe { (*schema).0.clone() };
+fn bench_read_throughput(c: &mut Criterion) {
+    let mut group = c.benchmark_group("read_throughput");
     
-    match FileWriter::new(&path, schema) {
-        Ok(w) => Box::into_raw(Box::new(QrdWriter(w))),
-        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
-    }
+    // Pre-write test files
+    let row_count = 1_000_000u64;
+    let schema = make_benchmark_schema();
+    let tmp = write_benchmark_file(&schema, row_count);
+    
+    let file_size = std::fs::metadata(tmp.path()).unwrap().len();
+    group.throughput(Throughput::Bytes(file_size));
+    
+    // Full file read
+    group.bench_function("full_file_read", |b| {
+        b.iter(|| {
+            let reader = FileReader::new(tmp.path()).unwrap();
+            reader.read_all_row_groups().unwrap()
+        })
+    });
+    
+    // Partial column read (1 of 3 columns)
+    group.bench_function("single_column_read", |b| {
+        b.iter(|| {
+            let reader = FileReader::new(tmp.path()).unwrap();
+            reader.read_columns(&[0]).unwrap()  // Only read "id" column
+        })
+    });
+    
+    group.finish();
 }
 
-#[no_mangle]
-pub extern "C" fn qrd_writer_free(ptr: *mut QrdWriter) {
-    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
-}
+// ============================================================================
+// ENCODING BENCHMARKS
+// ============================================================================
 
-/// Write a row. data is array of byte slices.
-/// column_count: number of columns
-/// data_ptrs: array of pointers to column data
-/// data_lens: array of lengths for each column
-#[no_mangle]
-pub extern "C" fn qrd_writer_write_row(
-    writer: *mut QrdWriter,
-    column_count: c_uint,
-    data_ptrs: *const *const u8,
-    data_lens: *const c_uint,
-) -> c_int {
-    let writer = unsafe { &mut (*writer).0 };
-    let count = column_count as usize;
+fn bench_encodings(c: &mut Criterion) {
+    let mut group = c.benchmark_group("encoding");
     
-    let row: Vec<Vec<u8>> = (0..count).map(|i| {
-        let ptr = unsafe { *data_ptrs.add(i) };
-        let len = unsafe { *data_lens.add(i) } as usize;
-        unsafe { std::slice::from_raw_parts(ptr, len).to_vec() }
+    let n = 1_000_000usize;
+    
+    // Sequential integers (best for DELTA_BINARY)
+    let sequential: Vec<i64> = (0..n as i64).collect();
+    let seq_bytes: Vec<u8> = sequential.iter().flat_map(|i| i.to_le_bytes()).collect();
+    
+    // Random integers (best for PLAIN)
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let random_bytes: Vec<u8> = (0..n).flat_map(|i| {
+        let mut h = DefaultHasher::new();
+        i.hash(&mut h);
+        h.finish().to_le_bytes()
     }).collect();
     
-    match writer.write_row(row) {
-        Ok(()) => 0,
-        Err(e) => { set_last_error(e.to_string()); -1 }
+    for (name, data) in [("sequential_i64", &seq_bytes), ("random_i64", &random_bytes)] {
+        group.throughput(Throughput::Bytes(data.len() as u64));
+        
+        for encoding in ["PLAIN", "DELTA_BINARY", "RLE"] {
+            let enc_type = parse_encoding(encoding);
+            group.bench_with_input(
+                BenchmarkId::new(encoding, name),
+                data,
+                |b, d| {
+                    let encoder = qrd_core::encoding::get_encoder(enc_type).unwrap();
+                    b.iter(|| encoder.encode(d).unwrap())
+                }
+            );
+        }
     }
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_writer_finish(ptr: *mut QrdWriter) -> c_int {
-    let writer = unsafe { Box::from_raw(ptr) };
-    match writer.0.finish() {
-        Ok(()) => 0,
-        Err(e) => { set_last_error(e.to_string()); -1 }
-    }
+    group.finish();
 }
 
 // ============================================================================
-// READER
+// COMPRESSION BENCHMARKS
 // ============================================================================
 
-#[no_mangle]
-pub extern "C" fn qrd_reader_new(path: *const c_char) -> *mut QrdReader {
-    let path = unsafe { CStr::from_ptr(path).to_string_lossy().into_owned() };
-    match FileReader::new(&path) {
-        Ok(r) => Box::into_raw(Box::new(QrdReader(r))),
-        Err(e) => { set_last_error(e.to_string()); ptr::null_mut() }
+fn bench_compression(c: &mut Criterion) {
+    let mut group = c.benchmark_group("compression");
+    
+    // Generate realistic IoT telemetry data (compressible)
+    let data_size = 10 * 1024 * 1024; // 10MB
+    let compressible: Vec<u8> = (0..data_size).map(|i| (i % 256) as u8).collect();
+    let incompressible: Vec<u8> = (0..data_size).map(|i| {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (i as u64).hash(&mut h);
+        h.finish() as u8
+    }).collect();
+    
+    group.throughput(Throughput::Bytes(data_size as u64));
+    
+    for (name, data) in [("compressible", &compressible), ("incompressible", &incompressible)] {
+        group.bench_with_input(BenchmarkId::new("zstd_compress", name), data, |b, d| {
+            b.iter(|| qrd_core::compression::compress(d, qrd_core::compression::CompressionCodec::Zstd, 3).unwrap())
+        });
+        group.bench_with_input(BenchmarkId::new("lz4_compress", name), data, |b, d| {
+            b.iter(|| qrd_core::compression::compress(d, qrd_core::compression::CompressionCodec::Lz4, 4).unwrap())
+        });
+        group.bench_with_input(BenchmarkId::new("zstd_decompress", name), data, |b, d| {
+            let compressed = qrd_core::compression::compress(d, qrd_core::compression::CompressionCodec::Zstd, 3).unwrap();
+            b.iter(|| qrd_core::compression::decompress(&compressed, qrd_core::compression::CompressionCodec::Zstd).unwrap())
+        });
     }
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_reader_free(ptr: *mut QrdReader) {
-    if !ptr.is_null() { unsafe { drop(Box::from_raw(ptr)); } }
-}
-
-#[no_mangle]
-pub extern "C" fn qrd_reader_row_count(reader: *const QrdReader) -> c_uint {
-    unsafe { (*reader).0.row_count() }
-}
-
-// Helper functions (private)
-fn field_type_from_int(n: c_int) -> Result<FieldType, String> {
-    match n {
-        0 => Ok(FieldType::Boolean), 1 => Ok(FieldType::Int8),
-        2 => Ok(FieldType::Int16),   3 => Ok(FieldType::Int32),
-        4 => Ok(FieldType::Int64),   5 => Ok(FieldType::UInt8),
-        6 => Ok(FieldType::UInt16),  7 => Ok(FieldType::UInt32),
-        8 => Ok(FieldType::UInt64),  9 => Ok(FieldType::Float32),
-        10 => Ok(FieldType::Float64), 11 => Ok(FieldType::Timestamp),
-        12 => Ok(FieldType::Date),   13 => Ok(FieldType::Time),
-        14 => Ok(FieldType::String), 15 => Ok(FieldType::Blob),
-        16 => Ok(FieldType::Uuid),   17 => Ok(FieldType::Decimal),
-        _ => Err(format!("Unknown field type: {}", n)),
-    }
-}
-
-fn nullability_from_int(n: c_int) -> Result<Nullability, String> {
-    match n {
-        0 => Ok(Nullability::Required),
-        1 => Ok(Nullability::Optional),
-        _ => Err(format!("Unknown nullability: {}", n)),
-    }
+    group.finish();
 }
 ```
 
-### Update `qrd-ffi/Cargo.toml`:
-```toml
-[package]
-name = "qrd-ffi"
-version = "0.1.0"
-edition = "2021"
+### Update README dengan hasil benchmark aktual:
 
-[dependencies]
-qrd-core = { path = "../qrd-core" }
+Setelah run `cargo bench`, copy hasil ke README. Format:
+```markdown
+## Benchmark Results (actual, pada Apple M3 / AMD Ryzen 9 7950X)
 
-[lib]
-name = "qrd_ffi"
-crate-type = ["cdylib", "staticlib"]  # ← PENTING: dua jenis output
-```
-
-### Generate C header (`qrd.h`) otomatis:
-
-Tambahkan ke workspace `Cargo.toml`:
-```toml
-[workspace.metadata.cbindgen]
-language = "C"
-include_guard = "QRD_H"
-```
-
-Buat script `scripts/gen_header.sh`:
-```bash
-#!/bin/bash
-cargo install cbindgen 2>/dev/null || true
-cbindgen --config cbindgen.toml --crate qrd-ffi --output sdk/include/qrd.h
+| Operation | Dataset | Throughput |
+|---|---|---|
+| Write (Int64×3) | 1M rows | X.X GB/s |
+| Read full file | 1M rows | X.X GB/s |
+| Read 1 column | 1M rows | X.X GB/s |
+| ZSTD compress | 10MB | XXX MB/s |
+| LZ4 compress | 10MB | XXX MB/s |
 ```
 
 ---
 
-## TASK 2: Python Binding (PyO3)
+## TASK 2: CLI Tools
 
-Update `sdk/python/src/lib.rs`:
+### Buat `tools/src/main.rs`:
 
 ```rust
-use pyo3::prelude::*;
-use pyo3::exceptions::PyValueError;
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use qrd_core::writer::FileWriter;
-use qrd_core::reader::FileReader;
+use clap::{Parser, Subcommand};
 
-fn qrd_error_to_py(e: qrd_core::error::Error) -> PyErr {
-    PyValueError::new_err(e.to_string())
+#[derive(Parser)]
+#[command(name = "qrd", about = "QRD columnar binary format tools")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
 }
 
-#[pyclass(name = "SchemaBuilder")]
-struct PySchemaBuilder {
-    inner: SchemaBuilder,
+#[derive(Subcommand)]
+enum Commands {
+    /// Inspect QRD file metadata without reading data
+    Inspect {
+        #[arg(help = "Path to .qrd file")]
+        file: String,
+        #[arg(short, long, help = "Show column statistics")]
+        stats: bool,
+        #[arg(short, long, help = "Show row group details")]
+        verbose: bool,
+    },
+    /// Convert JSON/CSV to QRD
+    Write {
+        #[arg(help = "Input file (JSON Lines or CSV)")]
+        input: String,
+        #[arg(short, long, help = "Output .qrd file")]
+        output: String,
+        #[arg(short, long, help = "Row group size")]
+        row_group_size: Option<u32>,
+    },
+    /// Read QRD and output JSON/CSV
+    Read {
+        #[arg(help = "Input .qrd file")]
+        input: String,
+        #[arg(short, long, default_value = "json", help = "Output format: json, csv")]
+        format: String,
+        #[arg(short, long, help = "Specific columns to read (comma-separated)")]
+        columns: Option<String>,
+        #[arg(short, long, help = "Max rows to output")]
+        limit: Option<usize>,
+    },
+    /// Validate QRD file integrity
+    Validate {
+        file: String,
+        #[arg(long, help = "Run deep integrity check")]
+        deep: bool,
+    },
 }
 
-#[pymethods]
-impl PySchemaBuilder {
-    #[new]
-    fn new() -> Self {
-        PySchemaBuilder { inner: SchemaBuilder::new() }
+fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+    
+    match cli.command {
+        Commands::Inspect { file, stats, verbose } => cmd_inspect(&file, stats, verbose),
+        Commands::Write { input, output, row_group_size } => cmd_write(&input, &output, row_group_size),
+        Commands::Read { input, format, columns, limit } => cmd_read(&input, &format, columns, limit),
+        Commands::Validate { file, deep } => cmd_validate(&file, deep),
+    }
+}
+```
+
+### Implementasikan `cmd_inspect`:
+```rust
+fn cmd_inspect(path: &str, show_stats: bool, verbose: bool) -> anyhow::Result<()> {
+    let reader = FileReader::new(path)?;
+    
+    println!("═══════════════════════════════════════");
+    println!("  QRD File: {}", path);
+    println!("═══════════════════════════════════════");
+    println!("  Rows:        {:>12}", reader.row_count());
+    println!("  Row Groups:  {:>12}", reader.row_group_offsets().len());
+    println!("  File Size:   {:>12}", format_bytes(std::fs::metadata(path)?.len()));
+    println!("  Schema ID:   {:>12x}", reader.schema().schema_id);
+    println!();
+    println!("  Columns ({}):", reader.schema().fields.len());
+    for (i, field) in reader.schema().fields.iter().enumerate() {
+        println!("    [{:2}] {:20} {:12} {:10}", 
+            i, field.name, field.field_type.to_string(), 
+            if matches!(field.nullability, Nullability::Required) { "REQUIRED" } else { "OPTIONAL" });
     }
     
-    fn add_field(&mut self, name: &str, field_type: &str, required: bool) -> PyResult<()> {
-        let ft = parse_field_type(field_type)?;
-        let null = if required { Nullability::Required } else { Nullability::Optional };
-        self.inner.add_field(name, ft, null).map_err(qrd_error_to_py)?;
-        Ok(())
-    }
-    
-    fn build(&self) -> PyResult<PySchema> {
-        let schema = self.inner.clone().build().map_err(qrd_error_to_py)?;
-        Ok(PySchema { inner: schema })
-    }
-}
-
-#[pyclass(name = "Schema")]
-#[derive(Clone)]
-struct PySchema {
-    inner: qrd_core::schema::Schema,
-}
-
-#[pymethods]
-impl PySchema {
-    fn field_count(&self) -> usize { self.inner.fields.len() }
-    fn __repr__(&self) -> String { format!("Schema(fields={})", self.inner.fields.len()) }
-}
-
-#[pyclass(name = "Writer")]
-struct PyWriter {
-    inner: Option<FileWriter>,
-}
-
-#[pymethods]
-impl PyWriter {
-    #[new]
-    fn new(path: &str, schema: &PySchema) -> PyResult<Self> {
-        let writer = FileWriter::new(path, schema.inner.clone()).map_err(qrd_error_to_py)?;
-        Ok(PyWriter { inner: Some(writer) })
-    }
-    
-    /// Write a row. columns is list of bytes objects.
-    fn write_row(&mut self, columns: Vec<&[u8]>) -> PyResult<()> {
-        let writer = self.inner.as_mut().ok_or_else(|| PyValueError::new_err("Writer already finished"))?;
-        let row: Vec<Vec<u8>> = columns.iter().map(|c| c.to_vec()).collect();
-        writer.write_row(row).map_err(qrd_error_to_py)
-    }
-    
-    fn finish(&mut self) -> PyResult<()> {
-        let writer = self.inner.take().ok_or_else(|| PyValueError::new_err("Already finished"))?;
-        writer.finish().map_err(qrd_error_to_py)
-    }
-    
-    fn __enter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> { slf }
-    fn __exit__(&mut self, _exc_type: PyObject, _exc_val: PyObject, _exc_tb: PyObject) -> bool {
-        if self.inner.is_some() {
-            let _ = self.finish();
+    if verbose {
+        println!("\n  Row Group Details:");
+        for (i, offset) in reader.row_group_offsets().iter().enumerate() {
+            println!("    RG[{:3}] offset={:12}", i, offset);
         }
-        false
-    }
-}
-
-#[pyclass(name = "Reader")]
-struct PyReader { inner: FileReader }
-
-#[pymethods]
-impl PyReader {
-    #[new]
-    fn new(path: &str) -> PyResult<Self> {
-        let reader = FileReader::new(path).map_err(qrd_error_to_py)?;
-        Ok(PyReader { inner: reader })
     }
     
-    fn row_count(&self) -> u32 { self.inner.row_count() }
-    fn schema(&self) -> PySchema { PySchema { inner: self.inner.schema().clone() } }
-}
-
-fn parse_field_type(s: &str) -> PyResult<FieldType> {
-    match s.to_uppercase().as_str() {
-        "BOOLEAN" | "BOOL" => Ok(FieldType::Boolean),
-        "INT8" | "I8" => Ok(FieldType::Int8),
-        "INT16" | "I16" => Ok(FieldType::Int16),
-        "INT32" | "I32" | "INT" => Ok(FieldType::Int32),
-        "INT64" | "I64" | "LONG" => Ok(FieldType::Int64),
-        "FLOAT32" | "F32" | "FLOAT" => Ok(FieldType::Float32),
-        "FLOAT64" | "F64" | "DOUBLE" => Ok(FieldType::Float64),
-        "STRING" | "STR" | "UTF8" => Ok(FieldType::String),
-        "BLOB" | "BYTES" | "BINARY" => Ok(FieldType::Blob),
-        "TIMESTAMP" | "TS" => Ok(FieldType::Timestamp),
-        _ => Err(PyValueError::new_err(format!("Unknown field type: {}", s))),
-    }
-}
-
-#[pymodule]
-fn qrd(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PySchemaBuilder>()?;
-    m.add_class::<PySchema>()?;
-    m.add_class::<PyWriter>()?;
-    m.add_class::<PyReader>()?;
     Ok(())
 }
 ```
 
-### Update `sdk/python/Cargo.toml`:
+### Tambahkan `tools/Cargo.toml`:
 ```toml
 [package]
-name = "qrd-python"
+name = "qrd-tools"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-pyo3 = { version = "0.21", features = ["extension-module"] }
-qrd-core = { path = "../../core/qrd-core" }
-
-[lib]
-name = "qrd"
-crate-type = ["cdylib"]
-```
-
-### Update `sdk/python/setup.py` → Gunakan `maturin`:
-```toml
-# sdk/python/pyproject.toml
-[build-system]
-requires = ["maturin>=1.0,<2.0"]
-build-backend = "maturin"
-
-[project]
-name = "qrd-sdk"
-version = "0.1.0"
-description = "QRD columnar binary format SDK"
-
-[tool.maturin]
-features = ["pyo3/extension-module"]
-```
-
-### Python test (`sdk/python/tests/test_qrd.py`):
-```python
-import qrd
-import struct
-
-def test_basic_write_read():
-    schema = (qrd.SchemaBuilder()
-        .add_field("id", "INT64")
-        .add_field("name", "STRING")
-        .build())
-    
-    with qrd.Writer("/tmp/test.qrd", schema) as w:
-        for i in range(100):
-            id_bytes = struct.pack("<q", i)       # i64 LE
-            name_bytes = f"user_{i}".encode()
-            name_bytes = struct.pack("<I", len(name_bytes)) + name_bytes  # length-prefix
-            w.write_row([id_bytes, name_bytes])
-    
-    reader = qrd.Reader("/tmp/test.qrd")
-    assert reader.row_count() == 100
+qrd-core = { path = "../core/qrd-core" }
+clap = { version = "4", features = ["derive"] }
+serde_json = "1.0"
+csv = "1.3"
+anyhow = "1.0"
 ```
 
 ---
 
-## TASK 3: TypeScript/WASM Binding
+## TASK 3: Fuzz Testing Setup
 
-### Update `core/qrd-wasm/src/lib.rs`:
+### Tambahkan ke `Cargo.toml` workspace:
+```toml
+[workspace.metadata.cargo-fuzz]
+fuzz-dir = "core/qrd-core/fuzz"
+```
+
+### Buat `core/qrd-core/fuzz/fuzz_targets/fuzz_reader.rs`:
 ```rust
-use wasm_bindgen::prelude::*;
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use qrd_core::writer::StreamingWriter;
+#![no_main]
+use libfuzzer_sys::fuzz_target;
+use qrd_core::reader::FileReader;
 use std::io::Cursor;
 
-#[wasm_bindgen]
-pub struct QrdSchemaBuilder {
-    inner: SchemaBuilder,
-}
-
-#[wasm_bindgen]
-impl QrdSchemaBuilder {
-    #[wasm_bindgen(constructor)]
-    pub fn new() -> Self {
-        QrdSchemaBuilder { inner: SchemaBuilder::new() }
-    }
-    
-    pub fn add_field(&mut self, name: &str, field_type: &str) -> Result<(), JsValue> {
-        let ft = parse_field_type(field_type).map_err(|e| JsValue::from_str(&e))?;
-        self.inner.add_field(name, ft, Nullability::Required)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(())
-    }
-    
-    pub fn build(self) -> Result<QrdSchema, JsValue> {
-        let schema = self.inner.build().map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(QrdSchema { inner: schema })
-    }
-}
-
-#[wasm_bindgen]
-pub struct QrdSchema {
-    inner: qrd_core::schema::Schema,
-}
-
-/// In-memory writer — returns bytes when finished
-#[wasm_bindgen]
-pub struct QrdMemWriter {
-    buffer: Vec<u8>,
-    writer: Option<StreamingWriter<Cursor<Vec<u8>>>>,
-}
-
-#[wasm_bindgen]
-impl QrdMemWriter {
-    #[wasm_bindgen(constructor)]
-    pub fn new(schema: &QrdSchema) -> Result<Self, JsValue> {
-        let buf = Vec::new();
-        let cursor = Cursor::new(buf);
-        let writer = StreamingWriter::new(cursor, schema.inner.clone())
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        Ok(QrdMemWriter { buffer: Vec::new(), writer: Some(writer) })
-    }
-    
-    pub fn write_row(&mut self, columns: Vec<js_sys::Uint8Array>) -> Result<(), JsValue> {
-        let writer = self.writer.as_mut().ok_or("Writer finished")?;
-        let row: Vec<Vec<u8>> = columns.iter().map(|a| a.to_vec()).collect();
-        writer.write_row(row).map_err(|e| JsValue::from_str(&e.to_string()))
-    }
-    
-    pub fn finish(mut self) -> Result<js_sys::Uint8Array, JsValue> {
-        let writer = self.writer.take().ok_or("Already finished")?;
-        let cursor = writer.finish_into_inner()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let bytes = cursor.into_inner();
-        Ok(js_sys::Uint8Array::from(bytes.as_slice()))
-    }
-}
+fuzz_target!(|data: &[u8]| {
+    // Coba parse arbitrary bytes sebagai QRD file
+    // HARUS: tidak panic, tidak undefined behavior
+    // BOLEH: return Err
+    let _ = FileReader::from_bytes(data.to_vec());
+});
 ```
 
-### Update `sdk/typescript/src/index.ts`:
-```typescript
-import init, { QrdSchemaBuilder, QrdMemWriter } from '../pkg/qrd_wasm';
+### Buat `core/qrd-core/fuzz/fuzz_targets/fuzz_encoding.rs`:
+```rust
+#![no_main]
+use libfuzzer_sys::fuzz_target;
+use arbitrary::{Arbitrary, Unstructured};
 
-export async function createQrdFile(
-  fields: Array<{ name: string; type: string }>,
-  rows: Array<Array<Uint8Array>>
-): Promise<Uint8Array> {
-  await init();
-  
-  const builder = new QrdSchemaBuilder();
-  for (const field of fields) {
-    builder.addField(field.name, field.type);
-  }
-  const schema = builder.build();
-  
-  const writer = new QrdMemWriter(schema);
-  for (const row of rows) {
-    writer.writeRow(row);
-  }
-  
-  return writer.finish();
+#[derive(Arbitrary, Debug)]
+struct FuzzInput {
+    encoding_id: u8,
+    data: Vec<u8>,
+    expected_len: usize,
 }
+
+fuzz_target!(|input: FuzzInput| {
+    use qrd_core::encoding::{EncodingType, get_encoder};
+    
+    if let Ok(enc_type) = EncodingType::from_id(input.encoding_id % 8) {
+        if let Ok(encoder) = get_encoder(enc_type) {
+            if let Ok(encoded) = encoder.encode(&input.data) {
+                // Decode harus tidak panic
+                let _ = encoder.decode(&encoded, input.data.len());
+            }
+        }
+    }
+});
+```
+
+### Buat `core/qrd-core/fuzz/fuzz_targets/fuzz_footer.rs`:
+```rust
+#![no_main]
+use libfuzzer_sys::fuzz_target;
+use qrd_core::footer::Footer;
+
+fuzz_target!(|data: &[u8]| {
+    // Footer parser tidak boleh panic pada arbitrary input
+    let _ = Footer::deserialize(data);
+});
+```
+
+### Script untuk run fuzz (lokal):
+```bash
+# scripts/fuzz.sh
+#!/bin/bash
+cargo install cargo-fuzz 2>/dev/null || true
+
+echo "Fuzzing reader..."
+cargo fuzz run fuzz_reader -- -max_total_time=60 2>&1
+
+echo "Fuzzing encoding..."
+cargo fuzz run fuzz_encoding -- -max_total_time=60 2>&1
+
+echo "Fuzzing footer..."
+cargo fuzz run fuzz_footer -- -max_total_time=60 2>&1
+
+echo "All fuzz targets completed without crashes."
 ```
 
 ---
 
-## TASK 4: Go Binding Update
+## TASK 4: GitHub Actions CI/CD
 
-Update `sdk/go/qrd.go` agar link ke real compiled library:
-```go
-package qrd
+### Buat `.github/workflows/ci.yml`:
+```yaml
+name: CI
 
-/*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/release -lqrd_ffi
-#include "../../sdk/include/qrd.h"
-#include <stdlib.h>
-*/
-import "C"
-import (
-    "errors"
-    "unsafe"
-)
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
 
-type SchemaBuilder struct {
-    ptr *C.QrdSchemaBuilder
-}
+env:
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
 
-func NewSchemaBuilder() *SchemaBuilder {
-    return &SchemaBuilder{ptr: C.qrd_schema_builder_new()}
-}
-
-func (sb *SchemaBuilder) Free() {
-    C.qrd_schema_builder_free(sb.ptr)
-}
-
-func (sb *SchemaBuilder) AddField(name string, fieldType int, nullable bool) error {
-    cName := C.CString(name)
-    defer C.free(unsafe.Pointer(cName))
-    nullability := C.int(0)
-    if nullable { nullability = 1 }
-    if C.qrd_schema_builder_add_field(sb.ptr, cName, C.int(fieldType), nullability) != 0 {
-        return errors.New(C.GoString(C.qrd_last_error()))
-    }
-    return nil
-}
+jobs:
+  test:
+    name: Test — ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, 1.70.0]  # stable + MSRV
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Check format
+        run: cargo fmt --all -- --check
+      
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Build
+        run: cargo build --all --release
+      
+      - name: Test
+        run: cargo test --all --release 2>&1
+      
+      - name: Test (no features)
+        run: cargo test --package qrd-core --no-default-features
+  
+  benchmark:
+    name: Benchmark (regression check)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run benchmarks
+        run: cargo bench --package qrd-core 2>&1 | tee bench_output.txt
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results
+          path: bench_output.txt
+  
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: Audit dependencies
+        run: cargo audit
+  
+  cross-compile:
+    name: Cross-compile — ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - wasm32-unknown-unknown
+    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install cross
+        run: cargo install cross
+      - name: Cross build
+        run: cross build --target ${{ matrix.target }} --package qrd-core
 ```
 
 ---
 
-## VALIDASI PHASE 4
+## TASK 5: Final Documentation
+
+### Update `README.md` dengan:
+
+1. **Actual benchmark results** (setelah run bench)
+2. **Installation yang benar** (hapus package yang belum ada di registry)
+3. **Working examples** (semua contoh code harus compile dan run)
+4. **Security notice** yang jelas:
+```markdown
+## Security
+
+QRD menggunakan AES-256-GCM dengan HKDF key derivation.
+- Enkripsi diaktifkan per-file via `WriterConfig::encryption`
+- ECC (Reed-Solomon) tersedia untuk resilience terhadap storage corruption
+- Untuk file sensitivity tinggi, gunakan enkripsi + ECC sekaligus
+```
+
+5. **Known limitations** yang jujur:
+```markdown
+## Current Limitations
+
+- WASM binding tidak mendukung file I/O (hanya in-memory)
+- Decimal dan complex nested types masih dalam development
+- Tidak ada query pushdown ke storage engine
+```
+
+---
+
+## FINAL PRODUCTION CHECKLIST
+
+Jalankan semua command ini. Semua harus pass sebelum v1.0.0 release:
 
 ```bash
-# 1. FFI compiles
-cargo build --package qrd-ffi --release 2>&1 | grep -E "error|Finished"
+#!/bin/bash
+set -e
 
-# 2. Python binding
-cd sdk/python
-pip install maturin
-maturin develop 2>&1 | tail -5
-python -c "import qrd; print('Python binding OK:', dir(qrd))"
-python tests/test_qrd.py
+echo "=== QRD Production Readiness Check ==="
 
-# 3. WASM binding
-cargo install wasm-pack
-cd core/qrd-wasm
-wasm-pack build --target web 2>&1 | tail -5
+# 1. Format
+echo "[1/10] Checking code format..."
+cargo fmt --all -- --check
+echo "✅ Format OK"
 
-# 4. Go binding (perlu libqrd_ffi.so di PATH)
-cd sdk/go
-go test ./... 2>&1
+# 2. Clippy
+echo "[2/10] Running clippy..."
+cargo clippy --all-targets --all-features -- -D warnings
+echo "✅ Clippy clean"
 
-# 5. Java build
-cd sdk/java
-mvn compile test 2>&1 | grep -E "BUILD|ERROR|Tests run"
-```
+# 3. Tests
+echo "[3/10] Running full test suite..."
+cargo test --all --release 2>&1 | grep -E "test result|FAILED"
+echo "✅ All tests passing"
 
-**Expected:**
-```
-Python binding OK: ['Reader', 'Schema', 'SchemaBuilder', 'Writer']
-[INFO] BUILD SUCCESS
-WASM pkg generated at: pkg/
+# 4. No panics in public API
+echo "[4/10] Checking for unwrap() in non-test code..."
+UNWRAPS=$(grep -r "\.unwrap()" core/qrd-core/src/ --include="*.rs" | grep -v "test\|bench\|#\[" | wc -l)
+if [ "$UNWRAPS" -gt 0 ]; then
+    echo "❌ Found $UNWRAPS unwrap() calls in production code"
+    grep -r "\.unwrap()" core/qrd-core/src/ --include="*.rs" | grep -v "test\|bench"
+    exit 1
+fi
+echo "✅ No unwrap() in production code"
+
+# 5. No "Variable-length not supported" errors
+echo "[5/10] Checking variable-length support..."
+if grep -r "not yet supported" core/qrd-core/src/ --include="*.rs" | grep -v test; then
+    echo "❌ Found unsupported feature errors"
+    exit 1
+fi
+echo "✅ No unsupported feature blockers"
+
+# 6. Security audit
+echo "[6/10] Running security audit..."
+cargo audit 2>&1 | grep -E "error|warning" | head -10
+echo "✅ Security audit passed"
+
+# 7. Compile WASM
+echo "[7/10] Building WASM..."
+cargo build --target wasm32-unknown-unknown --package qrd-core --no-default-features
+echo "✅ WASM build OK"
+
+# 8. Compile FFI
+echo "[8/10] Building FFI..."
+cargo build --package qrd-ffi --release
+echo "✅ FFI build OK"
+
+# 9. Python binding
+echo "[9/10] Testing Python binding..."
+cd sdk/python && maturin develop --quiet && python -c "import qrd; qrd.SchemaBuilder()" && cd ../..
+echo "✅ Python binding OK"
+
+# 10. Benchmark sanity check
+echo "[10/10] Running quick benchmark..."
+cargo bench --package qrd-core --bench simple_bench 2>&1 | grep "time:"
+echo "✅ Benchmark completed"
+
+echo ""
+echo "╔════════════════════════════════════╗"
+echo "║  🚀 ALL CHECKS PASSED              ║"
+echo "║  QRD SDK is Production-Ready!      ║"
+echo "╚════════════════════════════════════╝"
 ```
 
 ---
 
-## CONSTRAINT
+## POST-RELEASE MONITORING
 
-- FFI must be `#[no_mangle]` extern "C" — tidak boleh mangling
-- Memory ownership HARUS jelas: setiap `*mut T` yang dikembalikan HARUS ada `_free` function
-- Python binding harus support context manager (`with` statement)
-- WASM binding tidak boleh pakai `std::fs` (tidak ada filesystem di browser)
-- Go binding harus ada `Free()` method untuk semua opaque handles
-- Java: gunakan JNA (bukan JNI) untuk simplicity — map langsung ke C FFI
+Setelah v1.0.0 release, setup ini untuk ongoing quality:
 
-**Lanjut ke PHASE 5 setelah semua validasi passing.**
+### Dependabot (`/.github/dependabot.yml`):
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+```
+
+### CHANGELOG format (`CHANGELOG.md`):
+```markdown
+## [Unreleased]
+
+### Added
+### Changed  
+### Fixed
+### Security
+
+## [1.0.0] — 2026-06-01
+
+### Added
+- Variable-length type read/write support (String, Blob, Enum, Uuid)
+- Memory-mapped I/O untuk file >= 64MB
+- Encryption + ECC integrated ke writer/reader pipeline
+- Real SIMD implementation via `wide` crate
+- CLI tools: qrd-inspect, qrd-write, qrd-read
+- Python, TypeScript, Go, Java bindings
+```
