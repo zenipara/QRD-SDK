@@ -1,4 +1,16 @@
 //! Validation and corruption detection
+//!
+//! Provides:
+//! - CRC32 and integrity checks
+//! - Corruption detection
+//! - Recovery strategies
+//! - Malformed input handling
+
+pub mod corruption;
+
+pub use corruption::{
+    CorruptionDetector, CorruptionReport, CorruptionType, RecoveryAction, RecoveryStrategy,
+};
 
 use crate::error::Result;
 use crc32fast::Hasher;

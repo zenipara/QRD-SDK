@@ -1,13 +1,7 @@
 //! Utilities and helper functions
 
 /// Varint encoding/decoding utilities
-pub mod varint;
-
-/// SIMD-accelerated operations
-pub mod simd;
-
-/// Bit manipulation utilities
-pub mod bit_ops;
+pub mod varint {
     /// Encode u64 as varint
     pub fn encode(mut value: u64) -> Vec<u8> {
         let mut result = Vec::new();
@@ -55,7 +49,7 @@ pub mod bit_ops;
     }
 
     /// Decode zigzag varint, returns (value, bytes_read)
-    pub fn decode_varint(data: &[u8]) -> Result<(i64, usize)> {
+    pub fn decode_varint(data: &[u8]) -> Result<(i64, usize), crate::error::Error> {
         if let Some((encoded, bytes)) = decode(data) {
             // Zigzag decode
             let value = (encoded >> 1) as i64 ^ -((encoded & 1) as i64);
@@ -65,6 +59,9 @@ pub mod bit_ops;
         }
     }
 }
+
+/// SIMD-accelerated operations
+pub mod simd;
 
 /// Bit packing utilities
 pub mod bits {

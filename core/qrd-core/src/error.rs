@@ -16,6 +16,8 @@ pub enum Error {
     InvalidSchema(String),
     /// Invalid data
     InvalidData(String),
+    /// Invalid input
+    InvalidInput(String),
     /// Encoding error
     EncodingError(String),
     /// Decoding error
@@ -28,6 +30,8 @@ pub enum Error {
     EncryptionError(String),
     /// Decryption error
     DecryptionError(String),
+    /// ECC error
+    EccError(String),
     /// Validation failed
     ValidationFailed(String),
     /// CRC mismatch
@@ -58,12 +62,14 @@ impl fmt::Display for Error {
             }
             Error::InvalidSchema(msg) => write!(f, "Invalid schema: {}", msg),
             Error::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
+            Error::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             Error::EncodingError(msg) => write!(f, "Encoding error: {}", msg),
             Error::DecodingError(msg) => write!(f, "Decoding error: {}", msg),
             Error::CompressionError(msg) => write!(f, "Compression error: {}", msg),
             Error::DecompressionError(msg) => write!(f, "Decompression error: {}", msg),
             Error::EncryptionError(msg) => write!(f, "Encryption error: {}", msg),
             Error::DecryptionError(msg) => write!(f, "Decryption error: {}", msg),
+            Error::EccError(msg) => write!(f, "ECC error: {}", msg),
             Error::ValidationFailed(msg) => write!(f, "Validation failed: {}", msg),
             Error::CrcMismatch { expected, actual } => {
                 write!(f, "CRC mismatch: expected {}, got {}", expected, actual)

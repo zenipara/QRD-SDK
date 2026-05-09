@@ -1,4 +1,8 @@
-//! Compression codecs
+//! Compression codecs with adaptive selection
+
+pub mod entropy;
+
+pub use entropy::{EntropyCalculator, CompressionSelector};
 
 use std::fmt;
 

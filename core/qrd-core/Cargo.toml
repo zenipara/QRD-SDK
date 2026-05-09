@@ -68,3 +68,15 @@ harness = false
 [[bench]]
 name = "encode_bench"
 harness = false
+
+[[bench]]
+name = "simple_bench"
+harness = false
+
+[[bench]]
+name = "streaming_bench"
+harness = false
+
+[[bench]]
+name = "stress_bench"
+harness = false

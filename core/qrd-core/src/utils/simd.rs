@@ -28,14 +28,7 @@ impl SimdOps {
             return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
         }
 
-        if self.enabled && dst.len() >= 32 {
-            // Use SIMD-accelerated copy for large buffers
-            unsafe { memcpy_simd(dst.as_mut_ptr(), src.as_ptr(), dst.len()) }
-        } else {
-            // Fallback to standard copy
-            dst.copy_from_slice(src);
-        }
-
+        dst.copy_from_slice(src);
         Ok(())
     }
 
@@ -45,13 +38,9 @@ impl SimdOps {
             return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
         }
 
-        if self.enabled && dst.len() >= 32 {
-            unsafe { xor_simd(dst.as_mut_ptr(), src.as_ptr(), dst.len()) }
-        } else {
-            // Fallback to scalar XOR
-            for i in 0..dst.len() {
-                dst[i] ^= src[i];
-            }
+        // Fallback to scalar XOR
+        for i in 0..dst.len() {
+            dst[i] ^= src[i];
         }
 
         Ok(())
@@ -59,11 +48,7 @@ impl SimdOps {
 
     /// SIMD-accelerated byte counting
     pub fn count_bytes(&self, data: &[u8], target: u8) -> usize {
-        if self.enabled && data.len() >= 32 {
-            unsafe { count_bytes_simd(data.as_ptr(), data.len(), target) }
-        } else {
-            data.iter().filter(|&&b| b == target).count()
-        }
+        data.iter().filter(|&&b| b == target).count()
     }
 
     /// SIMD-accelerated run-length encoding detection
@@ -99,21 +84,9 @@ impl SimdOps {
         let mut result = Vec::with_capacity(data.len());
         result.push(data[0]); // First value unchanged
 
-        if self.enabled && data.len() >= 8 {
-            // SIMD-accelerated delta encoding for larger arrays
-            unsafe {
-                delta_encode_i32_simd(
-                    data.as_ptr(),
-                    result.as_mut_ptr().add(1),
-                    data.len() - 1
-                );
-                result.set_len(data.len());
-            }
-        } else {
-            // Scalar fallback
-            for i in 1..data.len() {
-                result.push(data[i] - data[i - 1]);
-            }
+        // Scalar implementation
+        for i in 1..data.len() {
+            result.push(data[i] - data[i - 1]);
         }
 
         Ok(result)
@@ -128,23 +101,11 @@ impl SimdOps {
         let mut result = Vec::with_capacity(data.len());
         result.push(data[0]); // First value unchanged
 
-        if self.enabled && data.len() >= 8 {
-            // SIMD-accelerated delta decoding
-            unsafe {
-                delta_decode_i32_simd(
-                    data.as_ptr(),
-                    result.as_mut_ptr().add(1),
-                    data.len() - 1
-                );
-                result.set_len(data.len());
-            }
-        } else {
-            // Scalar fallback
-            let mut current = data[0];
-            for &delta in &data[1..] {
-                current += delta;
-                result.push(current);
-            }
+        // Scalar implementation
+        let mut current = data[0];
+        for &delta in &data[1..] {
+            current += delta;
+            result.push(current);
         }
 
         Ok(result)
@@ -246,49 +207,60 @@ mod fallback {
 
 #[cfg(target_arch = "x86_64")]
 mod avx2_impl {
-    use super::*;
-
-    #[no_mangle]
-    pub unsafe extern "C" fn memcpy_simd(dst: *mut u8, src: *const u8, len: usize) {
-        // For now, fall back to standard memcpy
-        // In a real implementation, this would use AVX2 instructions
-        std::ptr::copy_nonoverlapping(src, dst, len);
-    }
-
-    #[no_mangle]
-    pub unsafe extern "C" fn xor_simd(dst: *mut u8, src: *const u8, len: usize) {
-        // For now, fall back to scalar XOR
-        // In a real implementation, this would use AVX2 instructions
-        for i in 0..len {
-            *dst.add(i) ^= *src.add(i);
+    /// Memcpy implementation
+    pub fn memcpy_simd(dst: &mut [u8], src: &[u8]) {
+        // For now, use standard copy
+        if dst.len() >= src.len() {
+            dst[..src.len()].copy_from_slice(src);
         }
     }
 
-    #[no_mangle]
-    pub unsafe extern "C" fn count_bytes_simd(data: *const u8, len: usize, target: u8) -> usize {
-        // For now, fall back to scalar counting
-        // In a real implementation, this would use AVX2 instructions
-        let mut count = 0;
-        for i in 0..len {
-            if *data.add(i) == target {
-                count += 1;
+    /// XOR implementation
+    pub fn xor_simd(dst: &mut [u8], src: &[u8]) {
+        // For now, fall back to scalar XOR
+        for i in 0..std::cmp::min(dst.len(), src.len()) {
+            dst[i] ^= src[i];
+        }
+    }
+
+    /// Count bytes implementation
+    pub fn count_bytes_simd(data: &[u8], target: u8) -> usize {
+        data.iter().filter(|&&b| b == target).count()
+    }
+
+    /// Fallback implementation for count_bytes
+    pub fn count_bytes_scalar(data: &[u8], target: u8) -> usize {
+        data.iter().filter(|&&b| b == target).count()
+    }
+
+    #[allow(non_snake_case)]
+    pub fn delta_encode_i32_simd(data: &[i32]) -> Vec<i32> {
+        // Scalar implementation for delta encoding
+        let mut result = Vec::with_capacity(data.len());
+
+        if !data.is_empty() {
+            result.push(data[0]);
+            for i in 1..data.len() {
+                result.push(data[i] - data[i - 1]);
             }
         }
-        count
+
+        result
     }
 
-    #[no_mangle]
-    pub unsafe extern "C" fn delta_encode_i32_simd(data: *const i32, result: *mut i32, len: usize) {
-        // For now, fall back to scalar implementation
-        // In a real implementation, this would use AVX2 instructions
-        fallback::delta_encode_i32_simd(data, result, len);
-    }
+    #[allow(non_snake_case)]
+    pub fn delta_decode_i32_simd(data: &[i32]) -> Vec<i32> {
+        // Scalar implementation for delta decoding
+        let mut result = Vec::with_capacity(data.len());
 
-    #[no_mangle]
-    pub unsafe extern "C" fn delta_decode_i32_simd(data: *const i32, result: *mut i32, len: usize) {
-        // For now, fall back to scalar implementation
-        // In a real implementation, this would use AVX2 instructions
-        fallback::delta_decode_i32_simd(data, result, len);
+        if !data.is_empty() {
+            result.push(data[0]);
+            for i in 1..data.len() {
+                result.push(result[i - 1] + data[i]);
+            }
+        }
+
+        result
     }
 }
 

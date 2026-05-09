@@ -8,6 +8,19 @@ use std::io::Cursor;
 /// RLE encoder for repetitive data
 pub struct RleEncoder;
 
+impl RleEncoder {
+    /// Create new RLE encoder
+    pub fn new() -> Self {
+        RleEncoder
+    }
+}
+
+impl Default for RleEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Encoder for RleEncoder {
     fn encode(&self, data: &[u8]) -> Result<Vec<u8>> {
         if data.is_empty() {

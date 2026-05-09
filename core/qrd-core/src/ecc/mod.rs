@@ -119,24 +119,21 @@ impl EccCodec {
         let total_shards = shards.len();
         let data_shards = self.config.max_data_shards(total_shards);
 
-        // Convert Option<Vec<u8>> to Vec<Option<&[u8]>>
-        let mut shard_refs: Vec<Option<&[u8]>> = Vec::with_capacity(total_shards);
-        for shard in shards {
-            shard_refs.push(shard.as_ref().map(|v| v.as_slice()));
-        }
+        // Convert Option<Vec<u8>> to Vec<Option<Vec<u8>>>
+        let mut shard_data: Vec<Option<Vec<u8>>> = shards.iter().cloned().collect();
 
         // Reconstruct Reed-Solomon codec
         let rs = ReedSolomon::new(data_shards, self.config.parity_chunks as usize)
             .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec for decoding: {}", e)))?;
 
         // Reconstruct data
-        rs.reconstruct(&mut shard_refs)
+        rs.reconstruct(&mut shard_data)
             .map_err(|e| Error::EccError(format!("Failed to reconstruct data: {}", e)))?;
 
         // Collect recovered data
         let mut recovered_data = Vec::new();
         for i in 0..data_shards {
-            if let Some(shard) = &shard_refs[i] {
+            if let Some(shard) = &shard_data[i] {
                 // Take only the actual data, not padding
                 let actual_size = if i == data_shards - 1 {
                     // Last shard may be partial

@@ -2,7 +2,7 @@
 
 use crate::error::{Error, Result};
 use aes_gcm::{
-    aead::{Aead, KeyInit, OsRng},
+    aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
 use hkdf::Hkdf;
@@ -50,9 +50,8 @@ impl EncryptionConfig {
 
     /// Generate a random salt
     pub fn generate_salt() -> Vec<u8> {
-        let mut salt = vec![0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut salt);
-        salt
+        use aes_gcm::aead::OsRng;
+        Aes256Gcm::generate_key(OsRng).to_vec()
     }
 
     /// Derive encryption key from password using HKDF
@@ -110,7 +109,7 @@ pub fn decrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
         return Err(Error::EncryptionError("Data too short for decryption".to_string()));
     }
 
-    let (salt, encrypted_data) = if let Some(ref salt) = config.salt {
+    let (_salt, encrypted_data) = if let Some(ref salt) = config.salt {
         // Data includes salt prefix
         if data.len() < 32 + 12 {
             return Err(Error::EncryptionError("Data too short for salted decryption".to_string()));

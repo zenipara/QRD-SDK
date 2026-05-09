@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn test_column_chunk_creation() {
-        let chunk = ColumnChunk::new(0, "id".to_string());
+        let chunk = ColumnChunk::new(0, "id".to_string(), crate::schema::FieldType::Int64);
         assert_eq!(chunk.column_index, 0);
         assert_eq!(chunk.column_name, "id");
         assert_eq!(chunk.size_bytes(), 0);

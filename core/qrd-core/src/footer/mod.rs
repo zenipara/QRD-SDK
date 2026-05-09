@@ -1,4 +1,15 @@
 //! Footer metadata and serialization
+//!
+//! Provides:
+//! - FooterBuilder: Deterministic footer construction
+//! - FooterParser: Random access and footer parsing
+//! - Footer: Core serialization
+
+pub mod builder;
+pub mod parser;
+
+pub use builder::FooterBuilder;
+pub use parser::FooterParser;
 
 use crate::schema::Schema;
 use crate::error::Result;

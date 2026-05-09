@@ -263,6 +263,3 @@ criterion_group!(
     ecc_benchmarks
 );
 criterion_main!(benches);
-        });
-    });
-}

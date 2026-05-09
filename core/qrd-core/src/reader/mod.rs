@@ -1,7 +1,19 @@
 //! File reader implementation
+//!
+//! Provides:
+//! - FileReader: Traditional full-file reader
+//! - PartialReader: Random access without loading entire file
+//! - RangeReader: HTTP byte-range compatible reads
+
+pub mod partial_reader;
+pub mod range_reader;
+
+pub use partial_reader::{PartialReader, PartialReadConfig};
+pub use range_reader::{ByteRange, RangeReader};
 
 use crate::error::Result;
 use crate::footer::Footer;
+use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
 use std::fs::File;
 use std::io::Read;

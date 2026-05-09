@@ -1,7 +1,12 @@
 //! Golden test vector generation
 
-use qrd_core::prelude::*;
-use std::fs;
+#![cfg(test)]
+
+use crate::{
+    reader::FileReader, schema::{FieldType, Nullability, SchemaBuilder},
+    writer::FileWriter, error::Result,
+};
+use std::{fs, path::Path};
 
 /// Generate golden test vectors for reproducibility testing
 pub fn generate_golden_vectors() -> Result<()> {
@@ -45,7 +50,7 @@ fn generate_sorted_integers_vector() -> Result<()> {
     let mut writer = FileWriter::new(Path::new("test_vectors/sorted_int64.qrd"), schema)?;
 
     for i in 0..1000 {
-        let value = (i * i).to_le_bytes().to_vec(); // Quadratic growth, sorted
+        let value = ((i as i64) * (i as i64)).to_le_bytes().to_vec(); // Quadratic growth, sorted
         writer.write_row(vec![value])?;
     }
 

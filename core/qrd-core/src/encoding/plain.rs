@@ -6,6 +6,19 @@ use super::Encoder;
 /// Plain encoder - passes data through unchanged
 pub struct PlainEncoder;
 
+impl PlainEncoder {
+    /// Create new plain encoder
+    pub fn new() -> Self {
+        PlainEncoder
+    }
+}
+
+impl Default for PlainEncoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Encoder for PlainEncoder {
     fn encode(&self, data: &[u8]) -> Result<Vec<u8>> {
         // Plain encoding is just the raw data

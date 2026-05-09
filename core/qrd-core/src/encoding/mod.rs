@@ -150,6 +150,68 @@ fn is_integer_type(field_type: &crate::schema::FieldType) -> bool {
     )
 }
 
+/// Read integer value at index
+fn read_int_at(field_type: &crate::schema::FieldType, data: &[u8], index: usize) -> i64 {
+    if let Some(size) = field_type.fixed_size() {
+        let offset = index * size;
+        if offset + size > data.len() {
+            return 0;
+        }
+        match field_type {
+            crate::schema::FieldType::Int8 => data[offset] as i8 as i64,
+            crate::schema::FieldType::Int16 => i16::from_le_bytes([data[offset], data[offset + 1]]) as i64,
+            crate::schema::FieldType::Int32 => i32::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+            ]) as i64,
+            crate::schema::FieldType::Int64 => i64::from_le_bytes([
+                data[offset],
+                data[offset + 1],
+                data[offset + 2],
+                data[offset + 3],
+                data[offset + 4],
+                data[offset + 5],
+                data[offset + 6],
+                data[offset + 7],
+            ]),
+            _ => 0,
+        }
+    } else {
+        0
+    }
+}
+
+/// Check if string data is sorted
+fn is_sorted_strings(data: &[u8]) -> bool {
+    let mut offset = 0;
+    let mut last_string: Option<Vec<u8>> = None;
+
+    while offset < data.len() {
+        if offset + 4 > data.len() {
+            return false;
+        }
+        let len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
+        offset += 4;
+
+        if offset + len > data.len() {
+            return false;
+        }
+
+        let current_string = data[offset..offset + len].to_vec();
+        if let Some(ref last) = last_string {
+            if current_string < *last {
+                return false;
+            }
+        }
+        last_string = Some(current_string);
+        offset += len;
+    }
+
+    true
+}
+
 /// Check if integer data is sorted
 fn is_sorted_integers(field_type: &crate::schema::FieldType, data: &[u8]) -> bool {
     if let Some(size) = field_type.fixed_size() {

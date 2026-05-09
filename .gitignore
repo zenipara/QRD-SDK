@@ -1,0 +1,45 @@
+# Rust build output
+target/
+**/target/
+
+# Cargo metadata
+**/*.rs.bk
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+
+# Node / TypeScript artifacts
+node_modules/
+coverage/
+*.tsbuildinfo
+
+# Java / JVM artifacts
+.gradle/
+*.class
+*.jar
+*.war
+*.ear
+
+# Go artifacts
+bin/
+*.test
+coverage.out
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+
+# Logs
+*.log

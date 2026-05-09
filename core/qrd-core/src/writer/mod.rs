@@ -1,8 +1,19 @@
-//! File writer implementation
+//! File writer implementation with streaming support
+//!
+//! Provides:
+//! - FileWriter: Traditional file-based writer
+//! - StreamingWriter: Bounded-memory streaming writer for large datasets
+//! - Buffer pooling for memory efficiency
+
+pub mod buffer_pool;
+pub mod streaming_writer;
+
+// Re-exports
+pub use buffer_pool::{BufferPool, BufferPoolConfig};
+pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::encoding::EncodingType;
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
@@ -252,13 +263,8 @@ mod tests {
         }
     }
 
-    fn serialize_string(s: &str) -> Vec<u8> {
-        let mut result = Vec::new();
-        let bytes = s.as_bytes();
-        result.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
-        result.extend_from_slice(bytes);
-        result
-    }
+    #[test]
+    fn test_writer_config() {
         let temp = NamedTempFile::new().unwrap();
         let file = File::create(temp.path()).unwrap();
         let schema = SchemaBuilder::new()
