@@ -11,6 +11,8 @@ pub mod range_reader;
 pub use partial_reader::{PartialReader, PartialReadConfig};
 pub use range_reader::{ByteRange, RangeReader};
 
+use crate::encryption::EncryptionConfig;
+use crate::ecc::EccConfig;
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
@@ -47,6 +49,9 @@ pub struct FileReader {
     row_count: u32,
     row_group_offsets: Vec<u64>,
     footer_offset: u64,
+    // Security configurations for decryption/recovery
+    encryption_config: Option<EncryptionConfig>,
+    ecc_config: Option<EccConfig>,
 }
 
 impl FileReader {
@@ -143,7 +148,35 @@ impl FileReader {
             row_count,
             row_group_offsets: footer.row_group_offsets,
             footer_offset: footer_start as u64,
+            encryption_config: None,
+            ecc_config: None,
         })
+    }
+
+    /// Open file with encryption support
+    pub fn with_decryption(path: impl AsRef<Path>, enc_config: EncryptionConfig) -> Result<Self> {
+        let mut reader = Self::new(path)?;
+        reader.encryption_config = Some(enc_config);
+        Ok(reader)
+    }
+
+    /// Open file with ECC recovery support
+    pub fn with_ecc(path: impl AsRef<Path>, ecc_config: EccConfig) -> Result<Self> {
+        let mut reader = Self::new(path)?;
+        reader.ecc_config = Some(ecc_config);
+        Ok(reader)
+    }
+
+    /// Open file with both encryption and ECC support
+    pub fn with_security(
+        path: impl AsRef<Path>,
+        enc_config: Option<EncryptionConfig>,
+        ecc_config: Option<EccConfig>,
+    ) -> Result<Self> {
+        let mut reader = Self::new(path)?;
+        reader.encryption_config = enc_config;
+        reader.ecc_config = ecc_config;
+        Ok(reader)
     }
 
     /// Get schema
@@ -176,8 +209,32 @@ impl FileReader {
             self.footer_offset as usize
         };
 
-        let row_group_data = &self.file_data.as_slice()[offset..end_offset];
-        RowGroup::deserialize(row_group_data)
+        let row_group_data_raw = &self.file_data.as_slice()[offset..end_offset];
+        let row_group_data = self.decrypt_and_recover_row_group(row_group_data_raw)?;
+        RowGroup::deserialize(&row_group_data)
+    }
+
+    /// Decrypt and recover row group data from storage bytes
+    /// 
+    /// Reverse pipeline:
+    /// storage bytes → ECC recovery (if enabled) → decryption (if enabled) → deserialized bytes
+    fn decrypt_and_recover_row_group(&self, raw_bytes: &[u8]) -> Result<Vec<u8>> {
+        // STEP 1: ECC recovery (if enabled)
+        let ecc_recovered = if let Some(ref ecc_config) = self.ecc_config {
+            let encoded_data = crate::ecc::EccEncodedData::from_bytes(raw_bytes)?;
+            crate::ecc::decode_and_recover(&encoded_data, ecc_config)?
+        } else {
+            raw_bytes.to_vec()
+        };
+
+        // STEP 2: Decryption (if enabled)
+        let decrypted = if let Some(ref enc_config) = self.encryption_config {
+            crate::encryption::decrypt(&ecc_recovered, enc_config)?
+        } else {
+            ecc_recovered
+        };
+
+        Ok(decrypted)
     }
 
     /// Read all row groups
@@ -325,9 +382,11 @@ impl FileReader {
             ));
         }
 
-        // Read row group data
-        let row_group_data = &self.file_data.as_slice()[offset..end_offset];
-        Ok(row_group_data.to_vec())
+        // Read row group data (encrypted/ECC encoded if applicable)
+        let row_group_data_raw = &self.file_data.as_slice()[offset..end_offset];
+        
+        // Decrypt and recover if needed
+        self.decrypt_and_recover_row_group(row_group_data_raw)
     }
 
     /// Reassemble rows from column chunks

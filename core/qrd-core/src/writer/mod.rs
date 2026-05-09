@@ -14,6 +14,8 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
+use crate::encryption::EncryptionConfig;
+use crate::ecc::{EccConfig, EccCodec};
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::metadata::{RowGroupStats, MetadataIndex};
@@ -31,6 +33,12 @@ pub struct WriterConfig {
     pub row_group_size: u32,
     /// Compression level
     pub compression_level: u8,
+    /// Encryption configuration (None = no encryption)
+    pub encryption: Option<EncryptionConfig>,
+    /// ECC configuration (None = no error correction)
+    pub ecc: Option<EccConfig>,
+    /// Whether to encrypt footer (default: true if encryption is enabled)
+    pub encrypt_footer: bool,
 }
 
 impl Default for WriterConfig {
@@ -38,6 +46,9 @@ impl Default for WriterConfig {
         WriterConfig {
             row_group_size: crate::DEFAULT_ROW_GROUP_SIZE,
             compression_level: 3,
+            encryption: None,
+            ecc: None,
+            encrypt_footer: true,
         }
     }
 }
@@ -192,10 +203,29 @@ impl FileWriter {
             }
         }
 
-        // Serialize and write row group
+        // Serialize and write row group with security pipeline
         let rg_bytes = row_group.serialize()?;
-        self.file.write_all(&rg_bytes)?;
-        self.current_offset += rg_bytes.len() as u64;
+        
+        // STEP 1: Encryption (if enabled)
+        let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
+            crate::encryption::encrypt(&rg_bytes, enc_config)?
+        } else {
+            rg_bytes
+        };
+
+        // STEP 2: ECC encoding (if enabled)
+        let final_bytes = if let Some(ref ecc_config) = self.config.ecc {
+            let mut codec = crate::ecc::EccCodec::new(ecc_config.clone())?;
+            let encoded = codec.encode(&encrypted_bytes)?;
+            // Serialize EccEncodedData to bytes
+            encoded.to_bytes()?
+        } else {
+            encrypted_bytes
+        };
+
+        // Write to file
+        self.file.write_all(&final_bytes)?;
+        self.current_offset += final_bytes.len() as u64;
 
         // Clear buffer
         self.row_buffer.clear();
@@ -229,11 +259,23 @@ impl FileWriter {
         footer.row_group_offsets = self.row_group_offsets;
 
         let footer_bytes = footer.serialize()?;
-        let footer_length = footer_bytes.len() as u32;
+
+        // Encrypt footer if enabled and configured
+        let final_footer_bytes = if self.config.encrypt_footer {
+            if let Some(ref enc_config) = self.config.encryption {
+                crate::encryption::encrypt(&footer_bytes, enc_config)?
+            } else {
+                footer_bytes
+            }
+        } else {
+            footer_bytes
+        };
+
+        let footer_length = final_footer_bytes.len() as u32;
 
         // Write footer
-        self.file.write_all(&footer_bytes)?;
-        self.current_offset += footer_bytes.len() as u64;
+        self.file.write_all(&final_footer_bytes)?;
+        self.current_offset += final_footer_bytes.len() as u64;
 
         // Write footer length
         self.file.write_u32::<LittleEndian>(footer_length)?;

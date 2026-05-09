@@ -1,8 +1,10 @@
 //! Error Correction Code (Reed-Solomon)
 
 use crate::error::{Error, Result};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp;
+use std::io::{Cursor, Write};
 
 /// ECC configuration
 #[derive(Debug, Clone)]
@@ -110,8 +112,9 @@ impl EccCodec {
         })
     }
 
-    /// Decode and recover data from ECC shards
-    pub fn decode_and_recover(&self, shards: &[Option<Vec<u8>>]) -> Result<Vec<u8>> {
+    /// Decode and recover data from ECC shards (takes EccEncodedData to access original_size)
+    pub fn decode_and_recover(&self, encoded_data: &EccEncodedData) -> Result<Vec<u8>> {
+        let shards = encoded_data.shards_as_options();
         if shards.is_empty() {
             return Err(Error::EccError("No shards provided".to_string()));
         }
@@ -134,19 +137,12 @@ impl EccCodec {
         let mut recovered_data = Vec::new();
         for i in 0..data_shards {
             if let Some(shard) = &shard_data[i] {
-                // Take only the actual data, not padding
-                let actual_size = if i == data_shards - 1 {
-                    // Last shard may be partial
-                    self.config.chunk_size
-                } else {
-                    self.config.chunk_size
-                };
-                recovered_data.extend_from_slice(&shard[..actual_size]);
+                recovered_data.extend_from_slice(shard);
             }
         }
 
-        // Truncate to original size if needed
-        // Note: In a real implementation, we'd store the original size
+        // Truncate to original size - THIS IS CRITICAL FOR CORRECT RECOVERY
+        recovered_data.truncate(encoded_data.original_size);
         Ok(recovered_data)
     }
 }
@@ -209,6 +205,91 @@ impl EccEncodedData {
         data.truncate(self.original_size);
         data
     }
+
+    /// Serialize EccEncodedData to bytes for storage
+    /// Format: [8B original_size][4B data_shards][4B parity_shards][4B chunk_size][4B total_shards]
+    ///         [for each shard: [4B shard_len][shard data]]
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        use byteorder::{LittleEndian, WriteBytesExt};
+        use std::io::Write;
+
+        let mut result = Vec::new();
+        
+        // Metadata header
+        result.write_u64::<LittleEndian>(self.original_size as u64)?;
+        result.write_u32::<LittleEndian>(self.data_shards as u32)?;
+        result.write_u32::<LittleEndian>(self.parity_shards as u32)?;
+        result.write_u32::<LittleEndian>(self.chunk_size as u32)?;
+        result.write_u32::<LittleEndian>(self.total_shards() as u32)?;
+
+        // Write each shard with its length
+        for shard in &self.shards {
+            result.write_u32::<LittleEndian>(shard.len() as u32)?;
+            result.write_all(shard)?;
+        }
+
+        Ok(result)
+    }
+
+    /// Deserialize EccEncodedData from bytes
+    pub fn from_bytes(data: &[u8]) -> Result<Self> {
+        use byteorder::{LittleEndian, ReadBytesExt};
+        use std::io::Cursor;
+
+        if data.len() < 24 {
+            return Err(Error::EccError(
+                "EccEncodedData bytes too short for header".to_string(),
+            ));
+        }
+
+        let mut cursor = Cursor::new(data);
+
+        // Read metadata header
+        let original_size = cursor.read_u64::<LittleEndian>()? as usize;
+        let data_shards = cursor.read_u32::<LittleEndian>()? as usize;
+        let parity_shards = cursor.read_u32::<LittleEndian>()? as usize;
+        let chunk_size = cursor.read_u32::<LittleEndian>()? as usize;
+        let total_shards = cursor.read_u32::<LittleEndian>()? as usize;
+
+        // Validate
+        if data_shards + parity_shards != total_shards {
+            return Err(Error::EccError(
+                "EccEncodedData: shard count mismatch".to_string(),
+            ));
+        }
+
+        // Read shards
+        let mut shards = Vec::with_capacity(total_shards);
+        for _ in 0..total_shards {
+            if cursor.position() + 4 > data.len() as u64 {
+                return Err(Error::EccError(
+                    "EccEncodedData: truncated shard header".to_string(),
+                ));
+            }
+
+            let shard_len = cursor.read_u32::<LittleEndian>()? as usize;
+
+            if cursor.position() as usize + shard_len > data.len() {
+                return Err(Error::EccError(
+                    "EccEncodedData: truncated shard data".to_string(),
+                ));
+            }
+
+            let start = cursor.position() as usize;
+            let shard_data = data[start..start + shard_len].to_vec();
+            cursor.set_position((start + shard_len) as u64);
+
+            shards.push(shard_data);
+        }
+
+        Ok(EccEncodedData {
+            shards,
+            data_shards,
+            parity_shards,
+            chunk_size,
+            original_size,
+        })
+    }
 }
 
 /// Convenience functions for simple encoding/decoding
@@ -219,10 +300,10 @@ pub fn encode(data: &[u8], config: &EccConfig) -> Result<EccEncodedData> {
     codec.encode(data)
 }
 
-/// Decode and recover data from shards
-pub fn decode_and_recover(shards: &[Option<Vec<u8>>], config: &EccConfig) -> Result<Vec<u8>> {
+/// Decode and recover data from encoded data
+pub fn decode_and_recover(encoded_data: &EccEncodedData, config: &EccConfig) -> Result<Vec<u8>> {
     let codec = EccCodec::new(config.clone())?;
-    codec.decode_and_recover(shards)
+    codec.decode_and_recover(encoded_data)
 }
 
 #[cfg(test)]

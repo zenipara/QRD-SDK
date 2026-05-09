@@ -75,6 +75,13 @@ impl EncryptionConfig {
 }
 
 /// Encrypt data with AES-256-GCM
+/// 
+/// Output format (standardized):
+/// [1B flags][optional 32B salt][12B nonce][ciphertext][16B GCM tag]
+/// 
+/// flags byte:
+///   bit 0: has_salt (1 = ada salt, 0 = tanpa salt)
+///   bit 1-7: reserved (harus 0)
 pub fn encrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
     // Generate a random nonce for each encryption
     let nonce_bytes = Aes256Gcm::generate_nonce(OsRng);
@@ -89,47 +96,93 @@ pub fn encrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
         .encrypt(nonce, data)
         .map_err(|_| Error::EncryptionError("Failed to encrypt data".to_string()))?;
 
-    // Prepend nonce to ciphertext for decryption
-    let mut result = nonce_bytes.to_vec();
+    // Build result with flags byte
+    let mut result = Vec::new();
+    
+    // Flags byte: bit 0 = has_salt
+    let flags: u8 = if config.salt.is_some() { 0x01 } else { 0x00 };
+    result.push(flags);
+
+    // Optional salt (if present)
+    if let Some(ref salt) = config.salt {
+        result.extend_from_slice(salt);
+    }
+
+    // Nonce (12 bytes)
+    result.extend_from_slice(&nonce_bytes);
+
+    // Ciphertext (includes GCM tag)
     result.extend_from_slice(&ciphertext);
 
-    // If salt was provided, include it for key derivation verification
-    if let Some(ref salt) = config.salt {
-        let mut salted_result = salt.clone();
-        salted_result.extend_from_slice(&result);
-        Ok(salted_result)
-    } else {
-        Ok(result)
-    }
+    Ok(result)
 }
 
 /// Decrypt data with AES-256-GCM
+/// 
+/// Expects format: [1B flags][optional 32B salt][12B nonce][ciphertext][16B GCM tag]
 pub fn decrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
-    if data.len() < 12 {
-        return Err(Error::EncryptionError("Data too short for decryption".to_string()));
+    if data.len() < 1 {
+        return Err(Error::EncryptionError("Encrypted data too short - missing flags byte".to_string()));
     }
 
-    let (_salt, encrypted_data) = if let Some(ref salt) = config.salt {
-        // Data includes salt prefix
-        if data.len() < 32 + 12 {
-            return Err(Error::EncryptionError("Data too short for salted decryption".to_string()));
+    let flags = data[0];
+    let has_salt = (flags & 0x01) != 0;
+
+    // Validate reserved bits
+    if (flags & 0xFE) != 0 {
+        return Err(Error::EncryptionError(
+            "Invalid flags byte - reserved bits set".to_string(),
+        ));
+    }
+
+    let mut offset = 1; // After flags byte
+
+    // Parse optional salt
+    if has_salt {
+        if offset + 32 > data.len() {
+            return Err(Error::EncryptionError(
+                "Encrypted data too short - truncated salt".to_string(),
+            ));
         }
-        if &data[0..32] != salt.as_slice() {
-            return Err(Error::EncryptionError("Salt mismatch".to_string()));
+
+        let stored_salt = &data[offset..offset + 32];
+        if let Some(ref config_salt) = config.salt {
+            if stored_salt != config_salt.as_slice() {
+                return Err(Error::EncryptionError("Salt mismatch".to_string()));
+            }
+        } else {
+            return Err(Error::EncryptionError(
+                "Encrypted data has salt but config doesn't expect one".to_string(),
+            ));
         }
-        (&data[0..32], &data[32..])
+
+        offset += 32;
     } else {
-        // No salt, data starts with nonce
-        (&[] as &[u8], data)
-    };
-
-    if encrypted_data.len() < 12 {
-        return Err(Error::EncryptionError("Encrypted data too short".to_string()));
+        if config.salt.is_some() {
+            return Err(Error::EncryptionError(
+                "Encrypted data has no salt but config expects one".to_string(),
+            ));
+        }
     }
 
-    // Extract nonce (first 12 bytes)
-    let nonce = Nonce::from_slice(&encrypted_data[0..12]);
-    let ciphertext = &encrypted_data[12..];
+    // Parse nonce (12 bytes)
+    if offset + 12 > data.len() {
+        return Err(Error::EncryptionError(
+            "Encrypted data too short - truncated nonce".to_string(),
+        ));
+    }
+
+    let nonce = Nonce::from_slice(&data[offset..offset + 12]);
+    offset += 12;
+
+    // The rest is ciphertext + GCM tag
+    let ciphertext_with_tag = &data[offset..];
+
+    if ciphertext_with_tag.is_empty() {
+        return Err(Error::EncryptionError(
+            "Encrypted data has no ciphertext".to_string(),
+        ));
+    }
 
     // Use the master key
     let key = Key::<Aes256Gcm>::from_slice(&config.key);
@@ -137,7 +190,7 @@ pub fn decrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
 
     // Decrypt the data
     let plaintext = cipher
-        .decrypt(nonce, ciphertext)
+        .decrypt(nonce, ciphertext_with_tag)
         .map_err(|_| Error::EncryptionError("Failed to decrypt data - invalid key or corrupted data".to_string()))?;
 
     Ok(plaintext)
