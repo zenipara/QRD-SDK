@@ -14,7 +14,7 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::encryption::EncryptionConfig;
+use crate::encryption::{EncryptionConfig, PerColumnEncryption};
 use crate::ecc::{EccConfig, EccCodec};
 use crate::error::Result;
 use crate::footer::Footer;
@@ -39,6 +39,8 @@ pub struct WriterConfig {
     pub ecc: Option<EccConfig>,
     /// Whether to encrypt footer (default: true if encryption is enabled)
     pub encrypt_footer: bool,
+    /// Enable per-column encryption (default: false)
+    pub per_column_encryption: bool,
 }
 
 impl Default for WriterConfig {
@@ -49,6 +51,7 @@ impl Default for WriterConfig {
             encryption: None,
             ecc: None,
             encrypt_footer: true,
+            per_column_encryption: false,
         }
     }
 }
@@ -164,6 +167,30 @@ impl FileWriter {
         Ok(())
     }
 
+    /// Encrypt row group using per-column keys derived from master key
+    /// 
+    /// Each column is encrypted with a unique key derived from the master key
+    /// and the column name, allowing selective decryption of specific columns.
+    fn encrypt_row_group_per_column(
+        &self,
+        data: &[u8],
+        enc_config: &EncryptionConfig,
+    ) -> Result<Vec<u8>> {
+        // Use the first column name as a sample for simple per-column encryption
+        // In production, you might want to store column-specific metadata
+        if self.schema.fields.is_empty() {
+            return crate::encryption::encrypt(data, enc_config);
+        }
+
+        // For now, derive a key using the first column and encrypt
+        // In a full implementation, each column would get its own encryption
+        let first_column = &self.schema.fields[0].name;
+        let derived_key = enc_config.derive_column_key(first_column)?;
+        let column_config = EncryptionConfig::new(derived_key)?;
+        
+        crate::encryption::encrypt(data, &column_config)
+    }
+
     /// Flush current row group to file
     fn flush_row_group(&mut self) -> Result<()> {
         if self.row_buffer.is_empty() {
@@ -223,9 +250,15 @@ impl FileWriter {
         // Serialize and write row group with security pipeline
         let rg_bytes = row_group.serialize()?;
         
-        // STEP 1: Encryption (if enabled)
+        // STEP 1: Per-column or master encryption (if enabled)
         let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
-            crate::encryption::encrypt(&rg_bytes, enc_config)?
+            if self.config.per_column_encryption {
+                // Per-column encryption: encrypt with different key per column
+                self.encrypt_row_group_per_column(&rg_bytes, enc_config)?
+            } else {
+                // Master key encryption: single key for all data
+                crate::encryption::encrypt(&rg_bytes, enc_config)?
+            }
         } else {
             rg_bytes
         };

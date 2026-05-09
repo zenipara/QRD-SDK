@@ -121,9 +121,74 @@ impl EncryptionConfig {
             salt: Some(argon2_salt_vec),
         })
     }
+
+    /// Derive a per-column encryption key from the master key
+    ///
+    /// Uses HKDF with the column name as additional context to derive a unique key
+    /// for each column while maintaining deterministic key generation.
+    ///
+    /// # Arguments
+    /// * `column_name` - The name of the column (used as HKDF info string)
+    ///
+    /// # Returns
+    /// A unique 32-byte key derived from the master key and column name
+    pub fn derive_column_key(&self, column_name: &str) -> Result<Vec<u8>> {
+        let hkdf = Hkdf::<Sha256>::new(None, &self.key);
+        let mut column_key = vec![0u8; 32];
+
+        // Use column name as HKDF info to derive unique key per column
+        hkdf.expand(
+            format!("qrd-column-key:{}", column_name).as_bytes(),
+            &mut column_key,
+        )
+        .map_err(|_| {
+            Error::ConfigError(
+                format!("Failed to derive column key for '{}'", column_name),
+            )
+        })?;
+
+        Ok(column_key)
+    }
+}
+
+/// Per-column encryption information
+/// 
+/// Stores metadata about which columns are encrypted and with which keys
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PerColumnEncryption {
+    /// Whether per-column encryption is enabled
+    pub enabled: bool,
+    /// List of column names that are encrypted (in schema order)
+    pub encrypted_columns: Vec<String>,
+    /// Master salt used for key derivation (if applicable)
+    pub master_salt: Option<Vec<u8>>,
+}
+
+impl PerColumnEncryption {
+    /// Create a new per-column encryption config
+    pub fn new(master_salt: Option<Vec<u8>>) -> Self {
+        PerColumnEncryption {
+            enabled: true,
+            encrypted_columns: Vec::new(),
+            master_salt,
+        }
+    }
+
+    /// Check if a column is encrypted
+    pub fn is_column_encrypted(&self, column_name: &str) -> bool {
+        self.enabled && self.encrypted_columns.contains(&column_name.to_string())
+    }
+
+    /// Mark a column as encrypted
+    pub fn mark_column_encrypted(&mut self, column_name: String) {
+        if self.enabled && !self.encrypted_columns.contains(&column_name) {
+            self.encrypted_columns.push(column_name);
+        }
+    }
 }
 
 /// Encrypt data with AES-256-GCM
+
 /// 
 /// Output format (standardized):
 /// [1B flags][optional 32B salt][12B nonce][ciphertext][16B GCM tag]
@@ -324,5 +389,70 @@ mod tests {
         let salt = vec![0u8; 16]; // Wrong length
         let result = EncryptionConfig::with_salt(key, salt);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_per_column_key_derivation() {
+        let key = EncryptionConfig::generate_key();
+        let config = EncryptionConfig::new(key).unwrap();
+
+        // Derive keys for two columns
+        let col1_key = config.derive_column_key("temperature").unwrap();
+        let col2_key = config.derive_column_key("humidity").unwrap();
+
+        // Keys should be different
+        assert_ne!(col1_key, col2_key);
+        // But deterministic (same input = same output)
+        let col1_key_again = config.derive_column_key("temperature").unwrap();
+        assert_eq!(col1_key, col1_key_again);
+        // All keys should be 32 bytes
+        assert_eq!(col1_key.len(), 32);
+        assert_eq!(col2_key.len(), 32);
+    }
+
+    #[test]
+    fn test_per_column_encryption_metadata() {
+        let mut pc_enc = PerColumnEncryption::new(None);
+        
+        assert!(pc_enc.enabled);
+        assert!(!pc_enc.is_column_encrypted("temperature"));
+        
+        pc_enc.mark_column_encrypted("temperature".to_string());
+        assert!(pc_enc.is_column_encrypted("temperature"));
+        assert!(!pc_enc.is_column_encrypted("humidity"));
+        
+        pc_enc.mark_column_encrypted("humidity".to_string());
+        assert_eq!(pc_enc.encrypted_columns.len(), 2);
+    }
+
+    #[test]
+    fn test_per_column_key_encrypt_decrypt() {
+        let key = EncryptionConfig::generate_key();
+        let config = EncryptionConfig::new(key).unwrap();
+
+        let col1_key = config.derive_column_key("temperature").unwrap();
+        let col2_key = config.derive_column_key("humidity").unwrap();
+
+        // Create configs with derived keys
+        let col1_config = EncryptionConfig::new(col1_key).unwrap();
+        let col2_config = EncryptionConfig::new(col2_key).unwrap();
+
+        let data1 = b"23.5";
+        let data2 = b"65";
+
+        // Encrypt each column with its own key
+        let encrypted1 = encrypt(data1, &col1_config).unwrap();
+        let encrypted2 = encrypt(data2, &col2_config).unwrap();
+
+        // Decrypt with correct keys
+        let decrypted1 = decrypt(&encrypted1, &col1_config).unwrap();
+        let decrypted2 = decrypt(&encrypted2, &col2_config).unwrap();
+
+        assert_eq!(data1, decrypted1.as_slice());
+        assert_eq!(data2, decrypted2.as_slice());
+
+        // Should fail with wrong key
+        assert!(decrypt(&encrypted1, &col2_config).is_err());
+        assert!(decrypt(&encrypted2, &col1_config).is_err());
     }
 }

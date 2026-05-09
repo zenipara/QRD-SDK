@@ -138,7 +138,11 @@ impl FileReader {
         // Verify schema ID matches
         if footer.schema.schema_id != schema_id {
             return Err(crate::error::Error::InvalidSchema(
-                "Schema ID mismatch".to_string(),
+                format!(
+                    "Schema ID mismatch: header schema_id={:#x} but footer schema_id={:#x}. \
+                     This indicates the file was created with a different schema than expected.",
+                    schema_id, footer.schema.schema_id
+                ),
             ));
         }
 
