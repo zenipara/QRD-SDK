@@ -34,6 +34,8 @@ getrandom = { version = "0.2", features = ["js"] }
 [dev-dependencies]
 proptest = { workspace = true }
 criterion = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
 tempfile = "3.8"
 
 [features]
@@ -61,29 +63,17 @@ name = "streaming_read"
 path = "examples/streaming_read.rs"
 
 [[bench]]
-name = "write_bench"
+name = "write_benchmark"
 harness = false
 
 [[bench]]
-name = "read_bench"
+name = "compression_benchmark"
 harness = false
 
 [[bench]]
-name = "encode_bench"
+name = "streaming_benchmark"
 harness = false
 
 [[bench]]
-name = "simple_bench"
-harness = false
-
-[[bench]]
-name = "streaming_bench"
-harness = false
-
-[[bench]]
-name = "stress_bench"
-harness = false
-
-[[bench]]
-name = "comprehensive_bench"
+name = "json_to_qrd_benchmark"
 harness = false

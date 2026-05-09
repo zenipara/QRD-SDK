@@ -1,0 +1,67 @@
+name: Benchmark QRD Core
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Criterion Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            core/qrd-core -> target
+          shared-key: benchmark-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Restore Criterion history cache
+        uses: actions/cache@v4
+        with:
+          path: core/qrd-core/target/criterion
+          key: criterion-${{ runner.os }}-${{ github.ref_name }}
+          restore-keys: |
+            criterion-${{ runner.os }}-
+
+      - name: Build workspace in release mode
+        working-directory: core/qrd-core
+        run: cargo build --workspace --release
+
+      - name: Run Criterion benchmarks
+        working-directory: core/qrd-core
+        run: |
+          set -euo pipefail
+          mkdir -p ../../benchmark-logs
+          cargo bench --workspace 2>&1 | tee ../../benchmark-logs/criterion.log
+
+      - name: Upload Criterion reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-reports-${{ github.run_id }}
+          path: |
+            core/qrd-core/target/criterion
+            benchmark-logs/criterion.log
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Save Criterion history cache
+        if: success()
+        uses: actions/cache@v4
+        with:
+          path: core/qrd-core/target/criterion
+          key: criterion-${{ runner.os }}-${{ github.ref_name }}

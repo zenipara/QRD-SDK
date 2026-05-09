@@ -1,5 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
-use qrd_core::encoding::*;
+use qrd_core::compression::{compress, CompressionCodec, CompressionLevel};
+use qrd_core::encoding::{
+    bit_packed::BitPackedEncoder,
+    delta_binary::DeltaBinaryEncoder,
+    plain::PlainEncoder,
+    rle::RleEncoder,
+    Encoder,
+};
 use qrd_core::utils::simd::SimdOps;
 
 fn encoding_benchmarks(c: &mut Criterion) {
@@ -11,45 +18,49 @@ fn encoding_benchmarks(c: &mut Criterion) {
     for &size in &sizes {
         // Random data
         let random_data: Vec<i32> = (0..size).map(|i| i as i32 % 1000).collect();
+        let random_bytes: Vec<u8> = random_data.iter().flat_map(|value| value.to_le_bytes()).collect();
 
         // Repetitive data (good for RLE)
         let repetitive_data: Vec<i32> = vec![42; size];
+        let repetitive_bytes: Vec<u8> = repetitive_data.iter().flat_map(|value| value.to_le_bytes()).collect();
 
         // Delta-friendly data (good for DELTA_BINARY)
         let delta_data: Vec<i32> = (0..size).map(|i| i as i32).collect();
+        let delta_bytes: Vec<u8> = delta_data.iter().flat_map(|value| value.to_le_bytes()).collect();
 
         group.bench_with_input(BenchmarkId::new("plain/random", size), &random_data, |b, data| {
             b.iter(|| {
-                let mut encoder = PlainEncoder::new();
+                let encoder = PlainEncoder::new();
                 let mut output = Vec::new();
-                encoder.encode(black_box(data), &mut output).unwrap();
+                output = encoder.encode(black_box(&random_bytes)).unwrap();
                 black_box(output);
             });
         });
 
         group.bench_with_input(BenchmarkId::new("rle/repetitive", size), &repetitive_data, |b, data| {
             b.iter(|| {
-                let mut encoder = RleEncoder::new();
+                let encoder = RleEncoder::new();
                 let mut output = Vec::new();
-                encoder.encode(black_box(data), &mut output).unwrap();
+                output = encoder.encode(black_box(&repetitive_bytes)).unwrap();
                 black_box(output);
             });
         });
 
         group.bench_with_input(BenchmarkId::new("delta_binary/sequential", size), &delta_data, |b, data| {
             b.iter(|| {
-                let mut encoder = DeltaBinaryEncoder::new();
+                let encoder = DeltaBinaryEncoder::new();
                 let mut output = Vec::new();
-                encoder.encode(black_box(data), &mut output).unwrap();
+                output = encoder.encode(black_box(&delta_bytes)).unwrap();
                 black_box(output);
             });
         });
 
         group.bench_with_input(BenchmarkId::new("bit_packed/random", size), &random_data, |b, data| {
             b.iter(|| {
-                let mut encoder = BitPackedEncoder::new();
+                let encoder = BitPackedEncoder::new();
                 let mut output = Vec::new();
-                encoder.encode(black_box(data), &mut output).unwrap();
+                let boolean_bytes: Vec<u8> = data.iter().map(|value| (value & 1) as u8).collect();
+                output = encoder.encode(&boolean_bytes).unwrap();
                 black_box(output);
             });
         });
@@ -63,52 +74,43 @@ fn decoding_benchmarks(c: &mut Criterion) {
 
     // Create encoded data for decoding benchmarks
     let original_data: Vec<i32> = (0..100_000).map(|i| i as i32 % 100).collect();
+    let original_bytes: Vec<u8> = original_data.iter().flat_map(|value| value.to_le_bytes()).collect();
+    let boolean_bytes: Vec<u8> = original_data.iter().map(|value| (value & 1) as u8).collect();
 
     // Encode with different algorithms
-    let mut plain_encoded = Vec::new();
-    PlainEncoder::new().encode(&original_data, &mut plain_encoded).unwrap();
-
-    let mut rle_encoded = Vec::new();
-    RleEncoder::new().encode(&original_data, &mut rle_encoded).unwrap();
-
-    let mut delta_encoded = Vec::new();
-    DeltaBinaryEncoder::new().encode(&original_data, &mut delta_encoded).unwrap();
-
-    let mut bitpacked_encoded = Vec::new();
-    BitPackedEncoder::new().encode(&original_data, &mut bitpacked_encoded).unwrap();
+    let plain_encoded = PlainEncoder::new().encode(&original_bytes).unwrap();
+    let rle_encoded = RleEncoder::new().encode(&original_bytes).unwrap();
+    let delta_encoded = DeltaBinaryEncoder::new().encode(&original_bytes).unwrap();
+    let bitpacked_encoded = BitPackedEncoder::new().encode(&boolean_bytes).unwrap();
 
     group.bench_function("plain/decode", |b| {
         b.iter(|| {
-            let mut decoder = PlainDecoder::new();
-            let mut output = Vec::new();
-            decoder.decode(&plain_encoded, &mut output).unwrap();
+            let decoder = PlainEncoder::new();
+            let output = decoder.decode(&plain_encoded, original_bytes.len()).unwrap();
             black_box(output);
         });
     });
 
     group.bench_function("rle/decode", |b| {
         b.iter(|| {
-            let mut decoder = RleDecoder::new();
-            let mut output = Vec::new();
-            decoder.decode(&rle_encoded, &mut output).unwrap();
+            let decoder = RleEncoder::new();
+            let output = decoder.decode(&rle_encoded, original_bytes.len()).unwrap();
             black_box(output);
         });
     });
 
     group.bench_function("delta_binary/decode", |b| {
         b.iter(|| {
-            let mut decoder = DeltaBinaryDecoder::new();
-            let mut output = Vec::new();
-            decoder.decode(&delta_encoded, &mut output).unwrap();
+            let decoder = DeltaBinaryEncoder::new();
+            let output = decoder.decode(&delta_encoded, original_bytes.len()).unwrap();
             black_box(output);
         });
     });
 
     group.bench_function("bit_packed/decode", |b| {
         b.iter(|| {
-            let mut decoder = BitPackedDecoder::new();
-            let mut output = Vec::new();
-            decoder.decode(&bitpacked_encoded, &mut output).unwrap();
+            let decoder = BitPackedEncoder::new();
+            let output = decoder.decode(&bitpacked_encoded, boolean_bytes.len()).unwrap();
             black_box(output);
         });
     });
@@ -123,21 +125,21 @@ fn compression_benchmarks(c: &mut Criterion) {
 
     group.bench_function("zstd/level1", |b| {
         b.iter(|| {
-            let compressed = qrd_core::compression::compress(&data, qrd_core::compression::CompressionType::Zstd(1)).unwrap();
+            let compressed = compress(&data, CompressionCodec::Zstd, CompressionLevel::new(1)).unwrap();
             black_box(compressed);
         });
     });
 
     group.bench_function("zstd/level6", |b| {
         b.iter(|| {
-            let compressed = qrd_core::compression::compress(&data, qrd_core::compression::CompressionType::Zstd(6)).unwrap();
+            let compressed = compress(&data, CompressionCodec::Zstd, CompressionLevel::new(6)).unwrap();
             black_box(compressed);
         });
     });
 
     group.bench_function("lz4/default", |b| {
         b.iter(|| {
-            let compressed = qrd_core::compression::compress(&data, qrd_core::compression::CompressionType::Lz4(4)).unwrap();
+            let compressed = compress(&data, CompressionCodec::Lz4, CompressionLevel::new(4)).unwrap();
             black_box(compressed);
         });
     });
