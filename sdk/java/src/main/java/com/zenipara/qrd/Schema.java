@@ -43,7 +43,7 @@ public class Schema implements AutoCloseable {
 
     @Override
     public void close() {
-        QRD.INSTANCE.schemaFree(handle);
+        QRD.INSTANCE.qrd_schema_free(handle);
     }
 
     @Override

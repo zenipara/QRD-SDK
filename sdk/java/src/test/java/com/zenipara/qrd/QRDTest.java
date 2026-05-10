@@ -29,14 +29,25 @@ public class QRDTest {
             .addField("value", FieldType.FLOAT64, Nullability.OPTIONAL)
             .build();
 
+        byte[] data;
+
         try (FileWriter writer = QRD.newFileWriter(schema)) {
             writer.writeRow(1L, 3.14);
             writer.writeRow(2L, 2.71);
             writer.writeRow(3L, 1.41);
 
-            byte[] data = writer.finish();
+            data = writer.finish();
             assertNotNull(data);
-            // Note: In a real implementation, data would not be empty
+            assertTrue("Expected non-empty serialized QRD data", data.length > 0);
+        }
+
+        try (FileReader reader = QRD.newFileReader(data, schema)) {
+            assertEquals(3, reader.getRowCount());
+            List<List<Object>> rows = reader.readAllRows();
+            assertEquals(3, rows.size());
+            assertEquals(2, rows.get(0).size());
+            assertEquals(2, rows.get(1).size());
+            assertEquals(2, rows.get(2).size());
         }
 
         schema.close();

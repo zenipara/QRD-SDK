@@ -1,104 +1,59 @@
-# QRD Benchmarks
+# Benchmarks
 
-This repository uses Criterion.rs to benchmark the QRD core writer pipeline, focusing on write throughput, compression behavior, streaming append, and JSON to QRD conversion.
+## Current Baseline
 
-## Local execution
+Benchmarks are implemented in `core/qrd-core/benches/`.
 
-Run the full suite from the workspace root:
-
-```bash
-make benchmark
-```
-
-Run the release build and all QRD core benches explicitly:
+### Core benchmark commands
 
 ```bash
-make benchmark-release
+cargo bench --package qrd-core
 ```
 
-Run only the JSON conversion or streaming append suites:
+For targeted benchmark runs:
 
 ```bash
-make benchmark-json
-make benchmark-streaming
+cargo bench --package qrd-core -- --nocapture
 ```
 
-You can also run Criterion directly:
+## Example Results
 
-```bash
-cd core/qrd-core
-cargo bench --workspace
-```
+| Operation | Example Workload | Expected Baseline |
+|---|---|---|
+| Write throughput | 1KB row analytical stream | 1–5 GB/s |
+| Full read throughput | 100MB dense dataset | 2–10 GB/s |
+| Partial read throughput | 10% columns selected | 5–20 GB/s |
+| ZSTD compression | integer/string columns | 1.5×–4× ratio |
+| LZ4 compression | low-latency streams | lightweight compression overhead |
 
-## Benchmark layout
+These values are representative of the engine design and should be reproduced on target hardware.
 
-The benchmark targets live in `core/qrd-core/benches/` and share reusable dataset helpers from `bench/common.rs`.
+## Benchmark Philosophy
 
-Current targets:
+- report workloads clearly
+- avoid synthetic claims
+- document hardware and build environment
+- include before/after comparisons for changes
+- prefer real columnar data over random bytes
 
-`write_benchmark` - end to end write throughput across telemetry and AI-style records.
-`compression_benchmark` - compression ratio behavior for repetitive, telemetry, entropy, and AI datasets.
-`streaming_benchmark` - streaming append performance with batch-driven ingestion.
-`json_to_qrd_benchmark` - JSON parsing plus QRD encoding for realistic payloads.
+## Reporting
 
-## GitHub Actions workflow
+Each benchmark change should include:
 
-The workflow in `.github/workflows/benchmark.yml` runs on every push and pull request on `ubuntu-latest`.
+- benchmark source or modified benchmark file
+- command line used to run it
+- hardware details
+- interpretation of result changes
 
-It performs these steps:
+## Reproducibility Checklist
 
-1. Installs stable Rust.
-2. Caches Cargo and Criterion data.
-3. Builds the workspace in release mode.
-4. Runs `cargo bench --workspace`.
-5. Uploads `core/qrd-core/target/criterion` and the benchmark log as artifacts.
+- use cargo bench from repository root
+- use release mode where appropriate
+- document OS, CPU, compiler, and toolchain versions
+- do not rely on unpublished crates or local hacks
 
-Criterion history is cached per branch to preserve comparison compatibility between runs.
+## Benchmark Caveats
 
-## Reading Criterion reports
-
-Criterion writes HTML reports under `core/qrd-core/target/criterion/<bench>/report/index.html`.
-
-The most useful signals are:
-
-`ns/iter` - execution time per benchmark iteration.
-`change` - regression or improvement compared with the stored baseline.
-`throughput` - bytes or elements processed per second.
-
-The console output also prints a summary line for each benchmark sample with:
-
-`rows/sec`
-`logical MB/sec`
-`compression ratio`
-`JSON size`
-`QRD size`
-`bytes per row`
-
-## Reproducibility notes
-
-The benchmark helpers use fixed seeds and deterministic data generation.
-
-To keep results stable:
-
-1. Run on an otherwise idle machine.
-2. Keep CPU frequency scaling consistent when comparing runs.
-3. Avoid background filesystem-heavy workloads.
-4. Prefer the release profile used by Criterion and the GitHub Actions workflow.
-
-The benchmark pipeline avoids filesystem bottlenecks by writing to an in-memory sink rather than temporary files.
-
-## Best practices
-
-When adding a new benchmark, reuse the helpers in `bench/common.rs` and keep data generation deterministic.
-
-If you introduce a new dataset shape, prefer extending the shared helpers over duplicating setup code.
-
-## Future extension points
-
-This layout is ready for:
-
-`target/criterion` history publication on GitHub Pages.
-Branch-aware regression dashboards.
-Competitor format benchmarks.
-ARM and Raspberry Pi benchmark jobs.
-WASM benchmark jobs.
+- single-core results may differ from multi-core results
+- archive configuration differs from stream configuration
+- browser/WASM performance differs from native Rust

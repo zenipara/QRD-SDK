@@ -44,6 +44,7 @@ QrdRow* qrd_reader_read_row(QrdReader* reader);
 QrdRow* qrd_row_new(void);
 void qrd_row_free(QrdRow* row);
 size_t qrd_row_field_count(const QrdRow* row);
+const uint8_t* qrd_row_get_bytes(const QrdRow* row, size_t index, size_t* size);
 int qrd_row_add_bytes(QrdRow* row, const uint8_t* data, size_t size);
 int qrd_row_add_int64(QrdRow* row, int64_t value);
 int qrd_row_add_float64(QrdRow* row, double value);

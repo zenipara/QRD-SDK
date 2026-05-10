@@ -1,5 +1,9 @@
 package com.zenipara.qrd;
 
+import com.sun.jna.Native;
+import com.sun.jna.Pointer;
+import com.sun.jna.ptr.LongByReference;
+import com.sun.jna.ptr.PointerByReference;
 import java.util.List;
 
 /**
@@ -21,7 +25,7 @@ public class FileWriter implements AutoCloseable {
             throw new QRDException("Writer is already finished");
         }
 
-        long rowHandle = QRD.INSTANCE.rowNew();
+        long rowHandle = QRD.INSTANCE.qrd_row_new();
         if (rowHandle == 0) {
             throw new QRDException("Failed to create row");
         }
@@ -31,12 +35,12 @@ public class FileWriter implements AutoCloseable {
                 addValueToRow(rowHandle, value);
             }
 
-            int result = QRD.INSTANCE.writerWriteRow(handle, rowHandle);
+            int result = QRD.INSTANCE.qrd_writer_write_row(handle, rowHandle);
             if (result != 0) {
                 throw new QRDException("Failed to write row");
             }
         } finally {
-            QRD.INSTANCE.rowFree(rowHandle);
+            QRD.INSTANCE.qrd_row_free(rowHandle);
         }
     }
 
@@ -55,12 +59,29 @@ public class FileWriter implements AutoCloseable {
             throw new QRDException("Writer is already finished");
         }
 
-        finished = true;
+        PointerByReference dataRef = new PointerByReference();
+        LongByReference sizeRef = new LongByReference();
 
-        // This is a simplified implementation
-        // In practice, you'd need to implement proper buffer management
-        // For now, return empty array as placeholder
-        return new byte[0];
+        int result = QRD.INSTANCE.qrd_writer_finish(handle, dataRef, sizeRef);
+        if (result != 0) {
+            throw new QRDException("Failed to finish writer");
+        }
+
+        Pointer dataPtr = dataRef.getValue();
+        long size = sizeRef.getValue();
+        if (size == 0 || dataPtr == null) {
+            finished = true;
+            return new byte[0];
+        }
+
+        if (size > Integer.MAX_VALUE) {
+            throw new QRDException("Output is too large to fit in a Java byte array");
+        }
+
+        byte[] bytes = dataPtr.getByteArray(0, (int) size);
+        Native.free(Pointer.nativeValue(dataPtr));
+        finished = true;
+        return bytes;
     }
 
     private void addValueToRow(long rowHandle, Object value) throws QRDException {
@@ -70,15 +91,15 @@ public class FileWriter implements AutoCloseable {
         }
 
         if (value instanceof Long) {
-            QRD.INSTANCE.rowAddInt64(rowHandle, (Long) value);
+            QRD.INSTANCE.qrd_row_add_int64(rowHandle, (Long) value);
         } else if (value instanceof Double) {
-            QRD.INSTANCE.rowAddFloat64(rowHandle, (Double) value);
+            QRD.INSTANCE.qrd_row_add_float64(rowHandle, (Double) value);
         } else if (value instanceof String) {
-            QRD.INSTANCE.rowAddString(rowHandle, (String) value);
+            QRD.INSTANCE.qrd_row_add_string(rowHandle, (String) value);
         } else if (value instanceof Integer) {
-            QRD.INSTANCE.rowAddInt64(rowHandle, ((Integer) value).longValue());
+            QRD.INSTANCE.qrd_row_add_int64(rowHandle, ((Integer) value).longValue());
         } else if (value instanceof Float) {
-            QRD.INSTANCE.rowAddFloat64(rowHandle, ((Float) value).doubleValue());
+            QRD.INSTANCE.qrd_row_add_float64(rowHandle, ((Float) value).doubleValue());
         } else if (value instanceof Boolean) {
             // Would need to implement boolean support
             throw new QRDException("Boolean values not yet supported");
@@ -90,7 +111,7 @@ public class FileWriter implements AutoCloseable {
     @Override
     public void close() {
         if (!finished) {
-            QRD.INSTANCE.writerFree(handle);
+            QRD.INSTANCE.qrd_writer_free(handle);
         }
     }
 }

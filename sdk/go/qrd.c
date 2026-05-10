@@ -42,6 +42,7 @@ extern FFIRow* qrd_reader_read_row_ffi(FFIReader* reader);
 extern FFIRow* qrd_row_new_ffi(void);
 extern void qrd_row_free_ffi(FFIRow* row);
 extern size_t qrd_row_field_count_ffi(const FFIRow* row);
+extern const uint8_t* qrd_row_get_bytes_ffi(const FFIRow* row, size_t index, size_t* size);
 extern int qrd_row_add_bytes_ffi(FFIRow* row, const uint8_t* data, size_t size);
 extern int qrd_row_add_int64_ffi(FFIRow* row, int64_t value);
 extern int qrd_row_add_float64_ffi(FFIRow* row, double value);
@@ -268,6 +269,10 @@ void qrd_row_free(QrdRow* row) {
 
 size_t qrd_row_field_count(const QrdRow* row) {
     return qrd_row_field_count_ffi((const FFIRow*)row);
+}
+
+const uint8_t* qrd_row_get_bytes(const QrdRow* row, size_t index, size_t* size) {
+    return qrd_row_get_bytes_ffi((const FFIRow*)row, index, size);
 }
 
 int qrd_row_add_bytes(QrdRow* row, const uint8_t* data, size_t size) {

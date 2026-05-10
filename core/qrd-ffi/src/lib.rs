@@ -834,6 +834,25 @@ pub extern "C" fn qrd_row_field_count_ffi(row: *const FFIRow) -> usize {
     unsafe { (*row).values.len() }
 }
 
+/// FFI function to get the bytes for a field in a row.
+#[no_mangle]
+pub extern "C" fn qrd_row_get_bytes_ffi(row: *const FFIRow, index: usize, size: *mut usize) -> *const u8 {
+    if row.is_null() || size.is_null() {
+        return std::ptr::null();
+    }
+
+    unsafe {
+        let row_ref = &*row;
+        match row_ref.values.get(index) {
+            Some(value) => {
+                *size = value.len();
+                value.as_ptr()
+            }
+            None => std::ptr::null(),
+        }
+    }
+}
+
 /// FFI function to append raw bytes to a row.
 #[no_mangle]
 pub extern "C" fn qrd_row_add_bytes_ffi(row: *mut FFIRow, data: *const u8, size: usize) -> i32 {

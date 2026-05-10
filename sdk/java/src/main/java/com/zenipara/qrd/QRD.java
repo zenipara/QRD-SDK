@@ -3,6 +3,8 @@ package com.zenipara.qrd;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
 import com.sun.jna.Pointer;
+import com.sun.jna.ptr.IntByReference;
+import com.sun.jna.ptr.LongByReference;
 import com.sun.jna.ptr.PointerByReference;
 
 /**
@@ -51,6 +53,17 @@ public class QRD {
     }
 
     /**
+     * Create a new file reader with a known schema.
+     */
+    public static FileReader newFileReader(byte[] data, Schema schema) throws QRDException {
+        long handle = INSTANCE.readerNew(data, data.length);
+        if (handle == 0) {
+            throw new QRDException("Failed to create reader");
+        }
+        return new FileReader(handle, schema);
+    }
+
+    /**
      * JNA interface to the native QRD library
      */
     public interface QRDInterface extends Library {
@@ -65,7 +78,7 @@ public class QRD {
         long writerNew(long schema);
         void writerFree(long writer);
         int writerWriteRow(long writer, long row);
-        int writerFinish(long writer, PointerByReference data, PointerByReference size);
+        int writerFinish(long writer, PointerByReference data, LongByReference size);
 
         // Reader functions
         long readerNew(byte[] data, int size);
@@ -78,6 +91,7 @@ public class QRD {
         long rowNew();
         void rowFree(long row);
         int rowFieldCount(long row);
+        Pointer rowGetBytes(long row, int index, IntByReference size);
         int rowAddInt64(long row, long value);
         int rowAddFloat64(long row, double value);
         int rowAddString(long row, String value);

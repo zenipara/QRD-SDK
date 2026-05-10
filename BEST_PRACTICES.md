@@ -1,7 +1,6 @@
-# QRD SDK — Best Practices & Troubleshooting Guide
+# Deprecated Best Practices
 
-**Version:** 1.2.0  
-**Last Updated:** May 2026
+This file has been superseded by `CONTRIBUTING.md` and the new documentation system under `docs/`.
 
 ---
 

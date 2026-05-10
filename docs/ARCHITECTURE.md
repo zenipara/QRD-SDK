@@ -1,342 +1,146 @@
-# QRD Architecture Guide
+# Architecture
 
-## System Overview
+## Overview
 
-QRD is built on a single-core principle: **Rust is the source of truth**.
+QRD is designed as a single authoritative core engine with language-agnostic bindings and a binary format that supports streaming, partial reads, and bounded-memory processing.
 
-```
-┌─────────────────────────────┐
-│     Language Bindings       │
-│  (Python, Go, TypeScript)   │
-└──────────┬──────────────────┘
-           │
-┌──────────▼──────────────────┐
-│   C FFI Layer (qrd-ffi)     │
-│  - C-compatible interfaces  │
-│  - Memory management        │
-│  - Error handling shim      │
-└──────────┬──────────────────┘
-           │
-┌──────────▼──────────────────┐
-│   Rust Core Engine          │
-│                             │
-│  Schema → Writer → Encoder  │
-│       ↓                     │
-│    Compressor → Footer      │
-│       ↓                     │
-│    Binary File              │
-│                             │
-│  Reader ← Decompressor      │
-│    ↑ ← Decoder              │
-└─────────────────────────────┘
-```
-
-## Module Architecture
-
-### Core Modules
+## Architecture Diagram
 
 ```
-qrd-core/
-├── schema/         - Type system and schema validation
-├── encoding/       - Automatic encoding selection
-├── compression/    - ZSTD/LZ4 codecs
-├── writer/         - Streaming row ingestion
-├── reader/         - Multi-mode read access
-├── footer/         - Metadata serialization
-├── validation/     - CRC32 and integrity checks
-├── io/             - Buffered I/O
-└── utils/          - Helpers (varint, bits, etc.)
++----------------------------+
+| Language SDK Layer         |
+|  Python  TypeScript  Go    |
+|  Java    C/C++            |
++-------------+--------------+
+              |
++-------------v--------------+
+| FFI / WASM Interface       |
+|  core/qrd-ffi/             |
++-------------+--------------+
+              |
++-------------v--------------+
+| Rust Core Engine           |
+|  core/qrd-core/            |
+|  - schema                  |
+|  - writer                  |
+|  - reader                  |
+|  - encoding                |
+|  - compression             |
+|  - encryption              |
+|  - ecc                     |
++----------------------------+
 ```
 
-### Data Flow: Writing
+## Streaming Pipeline
+
+QRD processes input as a stream of rows and emits row groups once the target row group size is reached.
 
 ```
-User Code
-   ↓
-write_row(values)
-   ↓
-Row Buffer (accumulate rows)
-   ↓ [when row_group_size reached]
-Row → Column Transposition
-   ↓
-For each column:
-  - Select encoding (cardinality, entropy)
-  - Encode data
-  - Select compression (entropy threshold)
-  - Compress data
-  - Calculate CRC32
-  ↓
-Build row group metadata
-  ↓
-Flush to file
-   ↓
-[repeat until finish()]
-   ↓
-Build footer
-  - Embed schema
-  - Row group offsets
-  - Statistics
-  - Footer checksum
-   ↓
-Final flush
+Input rows → Row group buffer → Columnar transpose → Encoding → Compression → Optional encryption → Row group flush
 ```
 
-### Data Flow: Reading
+### Writer
 
-#### Mode 1: Full Read
+The writer architecture is organized around row-group boundaries:
 
-```
-open_file()
-   ↓
-Read header (32 bytes)
-   ↓
-Seek to footer (file_size - 4)
-   ↓
-Parse footer:
-  - Schema
-  - Row group offsets
-  - Statistics
-   ↓
-For each row group:
-  - Read column chunks
-  - Decompress (using codec from metadata)
-  - Decode (using encoding from metadata)
-  - Build row records
-  - Yield rows
-```
+- ingest rows one at a time
+- buffer rows until a row group is complete
+- transpose rows into column chunks
+- select an encoding per column
+- compress chunk payloads
+- optionally encrypt and add ECC
+- append row group to file stream
 
-#### Mode 2: Partial Read (Specific Columns)
+This design keeps memory bounded by row group capacity rather than dataset size.
 
-```
-open_file()
-   ↓
-Read footer
-   ↓
-Select columns to read
-   ↓
-For each row group:
-  - Skip unrequested columns
-  - Read only requested columns
-  - Decompress
-  - Decode
-  - Yield values
-```
+### Reader
 
-#### Mode 3: Footer-Only (Metadata)
+The reader architecture supports several modes:
 
-```
-open_file()
-   ↓
-Seek to footer
-   ↓
-Parse footer
-   ↓
-Return:
-  - Schema
-  - Row count
-  - Statistics
-  [No row data read]
-```
+- full file read
+- partial column read
+- footer-only metadata inspection
+- streaming read via row group iteration
 
-## Encoding Selection Algorithm
+Readers parse the footer first, then seek directly to row groups and column chunks. Selective column reads skip unrelated data and avoid unnecessary decompression.
 
-```
-For each column:
-  1. Sample 1000 values (or all if < 1000)
-  
-  2. Detect cardinality
-     if cardinality < 256 and is_lowcardinality:
-       → DICTIONARY_RLE
-  
-  3. Detect sortedness
-     if is_sorted:
-       → DELTA_BINARY (numerics)
-       → DELTA_BYTE_ARRAY (strings)
-  
-  4. Check data patterns
-     if is_repetitive:
-       → RLE
-  
-  5. Type-specific
-     if type == BOOLEAN:
-       → BIT_PACKED
-     if type == BLOB or type == PASSTHROUGH:
-       → PASSTHROUGH
-  
-  6. Default:
-     → PLAIN
-```
+## Compression Pipeline
 
-## Compression Selection Algorithm
+The compression pipeline is separate from encoding:
 
-```
-For each encoded column chunk:
-  1. Calculate entropy of first 1KB
-     entropy = -sum(p_i * log2(p_i))
-  
-  2. High entropy (> 7.5)?
-     → NONE (already compressed or random)
-  
-  3. Pre-compressed format detected?
-     (magic bytes for JPEG, MP4, etc.)
-     → NONE
-  
-  4. Streaming write mode?
-     → LZ4 (ultra-fast)
-  
-  5. Default (archive/batch mode):
-     → ZSTD (best ratio)
-```
+- Encode data into a representation that is more compressible
+- Select a codec based on data shape and workload
+- Compress each column chunk independently
+- Store codec metadata in the chunk header
 
-## Memory Management
+Independent chunk compression enables parallel decompression and partial reads.
 
-### Writer Memory Usage
+## Schema System
 
-```
-Total = row_group_size × avg_row_bytes + overhead
+The schema system is embedded in the file footer and is deterministic by design.
 
-Example:
-  row_group_size = 1M rows
-  avg_row_bytes = 1KB
-  ────────────────────────
-  ≈ 1.3 GB
+- field names and types are serialized in a fixed format
+- nullability is explicit
+- optional metadata is included per field
+- schema fingerprint is stored in the header
 
-When row_group_size reached:
-  1. Flush row group to file
-  2. Clear buffers
-  3. Continue accumulating
-```
+This schema system provides self-description without an external catalog.
 
-### Reader Memory Usage
+## SDK Architecture
 
-```
-Full read:  O(row_group_size) - buffers one group
-Streaming:  O(row_size) - buffers one row
-Footer:     O(footer_size) ≈ 1-10 KB
-```
+The SDK architecture is layered:
 
-## Performance Characteristics
+- `core/qrd-core/`: authoritative engine and binary format implementation
+- `core/qrd-ffi/`: C-compatible API that exposes core features
+- `sdk/*/`: language bindings that call into the FFI or WASM runtime
 
-### Write Performance
+The bindings are thin wrappers; the Rust engine contains the actual implementation logic.
 
-- Row buffer: O(1) per row
-- Encoding: O(n) where n = column size
-- Compression: depends on codec (200-500 MB/s typical)
-- Total throughput: 1-5 GB/s on modern x86_64
+## FFI Architecture
 
-### Read Performance
+The FFI layer exposes:
 
-- Full sequential: 2-10 GB/s
-- Partial (specific columns): 5-20 GB/s
-- Footer only: <1ms regardless of file size
-- Random row access: O(row_group_size)
+- schema construction and serialization
+- writer creation and row ingestion
+- reader creation and row or column access
+- metadata inspection
+- ECC and encryption configuration
 
-### Storage Compression
+Language bindings use the FFI to avoid duplicate format logic.
 
-| Data Type | Ratio |
-|-----------|-------|
-| JSON | 8-15x |
-| CSV | 10-20x |
-| Text | 5-10x |
-| Binary | 1.2-3x |
-| Already compressed | 1.0-1.1x |
+## WASM Architecture
 
-## Determinism
+WASM builds compile the Rust core into a portable module and expose a small runtime API.
 
-All operations must be **deterministic** and **reproducible**.
+- `sdk/typescript/` contains the build and packaging layer
+- `qrd-wasm/` is the WebAssembly target in the workspace
+- browser and Node.js runtimes reuse the same core implementation
 
-```
-write_file(schema, rows) → bytes_1
-write_file(schema, rows) → bytes_2
+## Memory Flow
 
-bytes_1 == bytes_2  ✓ Always true
-```
+Memory is bounded along the write and read paths:
 
-This guarantees:
-- Cache validation
-- Diff detection
-- Cross-SDK compatibility
-- Version control friendly
+- Write: row group buffer → column buffer → encoded chunk → compressed payload
+- Read: row group metadata → chunk payload → decoded row / selected columns
 
-## Error Handling
+Memory usage remains proportional to row group size and selected columns.
 
-### Recoverable Errors
+## Zero-Copy Concepts
 
-- Compression failed → store uncompressed
-- Unknown encoding → treat as PLAIN
-- Unknown compression → treat as NONE
-- Extra metadata → ignore
+QRD is designed to minimize copies when possible:
 
-### Unrecoverable Errors
+- row group metadata is parsed from the footer without deserializing entire file
+- partial reads load only selected column chunks
+- readers may map or buffer compressed payloads directly when the runtime supports it
 
-- Invalid magic bytes
-- Major version mismatch
-- CRC checksum failed
-- Corrupted schema
-- Truncated file
+## Future Extensibility
 
-## Threading Model
+The architecture reserves extension points for:
 
-### Current (Single-threaded)
+- new compression codecs
+- new encodings
+- encryption metadata fields
+- ECC parity schemes
+- additional schema metadata
 
-- All operations sequential
-- Simple error handling
-- Suitable for embedded/mobile
-
-### Future (Multi-threaded)
-
-```
-Writer:
-  - Main thread: row buffering
-  - Worker threads: encode/compress
-  - Channel-based work queue
-
-Reader:
-  - Parallel decompress multiple row groups
-  - Parallel decode within group
-```
-
-## Security
-
-### Current (None)
-
-- No authentication
-- No access control
-- No built-in encryption (optional)
-
-### Future Phases
-
-- Optional AES-256-GCM (per-column)
-- HKDF key derivation
-- Authenticated encryption
-
-## Extensibility
-
-### Adding New Features
-
-1. **New Encoding**:
-   - Create `encoding/new_encoding.rs`
-   - Implement `Encoder` trait
-   - Register in `EncodingType`
-   - Update selection algorithm
-   - Add tests
-
-2. **New Compression**:
-   - Add to `CompressionCodec` enum
-   - Implement compress/decompress
-   - Add to selection algorithm
-
-3. **New Type**:
-   - Add to `LogicalType` enum
-   - Define default encoding
-   - Add validation rules
-
-### Backward Compatibility
-
-- Unknown features → graceful fallback
-- Version numbers gate behaviors
-- Test vectors ensure compatibility
-
----
-
-**QRD is designed for long-term stability and wide adoption.**
+The core engine, FFI, and docs are structured to allow incremental extension without format drift.

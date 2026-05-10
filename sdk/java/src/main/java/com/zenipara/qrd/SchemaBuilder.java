@@ -45,6 +45,6 @@ public class SchemaBuilder {
                 }
             }
 
-            long id = QRD.INSTANCE.schemaId(handle);
+            long id = QRD.INSTANCE.qrd_schema_id(handle);
             return new Schema(handle, id, new ArrayList<>(fields));
         } catch (Exception e) {

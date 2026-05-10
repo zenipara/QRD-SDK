@@ -1,13 +1,6 @@
-# AUDIT MENDALAM — QRD-SDK v4
+# Deprecated Audit Report
 
-**Dokumen:** Audit Teknis Komprehensif (Iterasi Kedua)  
-**Proyek:** QRD-SDK (`QRD-SDK-main__4_.zip`)  
-**Auditor:** Claude Sonnet 4.6  
-**Tanggal Audit:** 10 Mei 2026  
-**Versi Format:** QRD v1.0.0-draft  
-**Bahasa Utama:** Rust (Core), Go, TypeScript, Python, Java (Binding)  
-**Lisensi:** MIT © 2026 NAFAL FATURIZKI  
-**Dibandingkan dengan:** Audit v3 (10 Mei 2026, iterasi sebelumnya)
+This audit report document has been superseded by updated security and audit guidance in `docs/SECURITY_AUDIT.md`, `docs/FUZZING.md`, and `docs/THREAT_MODEL.md`.
 
 ---
 

@@ -1,7 +1,6 @@
-# QRD SDK — API Reference Documentation
+# Deprecated API Reference
 
-**Version:** 1.2.0  
-**Last Updated:** May 2026
+This file has been superseded by the new documentation structure. Please use `docs/SDKS.md` and `docs/FORMAT_SPEC.md` for current API and format guidance.
 
 ---
 

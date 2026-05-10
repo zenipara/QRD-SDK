@@ -78,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 2. **Binary Correctness**: Format changes require RFC and test vectors
 3. **Performance**: Benchmark any encoding/compression changes
 4. **Testing**: New features require golden test vectors and fuzz tests
-5. **Documentation**: Format changes must update SPECIFICATION.md
+5. **Documentation**: Format changes must update `docs/FORMAT_SPEC.md`
 
 ### Breaking Changes
 

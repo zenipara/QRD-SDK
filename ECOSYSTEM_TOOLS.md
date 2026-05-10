@@ -1,9 +1,6 @@
-# QRD Ecosystem & Tools
+# Deprecated Ecosystem Tools
 
-**Author:** NAFAL FATURIZKI  
-**Version:** 1.0.0  
-**Status:** Ecosystem Design Specification  
-**Last Updated:** 2026-05-09
+This file has been superseded by `docs/SDKS.md` and `docs/ROADMAP.md`.
 
 ---
 

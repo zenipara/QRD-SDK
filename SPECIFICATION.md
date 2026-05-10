@@ -1,8 +1,6 @@
-# QRD Specification
+# Deprecated Specification
 
-**Version:** 1.0.0-draft  
-**Status:** In Development  
-**Last Updated:** 2026-05-08
+This file has been superseded by `docs/FORMAT_SPEC.md`.
 
 ## Table of Contents
 
