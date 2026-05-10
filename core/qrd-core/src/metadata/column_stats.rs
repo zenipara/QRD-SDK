@@ -47,12 +47,16 @@ impl ColumnStats {
 
         match value {
             Some(val) => {
-                // Update min/max
-                if self.min_value.is_none() || val < self.min_value.as_ref().unwrap() {
-                    self.min_value = Some(val.to_vec());
+                // Update min/max using safe pattern matching instead of unwrap()
+                match &self.min_value {
+                    None => self.min_value = Some(val.to_vec()),
+                    Some(min) if val < min => self.min_value = Some(val.to_vec()),
+                    _ => {}
                 }
-                if self.max_value.is_none() || val > self.max_value.as_ref().unwrap() {
-                    self.max_value = Some(val.to_vec());
+                match &self.max_value {
+                    None => self.max_value = Some(val.to_vec()),
+                    Some(max) if val > max => self.max_value = Some(val.to_vec()),
+                    _ => {}
                 }
 
                 // Update distinct count (simple approximation)

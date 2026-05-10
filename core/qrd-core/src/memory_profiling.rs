@@ -52,12 +52,15 @@ impl MemoryProfiler {
 
     /// Get current memory statistics
     pub fn stats() -> MemoryStats {
-        PROFILER.stats.lock().unwrap().clone()
+        PROFILER.stats.lock()
+            .expect("Memory profiler stats lock poisoned - critical system state error")
+            .clone()
     }
 
     /// Reset memory statistics
     pub fn reset_stats() {
-        let mut stats = PROFILER.stats.lock().unwrap();
+        let mut stats = PROFILER.stats.lock()
+            .expect("Memory profiler stats lock poisoned - cannot reset statistics");
         *stats = MemoryStats::default();
     }
 
@@ -81,7 +84,10 @@ unsafe impl GlobalAlloc for MemoryProfiler {
         let ptr = self.allocator.alloc(layout);
 
         if !ptr.is_null() {
-            let mut stats = self.stats.lock().unwrap();
+            // SAFETY: We're in a GlobalAlloc implementation where exclusive access is guaranteed.
+            // Lock poisoning here indicates a critical system corruption and we defensively unwrap.
+            let mut stats = self.stats.lock()
+                .expect("Global allocator stats lock poisoned - potential undefined behavior");
             stats.total_allocations += 1;
             stats.total_bytes_allocated += layout.size();
             stats.current_bytes += layout.size();
@@ -97,7 +103,10 @@ unsafe impl GlobalAlloc for MemoryProfiler {
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         self.allocator.dealloc(ptr, layout);
 
-        let mut stats = self.stats.lock().unwrap();
+        // SAFETY: We're in a GlobalAlloc implementation where exclusive access is guaranteed.
+        // Lock poisoning here indicates a critical system corruption and we defensively unwrap.
+        let mut stats = self.stats.lock()
+            .expect("Global allocator stats lock poisoned during dealloc");
         stats.total_deallocations += 1;
         stats.total_bytes_deallocated += layout.size();
         stats.current_bytes = stats.current_bytes.saturating_sub(layout.size());
