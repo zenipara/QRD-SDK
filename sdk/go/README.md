@@ -10,17 +10,33 @@ go get github.com/zenipara/QRD-SDK/sdk/go
 
 ## Building
 
+### Requirements
+
+1. Rust toolchain (to build the FFI library)
+2. C compiler (gcc/clang) for CGO
+3. Standard Go toolchain
+
+### Build Process
+
 First, build the Rust FFI library:
 
 ```bash
-cd ../..
-cargo build --release
+cd ../..  # Go to repository root
+cargo build --release -p qrd-ffi
+```
+
+Then verify `libqrd_ffi.so` (Linux) or `libqrd_ffi.dylib` (macOS) exists:
+
+```bash
+ls target/release/libqrd_ffi.*
 ```
 
 Then build the Go bindings:
 
 ```bash
-go build
+cd sdk/go
+go build ./...
+go test ./...
 ```
 
 ## Usage

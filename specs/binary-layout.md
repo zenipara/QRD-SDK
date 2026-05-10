@@ -30,8 +30,15 @@ Offset  Size  Type    Field                Notes
 16      4     U32LE   TOTAL_ROW_COUNT      All rows in file
 20      4     U32LE   COLUMN_COUNT         Number of columns
 24      4     U32LE   ROW_GROUP_SIZE       Rows per row group
-28      4     U32LE   FLAGS                Reserved (currently zero)
+28      4     U32LE   FLAGS                Reserved
 ```
+
+### FLAGS Field Note
+
+> **Catatan implementasi:** Field FLAGS saat ini selalu 0 (reserved).
+> Meski namanya "FLAGS", field ini ditulis little-endian konsisten dengan
+> seluruh format. Spesifikasi sebelumnya keliru mencantumkan U32BE.
+> Diperbaiki: 9 Mei 2026.
 
 ### Magic Verification
 

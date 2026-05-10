@@ -16,7 +16,7 @@ Built in Rust. One format. One truth. All languages.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
-[![Status](https://img.shields.io/badge/status-Phase%202%20Complete-brightgreen.svg)](#project-status)
+[![Status](https://img.shields.io/badge/status-Alpha-orange.svg)](./STATUS.md)
 [![Spec](https://img.shields.io/badge/spec-v1.0.0--draft-yellow.svg)](./SPECIFICATION.md)
 
 </div>
@@ -203,6 +203,13 @@ cargo bench --package qrd-core
 
 ## Project Status
 
+**→ Lihat [STATUS.md](./STATUS.md) untuk status lengkap dan up-to-date.**
+
+Ringkasan singkat:
+- ✅ Rust core engine: fungsional dengan test komprehensif (273+ tests)
+- ✅ Spesifikasi format: lengkap (v1.0.0-draft)
+- ⚠️ Enkripsi & ECC: unit-tested tapi belum terintegrasi ke pipeline I/O
+- ❌ Language bindings: mayoritas masih stub atau broken
 
 ---
 
@@ -248,7 +255,7 @@ qrd/
 │   ├── python/                  # Python binding (PyO3) [Phase 3]
 │   ├── typescript/              # TypeScript/WASM binding [Phase 3]
 │   ├── go/                      # Go binding (CGO) [Phase 3]
-│   └── java/                    # Java binding (JNI) [Phase 3]
+│   └── java/                    # Java binding (JNA) [Phase 3]
 │
 ├── test-vectors/                # Golden binary test vectors
 ├── docs/                        # Architecture docs and guides
@@ -269,7 +276,7 @@ qrd/
 
 ```bash
 git clone https://github.com/zenipara/QRD-SDK.git
-cd qrd-sdk/core/qrd-core
+cd QRD-SDK/core/qrd-core
 cargo build --release
 ```
 
@@ -406,7 +413,43 @@ QRD is the right choice when you need to **write structured data to a file, effi
 
 ## Roadmap
 
+- [x] End-to-end streaming write → read roundtrip
+- [x] Golden test vector suite
+- [x] All encoding types fully integrated
+- [x] SIMD optimization validated in benchmarks
+- [x] Memory profiling and fuzz testing
+- [x] Documentation and example suite
 
+### v1.1.0 — Q4 2026 (Partial Reads)
+
+- [x] Footer-based column-selective reads
+- [x] Column statistics collection
+- [x] Query pushdown optimization
+- [x] Metadata indexing
+
+### v1.2.0 — Q4 2026 (Security)
+
+- [ ] AES-256-GCM encryption, end-to-end integrated
+- [ ] Per-column encryption keys
+- [ ] Reed-Solomon ECC, integrated with writer/reader
+- [ ] Encrypted test vectors
+
+### v2.0.0 — Q1 2027 (Language Bindings)
+
+- [ ] Python SDK (PyO3 + NumPy/Pandas integration)
+- [ ] TypeScript SDK (WASM + Browser + Node.js)
+- [ ] Go SDK (CGO + `io.Reader`/`io.Writer`)
+- [ ] Java SDK (JNA + Stream API)
+- [ ] Cross-SDK determinism test suite
+
+### v3.0.0 — Q2 2027+ (Ecosystem)
+
+- [ ] `qrd-write`: JSON/CSV → QRD CLI
+- [ ] `qrd-read`: QRD → JSON/CSV/Parquet CLI
+- [ ] `qrd-inspect`: Metadata and schema viewer
+- [ ] `qrd-convert`: Cross-format conversion
+- [ ] Fuzzer corpus and corruption test suite
+- [ ] Architecture deep-dives and performance tuning guide
 
 ---
 
