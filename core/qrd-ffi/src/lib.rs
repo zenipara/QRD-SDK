@@ -12,13 +12,14 @@ use std::cell::RefCell;
 use std::ffi::c_void;
 use std::ffi::CStr;
 use std::io::{self, Write};
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_int};
 use std::rc::Rc;
 use std::slice;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
+use std::sync::Mutex as StdMutex;
 
 extern "C" {
     fn malloc(size: usize) -> *mut c_void;
@@ -303,6 +304,66 @@ mod tests {
     }
 }
 
+// ============================================================================
+// FFI HELPER TYPES & ERROR HANDLING
+// ============================================================================
+
+/// Simple wrapper for SchemaBuilder to use in FFI
+#[repr(C)]
+pub struct QrdSchemaBuilder(Option<SchemaBuilder>);
+
+/// Thread-safe global error storage for last FFI error
+thread_local! {
+    static LAST_ERROR: StdMutex<String> = StdMutex::new(String::new());
+}
+
+fn set_last_error(msg: String) {
+    LAST_ERROR.with(|e| {
+        if let Ok(mut err) = e.lock() {
+            *err = msg;
+        }
+    });
+}
+
+fn field_type_from_int(value: i32) -> std::result::Result<FieldType, String> {
+    match value {
+        0 => Ok(FieldType::Boolean),
+        1 => Ok(FieldType::Int8),
+        2 => Ok(FieldType::Int16),
+        3 => Ok(FieldType::Int32),
+        4 => Ok(FieldType::Int64),
+        5 => Ok(FieldType::UInt8),
+        6 => Ok(FieldType::UInt16),
+        7 => Ok(FieldType::UInt32),
+        8 => Ok(FieldType::UInt64),
+        9 => Ok(FieldType::Float32),
+        10 => Ok(FieldType::Float64),
+        11 => Ok(FieldType::Timestamp),
+        12 => Ok(FieldType::Date),
+        13 => Ok(FieldType::Time),
+        14 => Ok(FieldType::Duration),
+        15 => Ok(FieldType::String),
+        16 => Ok(FieldType::Enum),
+        17 => Ok(FieldType::Uuid),
+        18 => Ok(FieldType::Blob),
+        19 => Ok(FieldType::Decimal),
+        n => Err(format!("Unknown field type: {}", n)),
+    }
+}
+
+fn nullability_from_int(value: i32) -> std::result::Result<Nullability, String> {
+    match value {
+        0 => Ok(Nullability::Required),
+        1 => Ok(Nullability::Optional),
+        2 => Ok(Nullability::Repeated),
+        n => Err(format!("Unknown nullability: {}", n)),
+    }
+}
+
+// ============================================================================
+// FIELD TYPE CONVERSION (LEGACY)
+// ============================================================================
+
 fn field_type_from_ffi(value: i32) -> Option<FieldType> {
     match value {
         0 => Some(FieldType::Boolean),
@@ -365,41 +426,39 @@ pub extern "C" fn qrd_schema_builder_add_field(
     field_type: c_int,
     nullability: c_int,
 ) -> c_int {
-    let builder_ref = unsafe { &mut *builder };
-    let name = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
+    if builder.is_null() {
+        set_last_error("Builder pointer is null".to_string());
+        return -1;
+    }
+
+    let name_str = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
     
     let ft = match field_type_from_int(field_type) {
         Ok(ft) => ft,
         Err(e) => { set_last_error(e); return -1; }
     };
+
     let null = match nullability_from_int(nullability) {
         Ok(n) => n,
         Err(e) => { set_last_error(e); return -1; }
     };
 
     unsafe {
-        let schema_ref = &mut *schema;
-        let name_str = CStr::from_ptr(name).to_string_lossy().to_string();
-
-        let mut builder = SchemaBuilder::new();
-        for field in &schema_ref.inner.fields {
-            builder = match builder.add_field(&field.name, field.field_type, field.nullability) {
-                Ok(next) => next,
-                Err(_) => return -1,
-            };
-        }
-
-        builder = match builder.add_field(name_str, field_type, nullability) {
-            Ok(next) => next,
-            Err(_) => return -1,
-        };
-
-        match builder.build() {
-            Ok(new_schema) => {
-                schema_ref.inner = new_schema;
+        let builder_ref = &mut *builder;
+        
+        // Extract the builder from Option, or create a new one if none exists
+        let old_builder = builder_ref.0.take().unwrap_or_else(SchemaBuilder::new);
+        
+        // Add the new field
+        match old_builder.add_field(name_str, ft, null) {
+            Ok(new_builder) => {
+                builder_ref.0 = Some(new_builder);
                 0
             }
-            Err(_) => -1,
+            Err(e) => {
+                set_last_error(format!("add_field failed: {}", e));
+                -1
+            }
         }
     }
 }
@@ -521,17 +580,16 @@ pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut 
 
                     *data = ptr;
                     *size = len;
-                    0
+                    return 0;
                 }
                 Err(e) => { 
                     set_last_error(e.to_string()); 
-                    -1 
+                    return -1;
                 }
             }
-        }
-        None => {
-            set_last_error("Builder has been consumed");
-            -1
+        } else {
+            set_last_error("Builder has been consumed".to_string());
+            return -1;
         }
     }
 }

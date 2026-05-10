@@ -24,11 +24,13 @@ impl QrdSchemaBuilder {
     pub fn add_field(&mut self, name: &str, field_type: &str) -> Result<(), JsValue> {
         let ft = parse_field_type(field_type).map_err(|e| JsValue::from_str(&e))?;
         
-        // Replace self.inner temporarily to handle ownership
-        let builder = std::mem::replace(&mut self.inner, SchemaBuilder::new());
-        self.inner = builder
-            .add_field(name, ft, Nullability::Required)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        // Take the builder out of Option, add field, put it back
+        let builder = self.inner.take().ok_or_else(|| JsValue::from_str("Builder has been consumed"))?;
+        self.inner = Some(
+            builder
+                .add_field(name, ft, Nullability::Required)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?
+        );
         Ok(())
     }
 
