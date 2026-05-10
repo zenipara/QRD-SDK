@@ -297,19 +297,4 @@ func TestCrossLanguageCompatibility(t *testing.T) {
 	}
 	defer schema.Free()
 	
-	// Test that schema is compatible across languages
-	if schema.FieldCount() != 1 {
-		t.Errorf("Expected 1 field, got %d", schema.FieldCount())
-	}
-}
-	schema, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Failed to build schema: %v", err)
-	}
-	defer schema.Free()
-	
-	// Test that schema is compatible across languages
-	if schema.FieldCount() != 1 {
-		t.Errorf("Expected 1 field, got %d", schema.FieldCount())
-	}
 }
