@@ -1,8 +1,4 @@
 [workspace]
-name = "qrd"
-version = "0.1.0"
-edition = "2021"
-
 members = [
     "core/qrd-core",
     "core/qrd-ffi",
