@@ -16,9 +16,6 @@ To build the bindings from source:
 # Install dependencies
 npm install
 
-# Build WebAssembly module
-npm run build:wasm
-
 # Build TypeScript bindings
 npm run build
 ```

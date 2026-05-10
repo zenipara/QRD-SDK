@@ -2,7 +2,7 @@
 package qrd
 
 /*
-#cgo LDFLAGS: -L../../target/release -Wl,-rpath,/workspaces/QRD-SDK/target/release -lqrd_ffi
+#cgo LDFLAGS: -L${SRCDIR}/../../target/release -Wl,-rpath,$ORIGIN/../../target/release -lqrd_ffi
 #include <stdlib.h>
 #include "qrd.h"
 */

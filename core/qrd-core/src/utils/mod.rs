@@ -1,5 +1,37 @@
 //! Utilities and helper functions
 
+use crate::error::Result;
+use crate::schema::Schema;
+use byteorder::{LittleEndian, WriteBytesExt};
+use std::io::Write;
+
+/// Write QRD file header to a writer
+pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
+    // Magic bytes
+    writer.write_all(crate::QRD_MAGIC)?;
+    // Version
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
+    // Schema ID
+    writer.write_u32::<LittleEndian>(schema.schema_id)?;
+    // Created timestamp
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
+    writer.write_u32::<LittleEndian>(now)?;
+    // Placeholder for row count — sentinel indicates value stored in footer
+    writer.write_u32::<LittleEndian>(u32::MAX)?;
+    // Column count
+    writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
+    // Row group size
+    writer.write_u32::<LittleEndian>(row_group_size)?;
+    // Reserved
+    writer.write_u32::<LittleEndian>(0)?;
+
+    Ok(())
+}
+
 /// Varint encoding/decoding utilities
 pub mod varint {
     /// Encode u64 as varint

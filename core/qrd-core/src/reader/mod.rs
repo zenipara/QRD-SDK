@@ -18,6 +18,7 @@ use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use crate::validation::Validator;
 use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
 use std::io::{Read, Cursor};
@@ -68,6 +69,7 @@ impl FileReader {
     }
 
     /// Open a QRD file using memory-mapped storage for large files.
+    #[allow(unsafe_code)]
     pub fn open_mmap(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::open(path)?;
 
@@ -235,7 +237,8 @@ impl FileReader {
         // STEP 1: ECC recovery (if enabled)
         let ecc_recovered = if let Some(ref ecc_config) = self.ecc_config {
             let encoded_data = crate::ecc::EccEncodedData::from_bytes(raw_bytes)?;
-            crate::ecc::decode_and_recover(&encoded_data, ecc_config)?
+            let recovered = crate::ecc::decode_and_recover(&encoded_data, ecc_config)?;
+            self.verify_and_strip_row_group_crc(&recovered)?
         } else {
             raw_bytes.to_vec()
         };
@@ -252,6 +255,19 @@ impl FileReader {
         };
 
         Ok(decrypted)
+    }
+
+    fn verify_and_strip_row_group_crc(&self, data: &[u8]) -> Result<Vec<u8>> {
+        if data.len() < 4 {
+            return Err(crate::error::Error::InvalidData(
+                "Row group data too short for CRC32 wrapper".to_string(),
+            ));
+        }
+
+        let expected_crc = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
+        let payload = &data[4..];
+        Validator::verify_crc32(payload, expected_crc)?;
+        Ok(payload.to_vec())
     }
 
     fn decrypt_per_column_row_group(

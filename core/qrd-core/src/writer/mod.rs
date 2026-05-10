@@ -21,6 +21,7 @@ use crate::footer::Footer;
 use crate::metadata::{RowGroupStats, MetadataIndex};
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
+use crate::validation::Validator;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::fs::File;
 use std::io::{Write, Seek, SeekFrom};
@@ -61,29 +62,7 @@ impl Default for WriterConfig {
 /// Helper function to write QRD file header
 /// This is shared between FileWriter and StreamingWriter to avoid duplication
 pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
-    // Magic bytes
-    writer.write_all(crate::QRD_MAGIC)?;
-    // Version
-    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
-    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
-    // Schema ID
-    writer.write_u32::<LittleEndian>(schema.schema_id)?;
-    // Created timestamp
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as u32;
-    writer.write_u32::<LittleEndian>(now)?;
-    // Placeholder for row count — sentinel indicates value stored in footer
-    writer.write_u32::<LittleEndian>(u32::MAX)?;
-    // Column count
-    writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
-    // Row group size
-    writer.write_u32::<LittleEndian>(row_group_size)?;
-    // Reserved
-    writer.write_u32::<LittleEndian>(0)?;
-
-    Ok(())
+    crate::utils::write_header(writer, schema, row_group_size)
 }
 
 /// File writer for QRD format
@@ -292,8 +271,9 @@ impl FileWriter {
 
         // STEP 2: ECC encoding (if enabled)
         let final_bytes = if let Some(ref ecc_config) = self.config.ecc {
+            let wrapped_bytes = self.wrap_row_group_with_crc(&encrypted_bytes)?;
             let mut codec = crate::ecc::EccCodec::new(ecc_config.clone())?;
-            let encoded = codec.encode(&encrypted_bytes)?;
+            let encoded = codec.encode(&wrapped_bytes)?;
             // Serialize EccEncodedData to bytes
             encoded.to_bytes()?
         } else {
@@ -313,6 +293,14 @@ impl FileWriter {
         self.row_group_stats.push(completed_stats);
 
         Ok(())
+    }
+
+    fn wrap_row_group_with_crc(&self, data: &[u8]) -> Result<Vec<u8>> {
+        let checksum = Validator::calculate_crc32(data);
+        let mut wrapped = Vec::with_capacity(4 + data.len());
+        wrapped.write_u32::<LittleEndian>(checksum)?;
+        wrapped.extend_from_slice(data);
+        Ok(wrapped)
     }
 
     /// Finish writing and close the file
@@ -501,6 +489,43 @@ mod tests {
         let secret_data = &decoded_columns[1];
         let expected_secret = serialize_string("secret_0");
         assert_eq!(secret_data[0..expected_secret.len()], expected_secret[..]);
+    }
+
+    #[test]
+    fn test_ecc_row_group_checksum_detects_silent_corruption() {
+        use crate::ecc::EccConfig;
+        use std::fs::File;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("value", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut config = WriterConfig::default();
+        config.ecc = Some(EccConfig::with_chunk_size(2, 16).unwrap());
+        config.row_group_size = 2;
+
+        let file = File::create(temp.path()).unwrap();
+        let mut writer = FileWriter::with_config(file, schema.clone(), config.clone()).unwrap();
+        for i in 0..2 {
+            let id_bytes = (i as i64).to_le_bytes().to_vec();
+            let val_bytes = serialize_string(&format!("value_{}", i));
+            writer.write_row(vec![id_bytes, val_bytes]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let mut raw = std::fs::read(temp.path()).unwrap();
+        if raw.len() > 40 {
+            raw[40] ^= 0xFF;
+            std::fs::write(temp.path(), &raw).unwrap();
+        }
+
+        let reader = FileReader::with_security(temp.path(), None, config.ecc.clone()).unwrap();
+        assert!(reader.read_row_group(0).is_err(), "Corrupted ECC-protected row group should be rejected by checksum verification");
     }
 
     #[test]

@@ -79,6 +79,7 @@ impl MemoryProfiler {
     }
 }
 
+#[allow(unsafe_code)]
 unsafe impl GlobalAlloc for MemoryProfiler {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let ptr = self.allocator.alloc(layout);

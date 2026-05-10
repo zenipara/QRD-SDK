@@ -52,7 +52,6 @@
     unused_qualifications,
     rustdoc::missing_crate_level_docs
 )]
-#![allow(unsafe_code)]
 
 pub mod columnar;
 pub mod compression;

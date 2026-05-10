@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use wide::{u8x16, u8x32, i32x8};
+use bytemuck::cast;
 use core::mem;
 
 /// SIMD instruction set support
@@ -63,7 +64,7 @@ impl SimdOps {
             // SAFETY: u8x32 is a SIMD type with same layout as [u8; 32].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of::<u8x32>(), mem::size_of::<[u8; 32]>());
-            let out: [u8; 32] = unsafe { mem::transmute(v) };
+            let out: [u8; 32] = cast(v);
             dst[offset..offset + 32].copy_from_slice(&out);
             offset += 32;
         }
@@ -76,7 +77,7 @@ impl SimdOps {
             // SAFETY: u8x16 is a SIMD type with same layout as [u8; 16].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of::<u8x16>(), mem::size_of::<[u8; 16]>());
-            let out: [u8; 16] = unsafe { mem::transmute(v) };
+            let out: [u8; 16] = cast(v);
             dst[offset..offset + 16].copy_from_slice(&out);
             offset += 16;
         }
@@ -117,7 +118,7 @@ impl SimdOps {
             // SAFETY: u8x32 is a SIMD type with same layout as [u8; 32].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of::<u8x32>(), mem::size_of::<[u8; 32]>());
-            let out: [u8; 32] = unsafe { mem::transmute(r) };
+            let out: [u8; 32] = cast(r);
             dst[offset..offset + 32].copy_from_slice(&out);
             offset += 32;
         }
@@ -134,7 +135,7 @@ impl SimdOps {
             // SAFETY: u8x16 is a SIMD type with same layout as [u8; 16].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of::<u8x16>(), mem::size_of::<[u8; 16]>());
-            let out: [u8; 16] = unsafe { mem::transmute(r) };
+            let out: [u8; 16] = cast(r);
             dst[offset..offset + 16].copy_from_slice(&out);
             offset += 16;
         }
@@ -168,7 +169,7 @@ impl SimdOps {
             // SAFETY: u8x16 mask is a SIMD type with same layout as [u8; 16].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of_val(&mask), mem::size_of::<[u8; 16]>());
-            let mask_arr: [u8; 16] = unsafe { mem::transmute(mask) };
+            let mask_arr: [u8; 16] = cast(mask);
             count += mask_arr.iter().filter(|&&b| b != 0).count();
             offset += 16;
         }
@@ -236,7 +237,7 @@ impl SimdOps {
             // SAFETY: i32x8 is a SIMD type with same layout as [i32; 8].
             // We verify this with debug_assert to catch ABI/layout changes.
             debug_assert_eq!(mem::size_of::<i32x8>(), mem::size_of::<[i32; 8]>());
-            let deltas_arr: [i32; 8] = unsafe { mem::transmute(deltas) };
+            let deltas_arr: [i32; 8] = cast(deltas);
             for k in 0..8 {
                 result.push(deltas_arr[k]);
             }
@@ -334,11 +335,13 @@ mod fallback {
     use super::*;
 
     #[no_mangle]
+    #[allow(unsafe_code)]
     pub unsafe extern "C" fn memcpy_simd(dst: *mut u8, src: *const u8, len: usize) {
         std::ptr::copy_nonoverlapping(src, dst, len);
     }
 
     #[no_mangle]
+    #[allow(unsafe_code)]
     pub unsafe extern "C" fn xor_simd(dst: *mut u8, src: *const u8, len: usize) {
         for i in 0..len {
             *dst.add(i) ^= *src.add(i);
@@ -346,6 +349,7 @@ mod fallback {
     }
 
     #[no_mangle]
+    #[allow(unsafe_code)]
     pub unsafe extern "C" fn count_bytes_simd(data: *const u8, len: usize, target: u8) -> usize {
         let mut count = 0;
         for i in 0..len {
@@ -357,6 +361,7 @@ mod fallback {
     }
 
     #[no_mangle]
+    #[allow(unsafe_code)]
     pub unsafe extern "C" fn delta_encode_i32_simd(data: *const i32, result: *mut i32, len: usize) {
         if len == 0 {
             return;
@@ -375,6 +380,7 @@ mod fallback {
     }
 
     #[no_mangle]
+    #[allow(unsafe_code)]
     pub unsafe extern "C" fn delta_decode_i32_simd(data: *const i32, result: *mut i32, len: usize) {
         if len == 0 {
             return;

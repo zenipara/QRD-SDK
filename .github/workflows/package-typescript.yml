@@ -1,0 +1,47 @@
+name: Package TypeScript bindings
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  build-ts-package:
+    name: Build TypeScript package artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: sdk/typescript
+        run: npm ci
+
+      - name: Build TypeScript package
+        working-directory: sdk/typescript
+        run: npm run build
+
+      - name: Pack npm package
+        working-directory: sdk/typescript
+        run: npm pack
+
+      - name: Upload TypeScript package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qrd-typescript-package
+          path: |
+            sdk/typescript/*.tgz
+            sdk/typescript/dist/**
+          if-no-files-found: error
+          retention-days: 30

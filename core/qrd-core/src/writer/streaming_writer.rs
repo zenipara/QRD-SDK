@@ -13,8 +13,12 @@ use crate::error::Result;
 use crate::encryption::EncryptionConfig;
 use crate::ecc::{EccConfig, EccCodec};
 use crate::schema::Schema;
+use crate::validation::Validator;
 use crate::writer::buffer_pool::{BufferPool, BufferPoolConfig};
+use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
+
+const PER_COLUMN_ROW_GROUP_MARKER: u8 = 0xFF;
 
 /// Configuration for streaming writer
 #[derive(Debug, Clone)]
@@ -29,6 +33,8 @@ pub struct StreamingWriterConfig {
     pub encryption: Option<EncryptionConfig>,
     /// Optional ECC configuration for row groups
     pub ecc: Option<EccConfig>,
+    /// Enable per-column encryption (default: false)
+    pub per_column_encryption: bool,
 }
 
 impl Default for StreamingWriterConfig {
@@ -39,6 +45,7 @@ impl Default for StreamingWriterConfig {
             buffer_pool_config: BufferPoolConfig::default(),
             encryption: None,
             ecc: None,
+            per_column_encryption: false,
         }
     }
 }
@@ -72,8 +79,8 @@ impl<W: Write> StreamingWriter<W> {
         schema: Schema,
         config: StreamingWriterConfig,
     ) -> Result<Self> {
-        // Write QRD file header using shared helper from parent module
-        super::write_header(&mut writer, &schema, config.row_group_size)?;
+        // Write QRD file header using shared helper from utils
+        crate::utils::write_header(&mut writer, &schema, config.row_group_size)?;
 
         Ok(StreamingWriter {
             writer,
@@ -151,15 +158,22 @@ impl<W: Write> StreamingWriter<W> {
 
         // STEP 1: Encryption (if enabled)
         let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
-            crate::encryption::encrypt(&rg_bytes, enc_config)?
+            if self.config.per_column_encryption {
+                // Per-column encryption: encrypt each column chunk with a unique derived key
+                self.encrypt_row_group_per_column(&row_group, enc_config)?
+            } else {
+                // Master key encryption: single key for all row group bytes
+                crate::encryption::encrypt(&rg_bytes, enc_config)?
+            }
         } else {
             rg_bytes
         };
 
         // STEP 2: ECC encoding (if enabled)
         if let Some(ref ecc_config) = self.config.ecc {
+            let wrapped_bytes = self.wrap_row_group_with_crc(&encrypted_bytes)?;
             let mut codec = crate::ecc::EccCodec::new(ecc_config.clone())?;
-            let encoded = codec.encode(&encrypted_bytes)?;
+            let encoded = codec.encode(&wrapped_bytes)?;
             let final_bytes = encoded.to_bytes()?;
             self.writer.write_all(&final_bytes)?;
             self.current_offset += final_bytes.len() as u64;
@@ -177,6 +191,63 @@ impl<W: Write> StreamingWriter<W> {
         self.row_group_stats.push(completed_stats);
 
         Ok(())
+    }
+
+    fn wrap_row_group_with_crc(&self, data: &[u8]) -> Result<Vec<u8>> {
+        let checksum = Validator::calculate_crc32(data);
+        let mut wrapped = Vec::with_capacity(4 + data.len());
+        wrapped.write_u32::<LittleEndian>(checksum)?;
+        wrapped.extend_from_slice(data);
+        Ok(wrapped)
+    }
+
+    /// Encrypt row group using per-column keys derived from master key
+    /// 
+    /// Each column is encrypted with a unique key derived from the master key
+    /// and the column name, allowing selective decryption of specific columns.
+    fn encrypt_row_group_per_column(
+        &self,
+        row_group: &crate::rowgroup::RowGroup,
+        enc_config: &EncryptionConfig,
+    ) -> Result<Vec<u8>> {
+        let mut wrapper = Vec::new();
+        wrapper.push(PER_COLUMN_ROW_GROUP_MARKER);
+        wrapper.write_u32::<LittleEndian>(row_group.row_count)?;
+        wrapper.write_u16::<LittleEndian>(row_group.columns.len() as u16)?;
+
+        for column in &row_group.columns {
+            let column_name = self.schema.fields[column.column_index].name.clone();
+            let derived_key = enc_config.derive_column_key(&column_name)?;
+            let column_config = EncryptionConfig::new(derived_key)?;
+
+            let mut chunk_bytes = Vec::new();
+            chunk_bytes.push(column.encoding.to_id());
+            chunk_bytes.push(column.compression.to_id());
+            chunk_bytes.write_u32::<LittleEndian>(column.encoded_data.len() as u32)?;
+            chunk_bytes.write_u32::<LittleEndian>(column.compressed_data.len() as u32)?;
+
+            if let Some(ref stats_vec) = row_group.column_stats {
+                if let Some(col_stats) = stats_vec.get(column.column_index) {
+                    chunk_bytes.write_u32::<LittleEndian>(col_stats.null_count as u32)?;
+                    chunk_bytes.write_u32::<LittleEndian>(col_stats.distinct_count as u32)?;
+                } else {
+                    chunk_bytes.write_u32::<LittleEndian>(0)?;
+                    chunk_bytes.write_u32::<LittleEndian>(0)?;
+                }
+            } else {
+                chunk_bytes.write_u32::<LittleEndian>(0)?;
+                chunk_bytes.write_u32::<LittleEndian>(0)?;
+            }
+
+            chunk_bytes.extend_from_slice(&column.compressed_data);
+            chunk_bytes.write_u32::<LittleEndian>(column.crc32)?;
+
+            let encrypted_chunk = crate::encryption::encrypt(&chunk_bytes, &column_config)?;
+            wrapper.write_u32::<LittleEndian>(encrypted_chunk.len() as u32)?;
+            wrapper.extend_from_slice(&encrypted_chunk);
+        }
+
+        Ok(wrapper)
     }
 
     /// Check buffer pool memory efficiency
