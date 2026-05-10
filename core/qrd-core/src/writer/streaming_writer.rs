@@ -10,6 +10,8 @@
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
 use crate::error::Result;
+use crate::encryption::EncryptionConfig;
+use crate::ecc::{EccConfig, EccCodec};
 use crate::schema::Schema;
 use crate::writer::buffer_pool::{BufferPool, BufferPoolConfig};
 use std::io::Write;
@@ -23,6 +25,10 @@ pub struct StreamingWriterConfig {
     pub compression_level: u8,
     /// Buffer pool configuration
     pub buffer_pool_config: BufferPoolConfig,
+    /// Optional encryption configuration for row groups
+    pub encryption: Option<EncryptionConfig>,
+    /// Optional ECC configuration for row groups
+    pub ecc: Option<EccConfig>,
 }
 
 impl Default for StreamingWriterConfig {
@@ -31,6 +37,8 @@ impl Default for StreamingWriterConfig {
             row_group_size: crate::DEFAULT_ROW_GROUP_SIZE,
             compression_level: 3,
             buffer_pool_config: BufferPoolConfig::default(),
+            encryption: None,
+            ecc: None,
         }
     }
 }
@@ -64,8 +72,8 @@ impl<W: Write> StreamingWriter<W> {
         schema: Schema,
         config: StreamingWriterConfig,
     ) -> Result<Self> {
-        // Write QRD file header
-        Self::write_header(&mut writer, &schema)?;
+        // Write QRD file header using shared helper from parent module
+        super::write_header(&mut writer, &schema, config.row_group_size)?;
 
         Ok(StreamingWriter {
             writer,
@@ -81,35 +89,6 @@ impl<W: Write> StreamingWriter<W> {
             current_row_group_stats: crate::metadata::RowGroupStats::new(&schema),
             row_group_stats: Vec::new(),
         })
-    }
-
-    /// Write file header (magic + metadata)
-    fn write_header(writer: &mut W, schema: &Schema) -> Result<()> {
-        use byteorder::{LittleEndian, WriteBytesExt};
-
-        // Magic bytes
-        writer.write_all(crate::QRD_MAGIC)?;
-        // Version
-        writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
-        writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
-        // Schema ID
-        writer.write_u32::<LittleEndian>(schema.schema_id)?;
-        // Created timestamp
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u32;
-        writer.write_u32::<LittleEndian>(now)?;
-        // Placeholder for row count — sentinel means "read from footer"
-        writer.write_u32::<LittleEndian>(u32::MAX)?;
-        // Column count
-        writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
-        // Row group size
-        writer.write_u32::<LittleEndian>(crate::DEFAULT_ROW_GROUP_SIZE)?;
-        // Reserved
-        writer.write_u32::<LittleEndian>(0)?;
-
-        Ok(())
     }
 
     /// Ingest a row (as column values)
@@ -169,8 +148,25 @@ impl<W: Write> StreamingWriter<W> {
         row_group.column_stats = Some(stats_for_group.column_stats.clone());
 
         let rg_bytes = row_group.serialize()?;
-        self.writer.write_all(&rg_bytes)?;
-        self.current_offset += rg_bytes.len() as u64;
+
+        // STEP 1: Encryption (if enabled)
+        let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
+            crate::encryption::encrypt(&rg_bytes, enc_config)?
+        } else {
+            rg_bytes
+        };
+
+        // STEP 2: ECC encoding (if enabled)
+        if let Some(ref ecc_config) = self.config.ecc {
+            let mut codec = crate::ecc::EccCodec::new(ecc_config.clone())?;
+            let encoded = codec.encode(&encrypted_bytes)?;
+            let final_bytes = encoded.to_bytes()?;
+            self.writer.write_all(&final_bytes)?;
+            self.current_offset += final_bytes.len() as u64;
+        } else {
+            self.writer.write_all(&encrypted_bytes)?;
+            self.current_offset += encrypted_bytes.len() as u64;
+        }
 
         // Clear buffer for reuse
         self.row_buffer.clear();

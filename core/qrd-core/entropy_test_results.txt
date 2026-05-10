@@ -1,0 +1,356 @@
+warning: /workspaces/QRD-SDK/Cargo.toml: unused manifest key: workspace.edition
+warning: /workspaces/QRD-SDK/Cargo.toml: unused manifest key: workspace.name
+warning: /workspaces/QRD-SDK/Cargo.toml: unused manifest key: workspace.version
+warning: unused import: `LittleEndian`
+ --> core/qrd-core/src/ecc/mod.rs:4:17
+  |
+4 | use byteorder::{LittleEndian, ReadBytesEx...
+  |                 ^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `Cursor`
+ --> core/qrd-core/src/ecc/mod.rs:7:15
+  |
+7 | use std::io::{Cursor, Write};
+  |               ^^^^^^
+
+warning: unused doc comment
+   --> core/qrd-core/src/utils/simd.rs:294:1
+    |
+294 |   /// Fallback implementations for when SIMD is not available
+    |   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+295 |
+296 | / extern "C" {
+297 | |     /// SIMD-accelerated memcpy (placeholder for actual SIMD i...
+298 | |     fn memcpy_simd(dst: *mut u8, src: *const u8, len: usize);
+...   |
+310 | |     fn delta_decode_i32_simd(data: *const i32, result: *mut i3...
+311 | | }
+    | |_- rustdoc does not generate documentation for extern blocks
+    |
+    = help: use `//` for a plain comment
+    = note: `#[warn(unused_doc_comments)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `EccCodec`
+  --> core/qrd-core/src/writer/mod.rs:18:29
+   |
+18 | use crate::ecc::{EccConfig, EccCodec};
+   |                             ^^^^^^^^
+
+warning: unused imports: `SeekFrom` and `Seek`
+  --> core/qrd-core/src/writer/mod.rs:26:22
+   |
+26 | use std::io::{Write, Seek, SeekFrom};
+   |                      ^^^^  ^^^^^^^^
+
+warning: unused import: `WriteBytesExt`
+ --> core/qrd-core/src/ecc/mod.rs:4:45
+  |
+4 | ...adBytesExt, WriteBytesExt};
+  |                ^^^^^^^^^^^^^
+
+warning: unused import: `Write`
+ --> core/qrd-core/src/ecc/mod.rs:7:23
+  |
+7 | use std::io::{Cursor, Write};
+  |                       ^^^^^
+
+warning: unused import: `ReadBytesExt`
+ --> core/qrd-core/src/ecc/mod.rs:4:31
+  |
+4 | ...ittleEndian, ReadBytesExt, WriteBytesE...
+  |                 ^^^^^^^^^^^^
+
+warning: unused variable: `config`
+   --> core/qrd-core/src/ecc/mod.rs:313:5
+    |
+313 |     config: &EccConfig,
+    |     ^^^^^^ help: if this is intentional, prefix it with an underscore: `_config`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unreachable pattern
+   --> core/qrd-core/src/encoding/mod.rs:127:9
+    |
+127 | ...   _ => Err(Error::EncodingError(for...
+    |       ^ no value can reach this
+    |
+note: multiple earlier patterns match some of the same values
+   --> core/qrd-core/src/encoding/mod.rs:127:9
+    |
+119 |         EncodingType::Plain => Ok(Box::...
+    |         ------------------- matches some of the same values
+120 |         EncodingType::Rle => Ok(Box::ne...
+    |         ----------------- matches some of the same values
+121 |         EncodingType::DeltaBinary => Ok...
+    |         ------------------------- matches some of the same values
+122 |         EncodingType::BitPacked => Ok(B...
+    |         ----------------------- matches some of the same values
+...
+127 |         _ => Err(Error::EncodingError(f...
+    |         ^ ...and 4 other patterns collectively make this unreachable
+    = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `is_integer_type` is never used
+   --> core/qrd-core/src/encoding/mod.rs:140:4
+    |
+140 | fn is_integer_type(field_type: &crate::...
+    |    ^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `read_int_at` is never used
+   --> core/qrd-core/src/encoding/mod.rs:159:4
+    |
+159 | fn read_int_at(field_type: &crate::sche...
+    |    ^^^^^^^^^^^
+
+warning: function `is_sorted_strings` is never used
+   --> core/qrd-core/src/encoding/mod.rs:192:4
+    |
+192 | fn is_sorted_strings(data: &[u8]) -> bo...
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `is_sorted_integers` is never used
+   --> core/qrd-core/src/encoding/mod.rs:221:4
+    |
+221 | fn is_sorted_integers(field_type: &crat...
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `is_low_cardinality` is never used
+   --> core/qrd-core/src/encoding/mod.rs:245:4
+    |
+245 | fn is_low_cardinality(data: &[u8], max_...
+    |    ^^^^^^^^^^^^^^^^^^
+
+warning: function `is_low_cardinality_integers` is never used
+   --> core/qrd-core/src/encoding/mod.rs:268:4
+    |
+268 | fn is_low_cardinality_integers(field_ty...
+    |    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: field `config` is never read
+  --> core/qrd-core/src/reader/partial_reader.rs:42:5
+   |
+39 | pub struct PartialReader<R: Read + Seek> {
+   |            ------------- field in this struct
+...
+42 |     config: PartialReadConfig,
+   |     ^^^^^^
+
+warning: function `memcpy_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:298:8
+    |
+298 |     fn memcpy_simd(dst: *mut u8, src: *...
+    |        ^^^^^^^^^^^
+
+warning: function `xor_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:301:8
+    |
+301 |     fn xor_simd(dst: *mut u8, src: *con...
+    |        ^^^^^^^^
+
+warning: function `count_bytes_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:304:8
+    |
+304 |     fn count_bytes_simd(data: *const u8...
+    |        ^^^^^^^^^^^^^^^^
+
+warning: function `delta_encode_i32_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:307:8
+    |
+307 |     fn delta_encode_i32_simd(data: *con...
+    |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `delta_decode_i32_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:310:8
+    |
+310 |     fn delta_decode_i32_simd(data: *con...
+    |        ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `memcpy_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:376:12
+    |
+376 |     pub fn memcpy_simd(dst: &mut [u8], ...
+    |            ^^^^^^^^^^^
+
+warning: function `xor_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:384:12
+    |
+384 |     pub fn xor_simd(dst: &mut [u8], src...
+    |            ^^^^^^^^
+
+warning: function `count_bytes_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:392:12
+    |
+392 |     pub fn count_bytes_simd(data: &[u8]...
+    |            ^^^^^^^^^^^^^^^^
+
+warning: function `count_bytes_scalar` is never used
+   --> core/qrd-core/src/utils/simd.rs:397:12
+    |
+397 |     pub fn count_bytes_scalar(data: &[u...
+    |            ^^^^^^^^^^^^^^^^^^
+
+warning: function `delta_encode_i32_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:402:12
+    |
+402 |     pub fn delta_encode_i32_simd(data: ...
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `delta_decode_i32_simd` is never used
+   --> core/qrd-core/src/utils/simd.rs:417:12
+    |
+417 |     pub fn delta_decode_i32_simd(data: ...
+    |            ^^^^^^^^^^^^^^^^^^^^^
+
+warning: missing documentation for a constant
+  --> core/qrd-core/src/lib.rs:90:1
+   |
+90 | pub const QRD_VERSION_MINOR: u16 = 0;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: the lint level is defined here
+  --> core/qrd-core/src/lib.rs:50:5
+   |
+50 |     missing_docs,
+   |     ^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:14:26
+   |
+14 |     UnsupportedVersion { major: u16, min...
+   |                          ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:14:38
+   |
+14 | ... major: u16, minor: u16 },
+   |                 ^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:38:19
+   |
+38 |     CrcMismatch { expected: u32, actual:...
+   |                   ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:38:34
+   |
+38 | ...pected: u32, actual: u32 },
+   |                 ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:40:24
+   |
+40 |     RowCountMismatch { expected: u32, ac...
+   |                        ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:40:39
+   |
+40 | ...pected: u32, actual: u32 },
+   |                 ^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:42:27
+   |
+42 | ...tMismatch { expected: u32, actual: u3...
+   |                ^^^^^^^^^^^^^
+
+warning: missing documentation for a struct field
+  --> core/qrd-core/src/error.rs:42:42
+   |
+42 | ...pected: u32, actual: u32 },
+   |                 ^^^^^^^^^^^
+
+warning: `qrd-core` (lib) generated 37 warnings (run `cargo fix --lib -p qrd-core` to apply 5 suggestions)
+   Compiling qrd-core v0.1.0 (/workspaces/QRD-SDK/core/qrd-core)
+error: 4 positional arguments in format string, but there are 3 arguments
+   --> core/qrd-core/tests/randomized_entropy_test.rs:475:43
+    |
+475 | ...at!("[2024-05-09T12:{:02}:{:02}Z] {} - Processing request #{}, s...
+    |                        ^^^^^ ^^^^^   ^^                       ^^
+476 | ...   (i / 60) % 60, i % 60, i);
+    |       -------------  ------  -
+    |
+    = note: for information about formatting flags, visit https://doc.rust-lang.org/std/fmt/index.html
+
+warning: unused import: `CompressionSelector`
+ --> core/qrd-core/tests/randomized_entropy_test.rs:4:57
+  |
+4 | ...culator, CompressionSelector};
+  |             ^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unnecessary parentheses around block return value
+   --> core/qrd-core/tests/randomized_entropy_test.rs:346:39
+    |
+346 | ... } else { ((i * 73) as u8) }
+    |              ^              ^
+    |
+    = note: `#[warn(unused_parens)]` (part of `#[warn(unused)]`) on by default
+help: remove these parentheses
+    |
+346 -         if i % 3 == 0 { 0x00 } else { ((i * 73) as u8) }
+346 +         if i % 3 == 0 { 0x00 } else { (i * 73) as u8 }
+    |
+
+warning: unnecessary parentheses around closure body
+   --> core/qrd-core/tests/randomized_entropy_test.rs:381:24
+    |
+381 | ...|i| ((i as f64).sin() * 1000.0)).col...
+    |        ^                         ^
+    |
+help: remove these parentheses
+    |
+381 -     (0..count).map(|i| ((i as f64).sin() * 1000.0)).collect()
+381 +     (0..count).map(|i| (i as f64).sin() * 1000.0).collect()
+    |
+
+error[E0308]: mismatched types
+  --> core/qrd-core/tests/randomized_entropy_test.rs:65:33
+   |
+64 | ...", |sz| create_uniform_random(sz)),
+   |       ---- the expected closure
+65 | ...ution", |sz| create_normal_distribution(sz)),
+   |            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected closure, found a different closure
+   |
+   = note: expected closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:64:28: 64:32}`
+              found closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:65:33: 65:37}`
+   = note: no two closures, even if identical, have the same type
+   = help: consider boxing your closure and/or using it as a trait object
+
+error[E0308]: mismatched types
+  --> core/qrd-core/tests/randomized_entropy_test.rs:66:27
+   |
+64 | ...m", |sz| create_uniform_random(sz)),
+   |        ---- the expected closure
+65 | ...bution", |sz| create_normal_distribut...
+66 | ...", |sz| create_biased_random(sz)),
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected closure, found a different closure
+   |
+   = note: expected closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:64:28: 64:32}`
+              found closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:66:27: 66:31}`
+   = note: no two closures, even if identical, have the same type
+   = help: consider boxing your closure and/or using it as a trait object
+
+error[E0308]: mismatched types
+  --> core/qrd-core/tests/randomized_entropy_test.rs:67:25
+   |
+64 | ...dom", |sz| create_uniform_random(sz)),
+   |          ---- the expected closure
+...
+67 | ...", |sz| create_bit_flipped(sz)),
+   |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected closure, found a different closure
+   |
+   = note: expected closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:64:28: 64:32}`
+              found closure `{closure@core/qrd-core/tests/randomized_entropy_test.rs:67:25: 67:29}`
+   = note: no two closures, even if identical, have the same type
+   = help: consider boxing your closure and/or using it as a trait object
+
+For more information about this error, try `rustc --explain E0308`.
+warning: `qrd-core` (test "randomized_entropy_test") generated 3 warnings
+error: could not compile `qrd-core` (test "randomized_entropy_test") due to 4 previous errors; 3 warnings emitted

@@ -736,7 +736,7 @@ Target: backend services, CLI tools, dan sistem yang sudah menggunakan Go.
 #### Instalasi
 
 ```bash
-go get github.com/nafalfaturizki/qrd-go
+go get github.com/zenipara/QRD-SDK/sdk/go
 ```
 
 #### Penggunaan
@@ -746,7 +746,7 @@ package main
 
 import (
     "os"
-    "github.com/nafalfaturizki/qrd-go/qrd"
+    "github.com/zenipara/QRD-SDK/sdk/go"
 )
 
 func main() {

@@ -54,27 +54,27 @@ fn fuzz_decryption_corrupted_ciphertexts() {
     let mut ciphertext = encrypt(plaintext, &config).expect("Encryption failed");
 
     // Apply various corruptions
-    let corruptions = vec![
-        ("truncate to 1 byte", |ct: &mut Vec<u8>| ct.truncate(1)),
-        ("truncate to half", |ct: &mut Vec<u8>| ct.truncate(ct.len() / 2)),
-        ("flip first byte", |ct: &mut Vec<u8>| ct[0] ^= 0xFF),
-        ("flip last byte", |ct: &mut Vec<u8>| ct[ct.len() - 1] ^= 0xFF),
-        ("flip middle", |ct: &mut Vec<u8>| {
+    let corruptions: Vec<(&str, Box<dyn FnMut(&mut Vec<u8>)>)> = vec![
+        ("truncate to 1 byte", Box::new(|ct: &mut Vec<u8>| ct.truncate(1))),
+        ("truncate to half", Box::new(|ct: &mut Vec<u8>| ct.truncate(ct.len() / 2))),
+        ("flip first byte", Box::new(|ct: &mut Vec<u8>| ct[0] ^= 0xFF)),
+        ("flip last byte", Box::new(|ct: &mut Vec<u8>| ct[ct.len() - 1] ^= 0xFF)),
+        ("flip middle", Box::new(|ct: &mut Vec<u8>| {
             if ct.len() > 2 {
                 ct[ct.len() / 2] ^= 0xFF;
             }
-        }),
-        ("zero all", |ct: &mut Vec<u8>| {
+        })),
+        ("zero all", Box::new(|ct: &mut Vec<u8>| {
             for b in ct.iter_mut() {
                 *b = 0;
             }
-        }),
-        ("add random bytes", |ct: &mut Vec<u8>| {
+        })),
+        ("add random bytes", Box::new(|ct: &mut Vec<u8>| {
             ct.extend_from_slice(&[0xFF; 100]);
-        }),
+        })),
     ];
 
-    for (desc, corruption) in corruptions {
+    for (desc, mut corruption) in corruptions {
         let mut corrupted = ciphertext.clone();
         corruption(&mut corrupted);
 
@@ -183,7 +183,7 @@ fn fuzz_ecc_extreme_sizes() {
                 let mut shards = encoded.shards_as_options();
                 if shards.len() > 0 {
                     shards[0] = None;
-                    match qrd_core::ecc::decode_and_recover(&shards, &config) {
+                    match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards, &config) {
                         Ok(recovered) => {
                             assert_eq!(recovered, data, "Recovery should produce original");
                             println!("  ✓ Successfully recovered from loss");
@@ -209,7 +209,7 @@ fn fuzz_ecc_loss_patterns() {
     
     let data = vec![42u8; 2048];
     let encoded = codec.encode(&data).expect("Encoding failed");
-    let shard_count = encoded.shard_count();
+    let shard_count = encoded.total_shards();
 
     // Test patterns: lose different numbers of shards
     for loss_count in 0..=3 {
@@ -227,7 +227,7 @@ fn fuzz_ecc_loss_patterns() {
             }
         }
 
-        match qrd_core::ecc::decode_and_recover(&shards, &config) {
+        match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards, &config) {
             Ok(recovered) => {
                 assert_eq!(recovered, data, "Recovery should produce original data");
                 println!("  ✓ Successfully recovered from {} losses", loss_count);

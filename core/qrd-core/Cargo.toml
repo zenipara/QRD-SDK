@@ -18,9 +18,9 @@ crc32fast = { workspace = true }
 sha2 = { workspace = true }
 aes-gcm = { workspace = true }
 hkdf = { workspace = true }
+argon2 = { workspace = true }
 reed-solomon-erasure = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true }
 parking_lot = { workspace = true }
 num_cpus = { workspace = true }
 rayon = { workspace = true, optional = true }
@@ -39,11 +39,18 @@ serde_json = { workspace = true }
 tempfile = "3.8"
 
 [features]
+# Default features: threading for parallelization, compression codecs, and encryption
 default = ["threading", "compression", "encryption"]
+# Enable parallel processing using rayon (requires non-WASM platforms)
 threading = ["rayon"]
+# Enable compression codec support (always available, feature flag for future optionality)
 compression = []
+# Enable AES-256-GCM encryption and key derivation (always available, feature flag for future optionality)
 encryption = []
+# Enable Reed-Solomon error correction coding (always available, feature flag for future optionality)
+# Note: ECC codec module is always compiled; this flag enables explicit opt-in signaling
 ecc = []
+# Target WASM environment (enables getrandom JS bridge for RNG)
 wasm = []
 
 [lib]

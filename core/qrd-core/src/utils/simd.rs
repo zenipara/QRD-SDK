@@ -60,6 +60,9 @@ impl SimdOps {
             let mut arr = [0u8; 32];
             arr.copy_from_slice(&src[offset..offset + 32]);
             let v = u8x32::new(arr);
+            // SAFETY: u8x32 is a SIMD type with same layout as [u8; 32].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of::<u8x32>(), mem::size_of::<[u8; 32]>());
             let out: [u8; 32] = unsafe { mem::transmute(v) };
             dst[offset..offset + 32].copy_from_slice(&out);
             offset += 32;
@@ -70,6 +73,9 @@ impl SimdOps {
             let mut arr = [0u8; 16];
             arr.copy_from_slice(&src[offset..offset + 16]);
             let v = u8x16::new(arr);
+            // SAFETY: u8x16 is a SIMD type with same layout as [u8; 16].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of::<u8x16>(), mem::size_of::<[u8; 16]>());
             let out: [u8; 16] = unsafe { mem::transmute(v) };
             dst[offset..offset + 16].copy_from_slice(&out);
             offset += 16;
@@ -108,6 +114,9 @@ impl SimdOps {
             let a = u8x32::new(a_arr);
             let b = u8x32::new(b_arr);
             let r = a ^ b;
+            // SAFETY: u8x32 is a SIMD type with same layout as [u8; 32].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of::<u8x32>(), mem::size_of::<[u8; 32]>());
             let out: [u8; 32] = unsafe { mem::transmute(r) };
             dst[offset..offset + 32].copy_from_slice(&out);
             offset += 32;
@@ -122,6 +131,9 @@ impl SimdOps {
             let a = u8x16::new(a_arr);
             let b = u8x16::new(b_arr);
             let r = a ^ b;
+            // SAFETY: u8x16 is a SIMD type with same layout as [u8; 16].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of::<u8x16>(), mem::size_of::<[u8; 16]>());
             let out: [u8; 16] = unsafe { mem::transmute(r) };
             dst[offset..offset + 16].copy_from_slice(&out);
             offset += 16;
@@ -153,6 +165,9 @@ impl SimdOps {
             arr.copy_from_slice(&data[offset..offset + 16]);
             let chunk = u8x16::new(arr);
             let mask = chunk.cmp_eq(t16);
+            // SAFETY: u8x16 mask is a SIMD type with same layout as [u8; 16].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of_val(&mask), mem::size_of::<[u8; 16]>());
             let mask_arr: [u8; 16] = unsafe { mem::transmute(mask) };
             count += mask_arr.iter().filter(|&&b| b != 0).count();
             offset += 16;
@@ -218,6 +233,9 @@ impl SimdOps {
             let curr = i32x8::new(curr_arr);
             let prev = i32x8::new(prev_arr);
             let deltas = curr - prev;
+            // SAFETY: i32x8 is a SIMD type with same layout as [i32; 8].
+            // We verify this with debug_assert to catch ABI/layout changes.
+            debug_assert_eq!(mem::size_of::<i32x8>(), mem::size_of::<[i32; 8]>());
             let deltas_arr: [i32; 8] = unsafe { mem::transmute(deltas) };
             for k in 0..8 {
                 result.push(deltas_arr[k]);
@@ -344,13 +362,15 @@ mod fallback {
             return;
         }
 
-        let mut prev = *data;
-        *result = *data.add(1) - prev;
-
-        for i in 1..len {
-            let current = *data.add(i + 1);
-            *result.add(i) = current - prev;
-            prev = current;
+        // Guard: assume pointers are valid; implement safe delta encoding
+        // Semantics: result[0] = data[0]; for i>0: result[i] = data[i] - data[i-1]
+        *result.add(0) = *data.add(0);
+        let mut i = 1usize;
+        while i < len {
+            let curr = *data.add(i);
+            let prev = *data.add(i - 1);
+            *result.add(i) = curr.wrapping_sub(prev);
+            i += 1;
         }
     }
 
@@ -360,12 +380,15 @@ mod fallback {
             return;
         }
 
-        let mut current = *data;
-        *result = current + *data.add(1);
-
-        for i in 1..len {
-            current = *result.add(i - 1);
-            *result.add(i) = current + *data.add(i + 1);
+        // Semantics: input data is [first_value, delta1, delta2, ...]
+        // Reconstruct: result[0] = data[0]; for i>0: result[i] = result[i-1] + data[i]
+        *result.add(0) = *data.add(0);
+        let mut i = 1usize;
+        while i < len {
+            let prev = *result.add(i - 1);
+            let delta = *data.add(i);
+            *result.add(i) = prev.wrapping_add(delta);
+            i += 1;
         }
     }
 }

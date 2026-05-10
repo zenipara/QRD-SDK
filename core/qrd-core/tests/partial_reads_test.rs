@@ -6,7 +6,7 @@
 use qrd_core::prelude::*;
 use qrd_core::metadata::{ColumnFilter, ColumnFilterSpec, QueryOptimizer};
 use qrd_core::reader::PartialReader;
-use qrd_core::writer::FileWriter;
+use qrd_core::writer::{FileWriter, WriterConfig};
 use tempfile::NamedTempFile;
 
 #[test]
@@ -85,10 +85,14 @@ fn test_query_pushdown_optimization() {
 
     // Write test data with multiple row groups
     {
+        let mut config = WriterConfig::default();
+        config.row_group_size = 50;
+        config.compression_level = 1;
+        
         let mut writer = FileWriter::with_config(
             std::fs::File::create(temp.path()).unwrap(),
             schema.clone(),
-            WriterConfig { row_group_size: 50, compression_level: 1 }
+            config
         ).unwrap();
 
         for i in 0..200 {
@@ -221,12 +225,12 @@ fn test_query_optimizer() {
         .add_field("status", FieldType::Int32, Nullability::Required).unwrap()
         .build().unwrap();
 
-    let optimizer = QueryOptimizer::new(schema);
+    let optimizer = QueryOptimizer::new(schema.clone());
 
     // Create mock row group stats
     let mut rg_stats = vec![
-        qrd_core::metadata::RowGroupStats::new(&optimizer.schema),
-        qrd_core::metadata::RowGroupStats::new(&optimizer.schema),
+        qrd_core::metadata::RowGroupStats::new(&schema),
+        qrd_core::metadata::RowGroupStats::new(&schema),
     ];
 
     // Simulate data: first RG has status=1, second RG has status=2

@@ -108,6 +108,25 @@ impl FieldType {
 }
 
 /// Nullability modifier
+///
+/// Defines how NULL values and repetition are handled for schema fields.
+///
+/// # Variants
+///
+/// - `Required`: Field must contain a valid, non-null value. NULL values are not permitted
+///   and will result in an error during validation.
+///
+/// - `Optional`: Field may contain a value or NULL. Each row must explicitly specify whether
+///   the field is NULL (empty byte sequence) or has data. NULL values are represented as
+///   empty byte sequences in the columnar storage during encoding.
+///
+/// - `Repeated`: Field represents an array of zero or more elements of the same type.
+///   Used for list/array types where:
+///   - Empty repetition means field is absent (effectively NULL)
+///   - Non-empty repetition contains 0 or more encoded elements
+///   - Encoding/decoding must handle variable-length array structures
+///   - Useful for analytics scenarios with nested/denormalized data
+///
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Nullability {
     /// Field must not be null

@@ -32,6 +32,17 @@ int qrd_writer_finish(QrdWriter* writer);
 // Reader API
 QrdReader* qrd_reader_new(const char* path);
 void qrd_reader_free(QrdReader* reader);
-uint32_t qrd_reader_row_count(const QrdReader* reader);
+QrdSchema* qrd_reader_schema(QrdReader* reader);
+uint64_t qrd_reader_row_count(QrdReader* reader);
+QrdRow* qrd_reader_read_row(QrdReader* reader);
+
+// Row API
+QrdRow* qrd_row_new(void);
+void qrd_row_free(QrdRow* row);
+size_t qrd_row_field_count(const QrdRow* row);
+int qrd_row_add_bytes(QrdRow* row, const uint8_t* data, size_t size);
+int qrd_row_add_int64(QrdRow* row, int64_t value);
+int qrd_row_add_float64(QrdRow* row, double value);
+int qrd_row_add_string(QrdRow* row, const char* value);
 
 #endif // QRD_H

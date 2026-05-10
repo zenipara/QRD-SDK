@@ -208,7 +208,7 @@ writer.write_rows(rows)
 writer.finish()
 
 # Go
-import github.com/zenipara/qrd-sdk-go/v0_1_0
+import github.com/zenipara/QRD-SDK/sdk/go
 writer := qrd.NewFileWriter("data.qrd", schema)
 writer.WriteRows(rows)
 writer.Finish()

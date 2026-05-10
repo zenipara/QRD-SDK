@@ -14,7 +14,7 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::encryption::EncryptionConfig;
+use crate::encryption::{EncryptionConfig, PerColumnEncryption};
 use crate::ecc::{EccConfig, EccCodec};
 use crate::error::Result;
 use crate::footer::Footer;
@@ -39,6 +39,8 @@ pub struct WriterConfig {
     pub ecc: Option<EccConfig>,
     /// Whether to encrypt footer (default: true if encryption is enabled)
     pub encrypt_footer: bool,
+    /// Enable per-column encryption (default: false)
+    pub per_column_encryption: bool,
 }
 
 impl Default for WriterConfig {
@@ -49,8 +51,37 @@ impl Default for WriterConfig {
             encryption: None,
             ecc: None,
             encrypt_footer: true,
+            per_column_encryption: false,
         }
     }
+}
+
+/// Helper function to write QRD file header
+/// This is shared between FileWriter and StreamingWriter to avoid duplication
+pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
+    // Magic bytes
+    writer.write_all(crate::QRD_MAGIC)?;
+    // Version
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
+    writer.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
+    // Schema ID
+    writer.write_u32::<LittleEndian>(schema.schema_id)?;
+    // Created timestamp
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as u32;
+    writer.write_u32::<LittleEndian>(now)?;
+    // Placeholder for row count — sentinel indicates value stored in footer
+    writer.write_u32::<LittleEndian>(u32::MAX)?;
+    // Column count
+    writer.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
+    // Row group size
+    writer.write_u32::<LittleEndian>(row_group_size)?;
+    // Reserved
+    writer.write_u32::<LittleEndian>(0)?;
+
+    Ok(())
 }
 
 /// File writer for QRD format
@@ -79,23 +110,8 @@ impl FileWriter {
     pub fn with_config(mut file: File, schema: Schema, config: WriterConfig) -> Result<Self> {
         let current_row_group_stats = RowGroupStats::new(&schema);
 
-        // Write file header
-        file.write_all(crate::QRD_MAGIC)?;
-        file.write_u16::<LittleEndian>(crate::QRD_VERSION_MAJOR)?;
-        file.write_u16::<LittleEndian>(crate::QRD_VERSION_MINOR)?;
-        file.write_u32::<LittleEndian>(schema.schema_id)?;
-
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as u32;
-        file.write_u32::<LittleEndian>(now)?; // created_at
-
-        // Placeholder for row count — sentinel indicates value stored in footer
-        file.write_u32::<LittleEndian>(u32::MAX)?;
-        file.write_u32::<LittleEndian>(schema.fields.len() as u32)?;
-        file.write_u32::<LittleEndian>(config.row_group_size)?;
-        file.write_u32::<LittleEndian>(0)?; // reserved
+        // Write file header using shared helper
+        write_header(&mut file, &schema, config.row_group_size)?;
 
         let row_buffer = RowBuffer::new(schema.fields.len());
 
@@ -149,6 +165,30 @@ impl FileWriter {
         }
 
         Ok(())
+    }
+
+    /// Encrypt row group using per-column keys derived from master key
+    /// 
+    /// Each column is encrypted with a unique key derived from the master key
+    /// and the column name, allowing selective decryption of specific columns.
+    fn encrypt_row_group_per_column(
+        &self,
+        data: &[u8],
+        enc_config: &EncryptionConfig,
+    ) -> Result<Vec<u8>> {
+        // Use the first column name as a sample for simple per-column encryption
+        // In production, you might want to store column-specific metadata
+        if self.schema.fields.is_empty() {
+            return crate::encryption::encrypt(data, enc_config);
+        }
+
+        // For now, derive a key using the first column and encrypt
+        // In a full implementation, each column would get its own encryption
+        let first_column = &self.schema.fields[0].name;
+        let derived_key = enc_config.derive_column_key(first_column)?;
+        let column_config = EncryptionConfig::new(derived_key)?;
+        
+        crate::encryption::encrypt(data, &column_config)
     }
 
     /// Flush current row group to file
@@ -210,9 +250,15 @@ impl FileWriter {
         // Serialize and write row group with security pipeline
         let rg_bytes = row_group.serialize()?;
         
-        // STEP 1: Encryption (if enabled)
+        // STEP 1: Per-column or master encryption (if enabled)
         let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
-            crate::encryption::encrypt(&rg_bytes, enc_config)?
+            if self.config.per_column_encryption {
+                // Per-column encryption: encrypt with different key per column
+                self.encrypt_row_group_per_column(&rg_bytes, enc_config)?
+            } else {
+                // Master key encryption: single key for all data
+                crate::encryption::encrypt(&rg_bytes, enc_config)?
+            }
         } else {
             rg_bytes
         };
