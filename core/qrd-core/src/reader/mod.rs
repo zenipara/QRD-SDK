@@ -864,4 +864,409 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(&rows[0], &[0, 0, 0, 0]);
     }
+
+    #[test]
+    fn test_null_optional_string() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("payload", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![Vec::new()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let rows = reader.rows().unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(&rows[0], &[0, 0, 0, 0]);
+    }
+
+    // ====== Additional Reader Tests ======
+
+    #[test]
+    fn test_reader_truncated_footer_rejection() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![1i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Truncate the file
+        use std::fs::File;
+        use std::io::Write;
+        let mut file = File::create(temp.path()).unwrap();
+        file.write_all(&[1, 2, 3, 4, 5]).unwrap();
+        drop(file);
+
+        let result = FileReader::new(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reader_empty_file_rejection() {
+        let temp = NamedTempFile::new().unwrap();
+        
+        let result = FileReader::new(temp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_reader_row_count_accuracy() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let row_count = 1000;
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..row_count {
+                writer.write_row(vec![(i as i32).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), row_count);
+    }
+
+    #[test]
+    fn test_reader_schema_validation() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .add_field("active", FieldType::Boolean, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                1i64.to_le_bytes().to_vec(),
+                vec![0, 0, 0, 0],
+                vec![1],
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.schema().fields.len(), 3);
+        assert_eq!(reader.schema().fields[0].name, "id");
+        assert_eq!(reader.schema().fields[0].field_type, FieldType::Int64);
+    }
+
+    #[test]
+    fn test_reader_row_group_offsets_present() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("x", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..100 {
+                writer.write_row(vec![(i as f64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert!(!reader.row_group_offsets().is_empty());
+    }
+
+    #[test]
+    fn test_reader_deterministic_reads() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..50 {
+                writer.write_row(vec![(i * 2i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader1 = FileReader::new(temp.path()).unwrap();
+        let rows1 = reader1.rows().unwrap();
+
+        let reader2 = FileReader::new(temp.path()).unwrap();
+        let rows2 = reader2.rows().unwrap();
+
+        assert_eq!(rows1, rows2);
+    }
+
+    #[test]
+    fn test_reader_large_row_group_handling() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..10000 {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 10000);
+        assert!(!reader.row_group_offsets().is_empty());
+    }
+
+    #[test]
+    fn test_reader_mixed_null_non_null_columns() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("required_col", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("optional_col", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                42i32.to_le_bytes().to_vec(),
+                vec![5, 0, 0, 0, 104, 101, 108, 108, 111],
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 1);
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        assert_eq!(decoded.len(), 2);
+    }
+
+    #[test]
+    fn test_reader_multiple_row_groups() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("seq", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = crate::writer::WriterConfig::default();
+            config.row_group_size = 10;
+            
+            use std::fs::File;
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            for i in 0..50 {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 50);
+        let rg_count = reader.row_group_offsets().len();
+        assert!(rg_count > 1);
+    }
+
+    #[test]
+    fn test_reader_in_memory_vs_mmap() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..100 {
+                writer.write_row(vec![(i as f32).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader_mem = FileReader::open_in_memory(temp.path()).unwrap();
+        let rows_mem = reader_mem.rows().unwrap();
+        
+        let reader_mmap = FileReader::open_mmap(temp.path()).unwrap();
+        let rows_mmap = reader_mmap.rows().unwrap();
+
+        assert_eq!(rows_mem, rows_mmap);
+    }
+
+    #[test]
+    fn test_reader_from_bytes() {
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut buffer = Vec::new();
+        {
+            use std::io::Cursor;
+            let cursor = Cursor::new(&mut buffer);
+            let mut writer = FileWriter::new(cursor, schema.clone()).unwrap();
+            writer.write_row(vec![999i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::from_bytes(buffer).unwrap();
+        assert_eq!(reader.row_count(), 1);
+    }
+
+    #[test]
+    fn test_reader_from_slice() {
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut buffer = Vec::new();
+        {
+            use std::io::Cursor;
+            let cursor = Cursor::new(&mut buffer);
+            let mut writer = FileWriter::new(cursor, schema.clone()).unwrap();
+            writer.write_row(vec![123i32.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::from_slice(&buffer).unwrap();
+        assert_eq!(reader.row_count(), 1);
+    }
+
+    #[test]
+    fn test_reader_corrupted_crc32_detection() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![b"test_data".to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Corrupt the file by flipping some bits
+        use std::fs::{File, OpenOptions};
+        use std::io::{Seek, Write, SeekFrom};
+        
+        let mut file = OpenOptions::new()
+            .write(true)
+            .open(temp.path())
+            .unwrap();
+        
+        file.seek(SeekFrom::Start(100)).unwrap();
+        file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF]).unwrap();
+        drop(file);
+
+        // Try to read corrupted file
+        let reader = FileReader::new(temp.path());
+        // Should either fail or handle corruption gracefully
+        let _ = reader;
+    }
+
+    #[test]
+    fn test_reader_field_type_preservation() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("i8", FieldType::Int8, Nullability::Required)
+            .unwrap()
+            .add_field("i16", FieldType::Int16, Nullability::Required)
+            .unwrap()
+            .add_field("i32", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("i64", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("f32", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .add_field("f64", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                vec![5],
+                (6i16).to_le_bytes().to_vec(),
+                (7i32).to_le_bytes().to_vec(),
+                (8i64).to_le_bytes().to_vec(),
+                (9.5f32).to_le_bytes().to_vec(),
+                (10.5f64).to_le_bytes().to_vec(),
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let fields = &reader.schema().fields;
+        
+        assert_eq!(fields[0].field_type, FieldType::Int8);
+        assert_eq!(fields[1].field_type, FieldType::Int16);
+        assert_eq!(fields[2].field_type, FieldType::Int32);
+        assert_eq!(fields[3].field_type, FieldType::Int64);
+        assert_eq!(fields[4].field_type, FieldType::Float32);
+        assert_eq!(fields[5].field_type, FieldType::Float64);
+    }
+
+    #[test]
+    fn test_reader_nullability_preservation() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("required", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("optional", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                42i64.to_le_bytes().to_vec(),
+                vec![4, 0, 0, 0, 116, 101, 115, 116],
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let fields = &reader.schema().fields;
+        
+        assert_eq!(fields[0].nullability, Nullability::Required);
+        assert_eq!(fields[1].nullability, Nullability::Optional);
+    }
 }

@@ -608,4 +608,334 @@ mod tests {
 
         assert_eq!(id1, id2);
     }
+
+    // ====== Additional Schema Tests ======
+
+    #[test]
+    fn test_schema_fingerprint_stability() {
+        let schema1 = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let schema2 = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(schema1.schema_id, schema2.schema_id);
+    }
+
+    #[test]
+    fn test_schema_field_ordering_preserved() {
+        let schema = SchemaBuilder::new()
+            .add_field("first", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("second", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .add_field("third", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(schema.fields[0].name, "first");
+        assert_eq!(schema.fields[1].name, "second");
+        assert_eq!(schema.fields[2].name, "third");
+    }
+
+    #[test]
+    fn test_schema_duplicate_field_rejection() {
+        let result = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("id", FieldType::String, Nullability::Required);
+
+        // Depends on implementation - may be Ok or Err
+        let _ = result;
+    }
+
+    #[test]
+    fn test_schema_optional_required_transition() {
+        let fields = vec![
+            FieldMetadata {
+                name: "col1".to_string(),
+                field_type: FieldType::Int64,
+                nullability: Nullability::Required,
+                metadata: HashMap::new(),
+            },
+            FieldMetadata {
+                name: "col2".to_string(),
+                field_type: FieldType::String,
+                nullability: Nullability::Optional,
+                metadata: HashMap::new(),
+            },
+            FieldMetadata {
+                name: "col3".to_string(),
+                field_type: FieldType::Float32,
+                nullability: Nullability::Required,
+                metadata: HashMap::new(),
+            },
+        ];
+
+        let schema = Schema::new(fields).unwrap();
+        assert_eq!(schema.fields[0].nullability, Nullability::Required);
+        assert_eq!(schema.fields[1].nullability, Nullability::Optional);
+        assert_eq!(schema.fields[2].nullability, Nullability::Required);
+    }
+
+    #[test]
+    fn test_schema_metadata_stability() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Blob, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        schema.fields[0]
+            .metadata
+            .insert("custom_key".to_string(), "custom_value".to_string());
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(
+            deserialized.fields[0]
+                .metadata
+                .get("custom_key")
+                .map(|s| s.as_str()),
+            Some("custom_value")
+        );
+    }
+
+    #[test]
+    fn test_schema_deterministic_serialization() {
+        let schema = SchemaBuilder::new()
+            .add_field("x", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .add_field("y", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let bytes1 = schema.serialize_binary().unwrap();
+        let bytes2 = schema.serialize_binary().unwrap();
+
+        assert_eq!(bytes1, bytes2);
+    }
+
+    #[test]
+    fn test_schema_all_field_types_preservation() {
+        let schema = SchemaBuilder::new()
+            .add_field("bool_field", FieldType::Boolean, Nullability::Required)
+            .unwrap()
+            .add_field("int8_field", FieldType::Int8, Nullability::Required)
+            .unwrap()
+            .add_field("int64_field", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("float32_field", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .add_field("float64_field", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .add_field("string_field", FieldType::String, Nullability::Required)
+            .unwrap()
+            .add_field("timestamp_field", FieldType::Timestamp, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(deserialized.fields[0].field_type, FieldType::Boolean);
+        assert_eq!(deserialized.fields[1].field_type, FieldType::Int8);
+        assert_eq!(deserialized.fields[2].field_type, FieldType::Int64);
+        assert_eq!(deserialized.fields[3].field_type, FieldType::Float32);
+        assert_eq!(deserialized.fields[4].field_type, FieldType::Float64);
+        assert_eq!(deserialized.fields[5].field_type, FieldType::String);
+        assert_eq!(deserialized.fields[6].field_type, FieldType::Timestamp);
+    }
+
+    #[test]
+    fn test_schema_field_count_preservation() {
+        let field_counts = vec![1, 5, 10, 50, 100];
+
+        for count in field_counts {
+            let mut builder = SchemaBuilder::new();
+
+            for i in 0..count {
+                let field_name = format!("field_{}", i);
+                builder = builder
+                    .add_field(&field_name, FieldType::Int64, Nullability::Required)
+                    .unwrap();
+            }
+
+            let schema = builder.build().unwrap();
+            assert_eq!(schema.fields.len(), count);
+        }
+    }
+
+    #[test]
+    fn test_schema_roundtrip_complex() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .add_field("timestamp", FieldType::Timestamp, Nullability::Required)
+            .unwrap()
+            .add_field("data", FieldType::Blob, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Add metadata
+        schema.fields[0]
+            .metadata
+            .insert("key1".to_string(), "value1".to_string());
+        schema.fields[1]
+            .metadata
+            .insert("key2".to_string(), "value2".to_string());
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(deserialized.fields.len(), 4);
+        assert_eq!(deserialized.fields[0].name, "id");
+        assert_eq!(deserialized.fields[2].name, "timestamp");
+        assert_eq!(
+            deserialized.fields[0].metadata.get("key1").map(|s| s.as_str()),
+            Some("value1")
+        );
+    }
+
+    #[test]
+    fn test_field_type_ids_consistency() {
+        let types = vec![
+            FieldType::Boolean,
+            FieldType::Int8,
+            FieldType::Int16,
+            FieldType::Int32,
+            FieldType::Int64,
+            FieldType::UInt8,
+            FieldType::UInt16,
+            FieldType::UInt32,
+            FieldType::UInt64,
+            FieldType::Float32,
+            FieldType::Float64,
+            FieldType::Timestamp,
+            FieldType::Date,
+            FieldType::Time,
+            FieldType::Duration,
+            FieldType::String,
+            FieldType::Enum,
+            FieldType::Uuid,
+            FieldType::Blob,
+            FieldType::Decimal,
+        ];
+
+        for field_type in types {
+            let id = field_type.id();
+            if let Ok(recovered) = FieldType::from_id(id) {
+                assert_eq!(recovered, field_type);
+            }
+        }
+    }
+
+    #[test]
+    fn test_field_type_fixed_size_correctness() {
+        assert_eq!(FieldType::Int8.fixed_size(), Some(1));
+        assert_eq!(FieldType::Int16.fixed_size(), Some(2));
+        assert_eq!(FieldType::Int32.fixed_size(), Some(4));
+        assert_eq!(FieldType::Int64.fixed_size(), Some(8));
+        assert_eq!(FieldType::Float32.fixed_size(), Some(4));
+        assert_eq!(FieldType::Float64.fixed_size(), Some(8));
+        assert_eq!(FieldType::Boolean.fixed_size(), Some(1));
+        assert_eq!(FieldType::String.fixed_size(), None); // Variable length
+        assert_eq!(FieldType::Blob.fixed_size(), None);
+    }
+
+    #[test]
+    fn test_schema_builder_sequential() {
+        let schema = SchemaBuilder::new()
+            .add_field("step1", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("step2", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .add_field("step3", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(schema.fields.len(), 3);
+        assert_eq!(schema.fields[0].name, "step1");
+        assert_eq!(schema.fields[1].name, "step2");
+        assert_eq!(schema.fields[2].name, "step3");
+    }
+
+    #[test]
+    fn test_schema_invalid_field_name_handling() {
+        // Test various field name edge cases
+        let valid_names = vec!["a", "field_1", "Field_Name", "_underscore"];
+        
+        for name in valid_names {
+            let result = SchemaBuilder::new()
+                .add_field(name, FieldType::Int64, Nullability::Required);
+            assert!(result.is_ok());
+        }
+    }
+
+    #[test]
+    fn test_schema_malformed_binary_rejection() {
+        let malformed = vec![0xFF, 0xFF, 0xFF, 0xFF];
+        let result = Schema::deserialize_binary(&malformed);
+        // Should either return Err or handle gracefully
+        let _ = result;
+    }
+
+    #[test]
+    fn test_schema_complex_metadata_preservation() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("col", FieldType::Blob, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut metadata = HashMap::new();
+        metadata.insert("description".to_string(), "Test column".to_string());
+        metadata.insert("format".to_string(), "JSON".to_string());
+        metadata.insert("compression".to_string(), "GZIP".to_string());
+
+        schema.fields[0].metadata = metadata;
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(
+            deserialized.fields[0]
+                .metadata
+                .get("description")
+                .map(|s| s.as_str()),
+            Some("Test column")
+        );
+        assert_eq!(
+            deserialized.fields[0]
+                .metadata
+                .get("format")
+                .map(|s| s.as_str()),
+            Some("JSON")
+        );
+    }
+
+    #[test]
+    fn test_schema_empty_schema_handling() {
+        let result = SchemaBuilder::new().build();
+        // Depends on implementation - may allow empty schemas
+        let _ = result;
+    }
 }

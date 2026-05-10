@@ -310,4 +310,188 @@ mod tests {
             assert_eq!(encoding.to_id(), id);
         }
     }
+
+    #[test]
+    fn test_invalid_encoding_id_rejection() {
+        let result = EncodingType::from_id(255);
+        assert!(result.is_err());
+        
+        let result2 = EncodingType::from_id(99);
+        assert!(result2.is_err());
+    }
+
+    #[test]
+    fn test_encoding_type_display() {
+        assert_eq!(format!("{}", EncodingType::Plain), "PLAIN");
+        assert_eq!(format!("{}", EncodingType::Rle), "RLE");
+        assert_eq!(format!("{}", EncodingType::BitPacked), "BIT_PACKED");
+        assert_eq!(format!("{}", EncodingType::DeltaBinary), "DELTA_BINARY");
+        assert_eq!(format!("{}", EncodingType::DeltaByteArray), "DELTA_BYTE_ARRAY");
+        assert_eq!(format!("{}", EncodingType::ByteStreamSplit), "BYTE_STREAM_SPLIT");
+        assert_eq!(format!("{}", EncodingType::DictionaryRle), "DICTIONARY_RLE");
+        assert_eq!(format!("{}", EncodingType::Passthrough), "PASSTHROUGH");
+    }
+
+    #[test]
+    fn test_passthrough_encoder_identity() {
+        let encoder = PassthroughEncoder::new();
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        
+        let encoded = encoder.encode(&data).unwrap();
+        assert_eq!(encoded, data);
+        
+        let decoded = encoder.decode(&encoded, data.len()).unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn test_passthrough_encoder_empty_data() {
+        let encoder = PassthroughEncoder::new();
+        let data = vec![];
+        
+        let encoded = encoder.encode(&data).unwrap();
+        assert_eq!(encoded.len(), 0);
+        
+        let decoded = encoder.decode(&encoded, 0).unwrap();
+        assert_eq!(decoded.len(), 0);
+    }
+
+    #[test]
+    fn test_passthrough_encoder_large_data() {
+        let encoder = PassthroughEncoder::new();
+        let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
+        
+        let encoded = encoder.encode(&data).unwrap();
+        assert_eq!(encoded.len(), data.len());
+        assert_eq!(encoded, data);
+    }
+
+    #[test]
+    fn test_encoding_type_all_valid_ids() {
+        let valid_ids = vec![0, 1, 2, 3, 4, 5, 6, 7];
+        
+        for id in valid_ids {
+            let encoding = EncodingType::from_id(id);
+            assert!(encoding.is_ok());
+            
+            let enc = encoding.unwrap();
+            assert_eq!(enc.to_id(), id);
+        }
+    }
+
+    #[test]
+    fn test_encoding_type_deterministic_to_id() {
+        let encoding = EncodingType::DeltaBinary;
+        let id1 = encoding.to_id();
+        let id2 = encoding.to_id();
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn test_low_cardinality_detection_true() {
+        let data = vec![
+            b"apple".to_vec(),
+            b"apple".to_vec(),
+            b"banana".to_vec(),
+            b"banana".to_vec(),
+        ];
+        
+        let mut encoded = Vec::new();
+        for item in data {
+            encoded.extend_from_slice(&(item.len() as u32).to_le_bytes());
+            encoded.extend_from_slice(&item);
+        }
+        
+        assert!(is_low_cardinality(&encoded, 5));
+    }
+
+    #[test]
+    fn test_low_cardinality_detection_false() {
+        let data: Vec<Vec<u8>> = (0..100).map(|i| format!("value_{}", i).into_bytes()).collect();
+        
+        let mut encoded = Vec::new();
+        for item in data {
+            encoded.extend_from_slice(&(item.len() as u32).to_le_bytes());
+            encoded.extend_from_slice(&item);
+        }
+        
+        assert!(!is_low_cardinality(&encoded, 5));
+    }
+
+    #[test]
+    fn test_low_cardinality_integers_true() {
+        let values = vec![1i64, 1i64, 2i64, 2i64, 1i64];
+        let mut data = Vec::new();
+        for v in values {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        
+        assert!(is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+    }
+
+    #[test]
+    fn test_low_cardinality_integers_false() {
+        let values: Vec<i64> = (0..100).collect();
+        let mut data = Vec::new();
+        for v in values {
+            data.extend_from_slice(&v.to_le_bytes());
+        }
+        
+        assert!(!is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+    }
+
+    #[test]
+    fn test_encoding_type_equality() {
+        assert_eq!(EncodingType::Plain, EncodingType::Plain);
+        assert_ne!(EncodingType::Plain, EncodingType::Rle);
+        assert_ne!(EncodingType::DeltaBinary, EncodingType::DeltaByteArray);
+    }
+
+    #[test]
+    fn test_encoding_type_clone() {
+        let enc1 = EncodingType::DictionaryRle;
+        let enc2 = enc1.clone();
+        assert_eq!(enc1, enc2);
+    }
+
+    #[test]
+    fn test_encoding_type_copy() {
+        let enc1 = EncodingType::ByteStreamSplit;
+        let enc2 = enc1;
+        assert_eq!(enc1, enc2);
+    }
+
+    #[test]
+    fn test_passthrough_encoder_deterministic() {
+        let encoder = PassthroughEncoder::new();
+        let data = b"deterministic_test".to_vec();
+        
+        let encoded1 = encoder.encode(&data).unwrap();
+        let encoded2 = encoder.encode(&data).unwrap();
+        
+        assert_eq!(encoded1, encoded2);
+    }
+
+    #[test]
+    fn test_low_cardinality_empty_input() {
+        assert!(is_low_cardinality(&[], 10));
+    }
+
+    #[test]
+    fn test_low_cardinality_integers_empty_input() {
+        let empty: Vec<u8> = vec![];
+        assert!(is_low_cardinality_integers(&crate::schema::FieldType::Int64, &empty, 10));
+    }
+
+    #[test]
+    fn test_low_cardinality_malformed_length_prefix() {
+        let malformed = vec![0xFF, 0xFF, 0xFF, 0xFF, 0xFF]; // Invalid length prefix
+        assert!(!is_low_cardinality(&malformed, 5));
+    }
+
+    #[test]
+    fn test_low_cardinality_integers_invalid_size() {
+        let data = vec![1, 2, 3]; // Not divisible by 8 (i64 size)
+        assert!(!is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+    }
 }

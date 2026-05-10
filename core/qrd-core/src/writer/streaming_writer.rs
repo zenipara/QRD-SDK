@@ -428,4 +428,225 @@ mod tests {
 
         Ok(())
     }
+
+    // ====== Additional Streaming Writer Tests ======
+
+    #[test]
+    fn test_streaming_writer_large_dataset() -> Result<()> {
+        let schema = make_schema(vec!["value"]);
+        let buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 1000;
+
+        let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
+
+        for i in 0..10000 {
+            writer.write_row(vec![(i as u32).to_le_bytes().to_vec()])?;
+        }
+
+        assert_eq!(writer.row_count(), 10000);
+        assert!(writer.row_group_count() > 0);
+
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_partial_flush() -> Result<()> {
+        let schema = make_schema(vec!["id", "value"]);
+        let buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 100;
+
+        let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
+
+        for i in 0..50 {
+            writer.write_row(vec![
+                (i as u32).to_le_bytes().to_vec(),
+                ((i * 2) as u32).to_le_bytes().to_vec(),
+            ])?;
+        }
+
+        assert_eq!(writer.row_count(), 50);
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_deterministic_output() -> Result<()> {
+        let schema = make_schema(vec!["data"]);
+        
+        let mut buffer1 = Vec::new();
+        {
+            let cursor = Cursor::new(&mut buffer1);
+            let mut writer = StreamingWriter::new(cursor, schema.clone())?;
+            for i in 0..100 {
+                writer.write_row(vec![(i as u8).to_le_bytes().to_vec()])?;
+            }
+            writer.finish()?;
+        }
+
+        let mut buffer2 = Vec::new();
+        {
+            let cursor = Cursor::new(&mut buffer2);
+            let mut writer = StreamingWriter::new(cursor, schema.clone())?;
+            for i in 0..100 {
+                writer.write_row(vec![(i as u8).to_le_bytes().to_vec()])?;
+            }
+            writer.finish()?;
+        }
+
+        assert_eq!(buffer1, buffer2);
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_incremental_row_groups() -> Result<()> {
+        let schema = make_schema(vec!["value"]);
+        let buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 25;
+
+        let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
+
+        let mut prev_rg_count = writer.row_group_count();
+
+        for batch in 0..4 {
+            for i in 0..30 {
+                writer.write_row(vec![(batch * 30 + i).to_le_bytes().to_vec()])?;
+            }
+            let new_rg_count = writer.row_group_count();
+            assert!(new_rg_count >= prev_rg_count);
+            prev_rg_count = new_rg_count;
+        }
+
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_empty_stream() -> Result<()> {
+        let schema = make_schema(vec!["x"]);
+        let buffer = Cursor::new(Vec::new());
+
+        let mut writer = StreamingWriter::new(buffer, schema)?;
+        assert_eq!(writer.row_count(), 0);
+        
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_repeated_writes() -> Result<()> {
+        let schema = make_schema(vec!["id"]);
+        let buffer = Cursor::new(Vec::new());
+
+        let mut writer = StreamingWriter::new(buffer, schema)?;
+
+        for iteration in 0..5 {
+            for i in 0..20 {
+                writer.write_row(vec![(iteration * 20 + i).to_le_bytes().to_vec()])?;
+            }
+        }
+
+        assert_eq!(writer.row_count(), 100);
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_large_row_values() -> Result<()> {
+        let schema = make_schema(vec!["data"]);
+        let buffer = Cursor::new(Vec::new());
+
+        let mut writer = StreamingWriter::new(buffer, schema)?;
+
+        let large_data = vec![0u8; 10000];
+        for _ in 0..10 {
+            writer.write_row(vec![large_data.clone()])?;
+        }
+
+        assert_eq!(writer.row_count(), 10);
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_config_row_group_size() -> Result<()> {
+        let schema = make_schema(vec!["value"]);
+        let buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 50;
+
+        let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
+
+        // Write multiple row groups worth of data
+        for i in 0..200 {
+            writer.write_row(vec![(i as u32).to_le_bytes().to_vec()])?;
+        }
+
+        let rg_count = writer.row_group_count();
+        assert!(rg_count > 0);
+        assert_eq!(writer.row_count(), 200);
+
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_null_handling() -> Result<()> {
+        let schema = make_schema(vec!["optional_col"]);
+        let buffer = Cursor::new(Vec::new());
+
+        let mut writer = StreamingWriter::new(buffer, schema)?;
+
+        writer.write_row(vec![vec![0, 0, 0, 0]])?; // NULL marker
+        writer.write_row(vec![b"data".to_vec()])?;
+
+        assert_eq!(writer.row_count(), 2);
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_mixed_data_types() -> Result<()> {
+        let schema = make_schema(vec!["int_col", "float_col", "str_col"]);
+        let buffer = Cursor::new(Vec::new());
+
+        let mut writer = StreamingWriter::new(buffer, schema)?;
+
+        for i in 0..50 {
+            writer.write_row(vec![
+                (i as u32).to_le_bytes().to_vec(),
+                (i as f32).to_le_bytes().to_vec(),
+                format!("value_{}", i).into_bytes(),
+            ])?;
+        }
+
+        assert_eq!(writer.row_count(), 50);
+        writer.finish()?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_streaming_writer_row_group_count_tracking() -> Result<()> {
+        let schema = make_schema(vec!["id"]);
+        let buffer = Cursor::new(Vec::new());
+        let mut config = StreamingWriterConfig::default();
+        config.row_group_size = 10;
+
+        let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
+
+        assert_eq!(writer.row_group_count(), 0);
+
+        for i in 0..45 {
+            writer.write_row(vec![(i as u8).to_le_bytes().to_vec()])?;
+        }
+
+        let final_rg_count = writer.row_group_count();
+        assert!(final_rg_count > 0);
+
+        writer.finish()?;
+        Ok(())
+    }
 }

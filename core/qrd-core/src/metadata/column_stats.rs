@@ -359,3 +359,482 @@ impl MetadataIndex {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::schema::{SchemaBuilder, Nullability};
+
+    // ====== ColumnStats Tests ======
+
+    #[test]
+    fn test_column_stats_initialization() {
+        let stats = ColumnStats::new("test_col".to_string(), FieldType::Int64);
+        assert_eq!(stats.name, "test_col");
+        assert_eq!(stats.field_type, FieldType::Int64);
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.distinct_count, 0);
+        assert_eq!(stats.total_count, 0);
+    }
+
+    #[test]
+    fn test_column_stats_update_with_values() {
+        let mut stats = ColumnStats::new("numbers".to_string(), FieldType::Int64);
+        
+        // Add values
+        let value1 = 10i64.to_le_bytes().to_vec();
+        let value2 = 20i64.to_le_bytes().to_vec();
+        let value3 = 15i64.to_le_bytes().to_vec();
+        
+        stats.update(Some(&value1));
+        stats.update(Some(&value2));
+        stats.update(Some(&value3));
+        
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.distinct_count, 3);
+        assert_eq!(stats.min_value, Some(value1));
+        assert_eq!(stats.max_value, Some(value2));
+    }
+
+    #[test]
+    fn test_column_stats_update_with_nulls() {
+        let mut stats = ColumnStats::new("nullable_col".to_string(), FieldType::String);
+        
+        let val1 = b"hello".to_vec();
+        stats.update(Some(&val1));
+        stats.update(None);
+        stats.update(None);
+        let val2 = b"world".to_vec();
+        stats.update(Some(&val2));
+        
+        assert_eq!(stats.total_count, 4);
+        assert_eq!(stats.null_count, 2);
+        assert_eq!(stats.distinct_count, 2);
+    }
+
+    #[test]
+    fn test_column_stats_min_max_ordering() {
+        let mut stats = ColumnStats::new("ordered".to_string(), FieldType::Int32);
+        
+        // Insert in reverse order
+        stats.update(Some(&[5, 0, 0, 0]));
+        stats.update(Some(&[1, 0, 0, 0]));
+        stats.update(Some(&[3, 0, 0, 0]));
+        stats.update(Some(&[2, 0, 0, 0]));
+        stats.update(Some(&[4, 0, 0, 0]));
+        
+        assert_eq!(stats.min_value, Some(vec![1, 0, 0, 0]));
+        assert_eq!(stats.max_value, Some(vec![5, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_column_stats_all_nulls() {
+        let mut stats = ColumnStats::new("all_nulls".to_string(), FieldType::Float64);
+        
+        stats.update(None);
+        stats.update(None);
+        stats.update(None);
+        
+        assert_eq!(stats.total_count, 3);
+        assert_eq!(stats.null_count, 3);
+        assert_eq!(stats.distinct_count, 0);
+        assert_eq!(stats.min_value, None);
+        assert_eq!(stats.max_value, None);
+    }
+
+    #[test]
+    fn test_filter_result_combine() {
+        let result1 = FilterResult::MayPass.combine(FilterResult::MayPass);
+        assert_eq!(result1, FilterResult::MayPass);
+        
+        let result2 = FilterResult::MayPass.combine(FilterResult::MustNotPass);
+        assert_eq!(result2, FilterResult::MustNotPass);
+        
+        let result3 = FilterResult::MustNotPass.combine(FilterResult::MustNotPass);
+        assert_eq!(result3, FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_is_null() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
+        stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
+        stats.update(None);
+        
+        let filter = ColumnFilter::IsNull;
+        assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
+        
+        let mut stats_no_nulls = ColumnStats::new("col2".to_string(), FieldType::Int64);
+        stats_no_nulls.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
+        assert_eq!(stats_no_nulls.can_pass_filter(&filter), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_is_not_null() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
+        stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
+        stats.update(None);
+        
+        let filter = ColumnFilter::IsNotNull;
+        assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
+        
+        let mut stats_all_null = ColumnStats::new("col2".to_string(), FieldType::Int64);
+        stats_all_null.update(None);
+        assert_eq!(stats_all_null.can_pass_filter(&filter), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_equal() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
+        let val = 50i64.to_le_bytes().to_vec();
+        stats.update(Some(&val));
+        stats.update(Some(&(100i64.to_le_bytes().to_vec())));
+        
+        // Value within range
+        let filter = ColumnFilter::Equal(val.clone());
+        assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
+        
+        // Value outside range
+        let filter_out = ColumnFilter::Equal(vec![255, 255, 255, 255, 255, 255, 255, 255]);
+        assert_eq!(stats.can_pass_filter(&filter_out), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_greater_than() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
+        stats.update(Some(&[10, 0, 0, 0]));
+        stats.update(Some(&[50, 0, 0, 0]));
+        
+        let filter_pass = ColumnFilter::GreaterThan(vec![30, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
+        
+        let filter_fail = ColumnFilter::GreaterThan(vec![100, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_less_than() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
+        stats.update(Some(&[10, 0, 0, 0]));
+        stats.update(Some(&[50, 0, 0, 0]));
+        
+        let filter_pass = ColumnFilter::LessThan(vec![30, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
+        
+        let filter_fail = ColumnFilter::LessThan(vec![5, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_between() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
+        stats.update(Some(&[10, 0, 0, 0]));
+        stats.update(Some(&[50, 0, 0, 0]));
+        
+        let filter_pass = ColumnFilter::Between(vec![20, 0, 0, 0], vec![40, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
+        
+        let filter_fail = ColumnFilter::Between(vec![60, 0, 0, 0], vec![100, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+    }
+
+    #[test]
+    fn test_column_filter_not_equal_single_value() {
+        let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
+        let val = 42i64.to_le_bytes().to_vec();
+        stats.update(Some(&val.clone()));
+        stats.update(Some(&val.clone()));
+        
+        let filter = ColumnFilter::NotEqual(val.clone());
+        assert_eq!(stats.can_pass_filter(&filter), FilterResult::MustNotPass);
+        
+        let filter_pass = ColumnFilter::NotEqual(vec![99, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
+    }
+
+    // ====== RowGroupStats Tests ======
+
+    #[test]
+    fn test_row_group_stats_initialization() {
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let rg_stats = RowGroupStats::new(&schema);
+        assert_eq!(rg_stats.column_stats.len(), 2);
+        assert_eq!(rg_stats.row_count, 0);
+        assert_eq!(rg_stats.column_stats[0].name, "id");
+        assert_eq!(rg_stats.column_stats[1].name, "name");
+    }
+
+    #[test]
+    fn test_row_group_stats_update_row() {
+        let schema = SchemaBuilder::new()
+            .add_field("col1", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("col2", FieldType::Int32, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        
+        let row = vec![
+            Some(10i64.to_le_bytes().to_vec()),
+            Some(20i32.to_le_bytes().to_vec()),
+        ];
+        
+        rg_stats.update_row(&row);
+        assert_eq!(rg_stats.row_count, 1);
+        assert_eq!(rg_stats.column_stats[0].total_count, 1);
+        assert_eq!(rg_stats.column_stats[1].total_count, 1);
+    }
+
+    #[test]
+    fn test_row_group_stats_multiple_updates() {
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        
+        rg_stats.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
+        rg_stats.update_row(&vec![None]);
+        rg_stats.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
+        
+        assert_eq!(rg_stats.row_count, 3);
+        assert_eq!(rg_stats.column_stats[0].null_count, 1);
+        assert_eq!(rg_stats.column_stats[0].total_count, 3);
+    }
+
+    #[test]
+    fn test_row_group_stats_can_pass_single_filter() {
+        let schema = SchemaBuilder::new()
+            .add_field("status", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        rg_stats.update_row(&vec![Some(b"active".to_vec())]);
+        rg_stats.update_row(&vec![Some(b"inactive".to_vec())]);
+        
+        let filters = vec![ColumnFilterSpec {
+            column_index: 0,
+            filter: ColumnFilter::IsNotNull,
+        }];
+        
+        assert_eq!(rg_stats.can_pass_filters(&filters), FilterResult::MayPass);
+    }
+
+    #[test]
+    fn test_row_group_stats_filter_rejection() {
+        let schema = SchemaBuilder::new()
+            .add_field("count", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        rg_stats.update_row(&vec![Some(100i64.to_le_bytes().to_vec())]);
+        rg_stats.update_row(&vec![Some(200i64.to_le_bytes().to_vec())]);
+        
+        let filters = vec![ColumnFilterSpec {
+            column_index: 0,
+            filter: ColumnFilter::LessThan(vec![50, 0, 0, 0, 0, 0, 0, 0]),
+        }];
+        
+        assert_eq!(rg_stats.can_pass_filters(&filters), FilterResult::MustNotPass);
+    }
+
+    // ====== QueryOptimizer Tests ======
+
+    #[test]
+    fn test_query_optimizer_initialization() {
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let optimizer = QueryOptimizer::new(schema.clone());
+        assert_eq!(optimizer.schema.fields.len(), 1);
+    }
+
+    #[test]
+    fn test_query_optimizer_all_groups_pass() {
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats1 = RowGroupStats::new(&schema);
+        rg_stats1.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
+        
+        let mut rg_stats2 = RowGroupStats::new(&schema);
+        rg_stats2.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
+        
+        let row_group_stats = vec![rg_stats1, rg_stats2];
+        let filters = vec![ColumnFilterSpec {
+            column_index: 0,
+            filter: ColumnFilter::IsNotNull,
+        }];
+        
+        let optimizer = QueryOptimizer::new(schema);
+        let accessible = optimizer.optimize_access(&row_group_stats, &filters);
+        assert_eq!(accessible.len(), 2);
+    }
+
+    #[test]
+    fn test_query_optimizer_some_groups_filtered() {
+        let schema = SchemaBuilder::new()
+            .add_field("age", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats1 = RowGroupStats::new(&schema);
+        rg_stats1.update_row(&vec![Some(vec![25, 0, 0, 0])]);
+        
+        let mut rg_stats2 = RowGroupStats::new(&schema);
+        rg_stats2.update_row(&vec![Some(vec![100, 0, 0, 0])]);
+        
+        let row_group_stats = vec![rg_stats1, rg_stats2];
+        let filters = vec![ColumnFilterSpec {
+            column_index: 0,
+            filter: ColumnFilter::GreaterThan(vec![50, 0, 0, 0]),
+        }];
+        
+        let optimizer = QueryOptimizer::new(schema);
+        let accessible = optimizer.optimize_access(&row_group_stats, &filters);
+        assert_eq!(accessible.len(), 1);
+        assert_eq!(accessible[0], 1);
+    }
+
+    // ====== MetadataIndex Tests ======
+
+    #[test]
+    fn test_metadata_index_creation() {
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .add_field("score", FieldType::Float32, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let rg_stats = vec![RowGroupStats::new(&schema)];
+        let offsets = vec![32];
+        
+        let index = MetadataIndex::new(&schema, offsets, rg_stats);
+        assert_eq!(index.column_indices.len(), 3);
+        assert_eq!(index.row_group_offsets.len(), 1);
+    }
+
+    #[test]
+    fn test_metadata_index_get_column_index() {
+        let schema = SchemaBuilder::new()
+            .add_field("user_id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("email", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let rg_stats = vec![RowGroupStats::new(&schema)];
+        let index = MetadataIndex::new(&schema, vec![32], rg_stats);
+        
+        assert_eq!(index.get_column_index("user_id"), Some(0));
+        assert_eq!(index.get_column_index("email"), Some(1));
+        assert_eq!(index.get_column_index("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_metadata_index_accessible_row_groups() {
+        let schema = SchemaBuilder::new()
+            .add_field("status", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats1 = RowGroupStats::new(&schema);
+        rg_stats1.update_row(&vec![Some(b"active".to_vec())]);
+        
+        let mut rg_stats2 = RowGroupStats::new(&schema);
+        rg_stats2.update_row(&vec![Some(b"archived".to_vec())]);
+        
+        let index = MetadataIndex::new(&schema, vec![32, 256], vec![rg_stats1, rg_stats2]);
+        
+        let filters = vec![ColumnFilterSpec {
+            column_index: 0,
+            filter: ColumnFilter::IsNotNull,
+        }];
+        
+        let accessible = index.get_accessible_row_groups(&filters);
+        assert_eq!(accessible.len(), 2);
+    }
+
+    #[test]
+    fn test_metadata_index_get_column_stats() {
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        rg_stats.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
+        rg_stats.update_row(&vec![None]);
+        rg_stats.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
+        
+        let index = MetadataIndex::new(&schema, vec![32], vec![rg_stats]);
+        let col_stats = index.get_column_stats(0);
+        
+        assert_eq!(col_stats.len(), 1);
+        assert_eq!(col_stats[0].total_count, 3);
+        assert_eq!(col_stats[0].null_count, 1);
+    }
+
+    #[test]
+    fn test_metadata_index_serialization_roundtrip() {
+        let schema = SchemaBuilder::new()
+            .add_field("x", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        
+        let mut rg_stats = RowGroupStats::new(&schema);
+        rg_stats.update_row(&vec![Some(3.14f64.to_le_bytes().to_vec())]);
+        
+        let index = MetadataIndex::new(&schema, vec![32], vec![rg_stats.clone()]);
+        let json = serde_json::to_string(&index).unwrap();
+        let deserialized: MetadataIndex = serde_json::from_str(&json).unwrap();
+        
+        assert_eq!(deserialized.column_indices.len(), index.column_indices.len());
+        assert_eq!(deserialized.row_group_offsets, index.row_group_offsets);
+    }
+
+    #[test]
+    fn test_column_stats_serialization_stability() {
+        let mut stats = ColumnStats::new("test".to_string(), FieldType::Int64);
+        stats.update(Some(&[1, 2, 3, 4, 5, 6, 7, 8]));
+        stats.update(Some(&[9, 10, 11, 12, 13, 14, 15, 16]));
+        
+        let json1 = serde_json::to_string(&stats).unwrap();
+        let deserialized: ColumnStats = serde_json::from_str(&json1).unwrap();
+        let json2 = serde_json::to_string(&deserialized).unwrap();
+        
+        assert_eq!(json1, json2);
+    }
+}
