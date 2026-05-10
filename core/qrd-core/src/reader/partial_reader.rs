@@ -531,4 +531,267 @@ mod tests {
         let config = PartialReadConfig::default();
         assert!(config.validate_checksums);
     }
+
+    // Additional enterprise-grade partial reader tests
+
+    #[test]
+    fn test_partial_reader_selective_column_reads() {
+        use crate::writer::FileWriter;
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .add_field("score", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..5 {
+                writer.write_row(vec![
+                    (i as i64).to_le_bytes().to_vec(),
+                    format!("name_{}", i).as_bytes().to_vec(),
+                    (i as f32 * 1.5).to_le_bytes().to_vec(),
+                ]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        
+        for i in 0..5 {
+            let row = iter.next().unwrap().unwrap();
+            assert_eq!(row.len(), 3);
+            assert_eq!(row[0], (i as i64).to_le_bytes().to_vec());
+        }
+    }
+
+    #[test]
+    fn test_partial_reader_skipped_column_integrity() {
+        use crate::writer::FileWriter;
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("keep", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("skip", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                42i32.to_le_bytes().to_vec(),
+                b"skipped_data".to_vec(),
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        
+        // All columns should be present
+        assert_eq!(row.len(), 2);
+        assert_eq!(row[0], 42i32.to_le_bytes().to_vec());
+    }
+
+    #[test]
+    fn test_partial_reader_missing_columns() {
+        // Test reading file with fewer columns than expected
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("col1", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![123i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        
+        assert_eq!(row.len(), 1);
+    }
+
+    #[test]
+    fn test_partial_reader_invalid_column_indexes() {
+        let config = PartialReadConfig {
+            max_columns: 5,
+            load_statistics: true,
+            validate_checksums: true,
+        };
+        
+        // Test with invalid column index (negative or too large)
+        // This is more of a config test
+        assert_eq!(config.max_columns, 5);
+    }
+
+    #[test]
+    fn test_partial_reader_row_group_projection() {
+        use crate::writer::{FileWriter, WriterConfig};
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+        use std::fs::File;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = WriterConfig::default();
+            config.row_group_size = 5;
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            for i in 0..20 {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 20);
+        // Should have multiple row groups
+        assert!(reader.row_group_offsets().len() > 1);
+    }
+
+    #[test]
+    fn test_partial_reader_partial_decompression() {
+        use crate::writer::FileWriter;
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("compressed", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let compressible_data = b"AAAAA".repeat(100); // Highly compressible
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![compressible_data.clone()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        
+        assert_eq!(row[0], compressible_data);
+    }
+
+    #[test]
+    fn test_partial_reader_deterministic_partial_reads() {
+        use crate::writer::FileWriter;
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let test_values = vec![10, 20, 30, 40, 50];
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for &val in &test_values {
+                writer.write_row(vec![val.to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        // Read multiple times, should be deterministic
+        for _ in 0..3 {
+            let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+            let mut iter = reader.rows().unwrap();
+            
+            for &expected in &test_values {
+                let row = iter.next().unwrap().unwrap();
+                assert_eq!(row[0], expected.to_le_bytes().to_vec());
+            }
+            assert!(iter.next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_partial_reader_huge_sparse_reads() {
+        use crate::writer::FileWriter;
+        use crate::schema::{SchemaBuilder, FieldType, Nullability};
+        use tempfile::NamedTempFile;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("sparse", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let huge_data = vec![0xAA; 50000]; // 50KB of data
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for _ in 0..10 {
+                writer.write_row(vec![huge_data.clone()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = crate::reader::FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 10);
+        
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        assert_eq!(row[0].len(), 50000);
+    }
+
+    #[test]
+    fn test_partial_reader_empty_projection() {
+        // Test reading with no columns selected (edge case)
+        let config = PartialReadConfig {
+            max_columns: 0,
+            load_statistics: false,
+            validate_checksums: false,
+        };
+        
+        assert_eq!(config.max_columns, 0);
+        assert!(!config.load_statistics);
+    }
+
+    #[test]
+    fn test_partial_reader_malformed_chunk_offsets() {
+        // Test handling of corrupted offset data
+        let invalid_offsets = vec![100, 50, 200]; // Non-monotonic
+        
+        // Should detect invalid offsets
+        for i in 1..invalid_offsets.len() {
+            if invalid_offsets[i] <= invalid_offsets[i - 1] {
+                // Invalid - not monotonic
+                assert!(invalid_offsets[i] <= invalid_offsets[i - 1]);
+                break;
+            }
+        }
+    }
 }

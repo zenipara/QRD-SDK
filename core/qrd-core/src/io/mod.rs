@@ -326,4 +326,85 @@ mod tests {
         writer.flush()?;
         Ok(())
     }
+
+    // Additional enterprise-grade IO tests
+
+    #[test]
+    fn test_buffered_reader_eof_handling() -> Result<()> {
+        let data = vec![1, 2, 3, 4];
+        let cursor = Cursor::new(data);
+        let mut reader = BufferedReader::new(cursor, 10);
+        
+        // Read all data
+        let bytes = reader.read_exact_bytes(4)?;
+        assert_eq!(bytes, vec![1, 2, 3, 4]);
+        
+        // Try to read more - should return empty
+        let more = reader.read_exact_bytes(1)?;
+        assert_eq!(more.len(), 0);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_buffered_reader_buffered_reads() -> Result<()> {
+        let data: Vec<u8> = (0..100).collect();
+        let cursor = Cursor::new(data.clone());
+        let mut reader = BufferedReader::new(cursor, 20);
+        
+        // Read in small chunks
+        for i in 0..10 {
+            let chunk = reader.read_exact_bytes(10)?;
+            assert_eq!(chunk, &data[i*10..(i+1)*10]);
+        }
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_buffered_writer_partial_writes() -> Result<()> {
+        let cursor = Cursor::new(Vec::new());
+        let mut writer = BufferedWriter::new(cursor, 10);
+        
+        // Write data that doesn't fill buffer
+        writer.write_bytes(&[1, 2, 3])?;
+        assert_eq!(writer.buffer.len(), 3);
+        
+        // Write more to trigger partial flush
+        writer.write_bytes(&[4, 5, 6, 7, 8, 9, 10, 11])?;
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_buffered_reader_invalid_streams() -> Result<()> {
+        // Test with empty stream
+        let cursor = Cursor::new(Vec::new());
+        let mut reader = BufferedReader::new(cursor, 10);
+        
+        let bytes = reader.read_exact_bytes(1)?;
+        assert_eq!(bytes.len(), 0);
+        
+        Ok(())
+    }
+
+    #[test]
+    fn test_buffered_writer_deterministic_io_behavior() -> Result<()> {
+        let data = vec![1, 2, 3, 4, 5];
+        
+        // Write same data multiple times
+        let cursor1 = Cursor::new(Vec::new());
+        let mut writer1 = BufferedWriter::new(cursor1, 10);
+        writer1.write_bytes(&data)?;
+        writer1.flush()?;
+        
+        let cursor2 = Cursor::new(Vec::new());
+        let mut writer2 = BufferedWriter::new(cursor2, 10);
+        writer2.write_bytes(&data)?;
+        writer2.flush()?;
+        
+        assert_eq!(writer1.inner.get_ref(), writer2.inner.get_ref());
+        
+        Ok(())
+    }
 }

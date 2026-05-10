@@ -389,4 +389,61 @@ mod tests {
             _ => panic!("Unexpected error variant"),
         }
     }
+
+    // Additional enterprise-grade error tests
+
+    #[test]
+    fn test_error_conversion() {
+        // Test conversion from various error types
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
+        let qrd_err: Error = io_err.into();
+        assert!(matches!(qrd_err, Error::Io(_)));
+    }
+
+    #[test]
+    fn test_error_propagation() {
+        // Test that errors propagate correctly through Result
+        fn failing_function() -> Result<i32> {
+            Err(Error::InvalidData("test error".to_string()))
+        }
+        
+        let result = failing_function();
+        assert!(result.is_err());
+        
+        if let Err(Error::InvalidData(msg)) = result {
+            assert_eq!(msg, "test error");
+        } else {
+            panic!("Wrong error type");
+        }
+    }
+
+    #[test]
+    fn test_error_formatting_stability() {
+        // Test that error messages are stable
+        let error = Error::EncodingError("test message".to_string());
+        let msg1 = format!("{}", error);
+        let msg2 = format!("{}", error);
+        assert_eq!(msg1, msg2);
+    }
+
+    #[test]
+    fn test_nested_errors() {
+        // Test handling of nested error conditions
+        let result: Result<()> = Err(Error::CompressionError("nested compression error".to_string()));
+        assert!(result.is_err());
+        
+        let error = result.unwrap_err();
+        let message = format!("{}", error);
+        assert!(message.contains("Compression error"));
+    }
+
+    #[test]
+    fn test_parser_failure_mapping() {
+        // Test mapping of parser failures to appropriate error types
+        let invalid_data = "invalid data";
+        let error = Error::InvalidData(invalid_data.to_string());
+        let message = format!("{}", error);
+        assert!(message.contains("Invalid data"));
+        assert!(message.contains(invalid_data));
+    }
 }

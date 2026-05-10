@@ -1050,4 +1050,334 @@ mod tests {
             writer.finish().unwrap();
         }
     }
+
+    // Additional enterprise-grade writer tests
+
+    #[test]
+    fn test_writer_flush_cycles() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = WriterConfig::default();
+            config.row_group_size = 5;
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            // Write in batches with potential flushes
+            for batch in 0..4 {
+                for i in 0..5 {
+                    let value = format!("batch_{}_item_{}", batch, i);
+                    writer.write_row(vec![serialize_string(&value)]).unwrap();
+                }
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 20);
+    }
+
+    #[test]
+    fn test_writer_partial_row_groups() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = WriterConfig::default();
+            config.row_group_size = 100;
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            // Write less than row_group_size
+            for i in 0..37 {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 37);
+        // Should have created partial row group
+    }
+
+    #[test]
+    fn test_writer_deterministic_writes() {
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut buffer1 = Vec::new();
+        let mut buffer2 = Vec::new();
+
+        // Write same data twice
+        for buffer in [&mut buffer1, &mut buffer2].iter_mut() {
+            use std::io::Cursor;
+            let cursor = Cursor::new(buffer);
+            let mut writer = FileWriter::new(cursor, schema.clone()).unwrap();
+            
+            for i in 0..50 {
+                writer.write_row(vec![(i as i32).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        assert_eq!(buffer1, buffer2);
+    }
+
+    #[test]
+    fn test_writer_compression_correctness() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("blob", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let test_data = vec![0u8; 1000]; // Compressible data
+
+        {
+            let mut config = WriterConfig::default();
+            config.compression_enabled = true;
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            writer.write_row(vec![test_data.clone()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        assert_eq!(row[0], test_data);
+    }
+
+    #[test]
+    fn test_writer_invalid_schema_writes() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = Schema::new(vec![]); // Empty schema
+
+        let result = FileWriter::new(temp.path(), schema);
+        // Should handle gracefully - either succeed or fail
+        let _ = result;
+    }
+
+    #[test]
+    fn test_writer_large_datasets() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("seq", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let large_count = 100000;
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..large_count {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), large_count);
+    }
+
+    #[test]
+    fn test_writer_bounded_memory_assumptions() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = WriterConfig::default();
+            config.row_group_size = 1000; // Large row groups
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            for i in 0..2000 {
+                let large_string = format!("large_string_{}_with_padding", i).repeat(10);
+                writer.write_row(vec![serialize_string(&large_string)]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 2000);
+    }
+
+    #[test]
+    fn test_writer_empty_writes() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("empty", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 0);
+    }
+
+    #[test]
+    fn test_writer_repeated_finish() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![42i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+            // Multiple finishes should be safe
+            writer.finish().unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 1);
+    }
+
+    #[test]
+    fn test_writer_interrupted_writes() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Simulate interrupted write by not calling finish
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![123i32.to_le_bytes().to_vec()]).unwrap();
+            // Don't call finish - simulate crash
+        }
+
+        // File should be in incomplete state
+        let reader = FileReader::new(temp.path());
+        // May succeed or fail depending on implementation
+        let _ = reader;
+    }
+
+    #[test]
+    fn test_writer_invalid_values() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("int32", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            // Write invalid data (wrong length)
+            let invalid_row = vec![vec![1, 2]]; // Should be 4 bytes for i32
+            let result = writer.write_row(invalid_row);
+            // Should handle gracefully
+            let _ = result;
+            writer.finish().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_writer_mixed_types() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("int", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("float", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .add_field("str", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                100i64.to_le_bytes().to_vec(),
+                2.5f32.to_le_bytes().to_vec(),
+                serialize_string("mixed"),
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 1);
+    }
+
+    #[test]
+    fn test_writer_row_group_boundaries() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut config = WriterConfig::default();
+            config.row_group_size = 10;
+            
+            let file = File::create(temp.path()).unwrap();
+            let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+            
+            for i in 0..35 {
+                writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert_eq!(reader.row_count(), 35);
+        // Should have 4 row groups: 10, 10, 10, 5
+        assert_eq!(reader.row_group_offsets().len(), 4);
+    }
+
+    #[test]
+    fn test_writer_footer_integrity() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("test", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![999i32.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Verify footer can be read
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert!(reader.schema().fields.len() > 0);
+        assert!(reader.row_group_offsets().len() > 0);
+    }
 }

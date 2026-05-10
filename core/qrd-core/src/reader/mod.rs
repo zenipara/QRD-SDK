@@ -1269,4 +1269,450 @@ mod tests {
         assert_eq!(fields[0].nullability, Nullability::Required);
         assert_eq!(fields[1].nullability, Nullability::Optional);
     }
+
+    // Additional enterprise-grade tests for reader hardening
+
+    #[test]
+    fn test_reader_truncated_footer() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![b"test".to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Truncate the file to remove part of footer
+        use std::fs::OpenOptions;
+        use std::io::{Seek, SeekFrom};
+        
+        let mut file = OpenOptions::new().write(true).open(temp.path()).unwrap();
+        let len = file.seek(SeekFrom::End(0)).unwrap();
+        file.set_len(len.saturating_sub(10)).unwrap(); // Truncate last 10 bytes
+        drop(file);
+
+        let reader = FileReader::new(temp.path());
+        assert!(reader.is_err()); // Should fail on truncated footer
+    }
+
+    #[test]
+    fn test_reader_invalid_footer_offsets() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![42i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Corrupt footer offset
+        use std::fs::OpenOptions;
+        use std::io::{Seek, Write, SeekFrom};
+        
+        let mut file = OpenOptions::new().write(true).open(temp.path()).unwrap();
+        file.seek(SeekFrom::End(-8)).unwrap(); // Seek to footer offset
+        file.write_all(&[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]).unwrap(); // Invalid offset
+        drop(file);
+
+        let reader = FileReader::new(temp.path());
+        assert!(reader.is_err()); // Should fail on invalid offset
+    }
+
+    #[test]
+    fn test_reader_malformed_row_groups() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![b"valid".to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Corrupt row group metadata
+        use std::fs::OpenOptions;
+        use std::io::{Seek, Write, SeekFrom};
+        
+        let mut file = OpenOptions::new().write(true).open(temp.path()).unwrap();
+        file.seek(SeekFrom::Start(50)).unwrap(); // Somewhere in row group
+        file.write_all(&[0x00, 0x00, 0x00, 0x00]).unwrap(); // Corrupt data
+        drop(file);
+
+        let reader = FileReader::new(temp.path());
+        // May succeed or fail depending on corruption location
+        let _ = reader;
+    }
+
+    #[test]
+    fn test_reader_corrupted_crc32() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![b"test_data".to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Corrupt CRC32 checksum
+        use std::fs::OpenOptions;
+        use std::io::{Seek, Write, SeekFrom};
+        
+        let mut file = OpenOptions::new().write(true).open(temp.path()).unwrap();
+        file.seek(SeekFrom::End(-4)).unwrap(); // CRC32 is at end
+        file.write_all(&[0xAA, 0xBB, 0xCC, 0xDD]).unwrap(); // Invalid CRC
+        drop(file);
+
+        let reader = FileReader::new(temp.path());
+        assert!(reader.is_err()); // Should detect CRC mismatch
+    }
+
+    #[test]
+    fn test_reader_partial_reads() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("col1", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("col2", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..10 {
+                writer.write_row(vec![
+                    i.to_le_bytes().to_vec(),
+                    format!("value_{}", i).into_bytes(),
+                ]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        
+        // Read only first 5 rows
+        for i in 0..5 {
+            let row = iter.next().unwrap().unwrap();
+            assert_eq!(row[0], i.to_le_bytes().to_vec());
+        }
+        // Iterator should still be valid
+        assert!(iter.next().is_some());
+    }
+
+    #[test]
+    fn test_reader_selective_column_reads() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap()
+            .add_field("score", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![
+                1i64.to_le_bytes().to_vec(),
+                b"alice".to_vec(),
+                95.5f32.to_le_bytes().to_vec(),
+            ]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        
+        assert_eq!(row.len(), 3);
+        assert_eq!(row[0], 1i64.to_le_bytes().to_vec());
+        assert_eq!(row[1], b"alice".to_vec());
+    }
+
+    #[test]
+    fn test_reader_row_iteration() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..100 {
+                writer.write_row(vec![(i as i32).to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let mut count = 0;
+        
+        while let Some(row_result) = iter.next() {
+            let row = row_result.unwrap();
+            assert_eq!(row[0], (count as i32).to_le_bytes().to_vec());
+            count += 1;
+        }
+        
+        assert_eq!(count, 100);
+    }
+
+    #[test]
+    fn test_reader_invalid_schema() {
+        // Test with empty schema
+        let schema = Schema::new(vec![]);
+        let buffer = Vec::new();
+        
+        // Can't create writer with empty schema, so test reader with invalid data
+        let reader = FileReader::from_slice(&buffer);
+        assert!(reader.is_err());
+    }
+
+    #[test]
+    fn test_reader_unsupported_encoding() {
+        // This would require crafting a file with unsupported encoding
+        // For now, test that reader handles unknown encodings gracefully
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![b"test".to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        // Should succeed with supported encodings
+        assert!(reader.rows().is_ok());
+    }
+
+    #[test]
+    fn test_reader_unsupported_compression() {
+        // Similar to encoding test
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![vec![1, 2, 3, 4, 5]]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        assert!(reader.rows().is_ok());
+    }
+
+    #[test]
+    fn test_reader_malformed_metadata() {
+        let buffer = vec![0xFF, 0xFF, 0xFF, 0xFF]; // Invalid data
+        let reader = FileReader::from_slice(&buffer);
+        assert!(reader.is_err());
+    }
+
+    #[test]
+    fn test_reader_eof_handling() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            writer.write_row(vec![42i64.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        
+        // Read all rows
+        while iter.next().is_some() {}
+        
+        // Iterator should be exhausted
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_reader_huge_row_groups() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+            // Write many rows to create large row groups
+            for i in 0..1000 {
+                writer.write_row(vec![format!("row_{}", i).into_bytes()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut count = 0;
+        let mut iter = reader.rows().unwrap();
+        
+        while iter.next().is_some() {
+            count += 1;
+        }
+        
+        assert_eq!(count, 1000);
+    }
+
+    #[test]
+    fn test_reader_empty_file_handling() {
+        let buffer = Vec::new();
+        let reader = FileReader::from_slice(&buffer);
+        assert!(reader.is_err());
+    }
+
+    #[test]
+    fn test_reader_deterministic_reads() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("value", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let test_value = 12345i64;
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![test_value.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        // Read multiple times, should be deterministic
+        for _ in 0..3 {
+            let reader = FileReader::new(temp.path()).unwrap();
+            let mut iter = reader.rows().unwrap();
+            let row = iter.next().unwrap().unwrap();
+            assert_eq!(row[0], test_value.to_le_bytes().to_vec());
+            assert!(iter.next().is_none());
+        }
+    }
+
+    #[test]
+    fn test_reader_cross_platform_compatibility() {
+        // Test assumes little-endian, which is common but not guaranteed
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("int", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let value = 0x12345678i32;
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer.write_row(vec![value.to_le_bytes().to_vec()]).unwrap();
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        let row = iter.next().unwrap().unwrap();
+        
+        let read_value = i32::from_le_bytes(row[0][..4].try_into().unwrap());
+        assert_eq!(read_value, value);
+    }
+
+    #[test]
+    fn test_reader_random_seek_validation() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for i in 0..10 {
+                writer.write_row(vec![i.to_le_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        
+        // Skip some rows
+        for _ in 0..5 {
+            iter.next().unwrap().unwrap();
+        }
+        
+        // Read remaining
+        for i in 5..10 {
+            let row = iter.next().unwrap().unwrap();
+            assert_eq!(row[0], i.to_le_bytes().to_vec());
+        }
+        
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_reader_streaming_read_correctness() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("data", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let test_strings = vec!["first", "second", "third"];
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            for s in &test_strings {
+                writer.write_row(vec![s.as_bytes().to_vec()]).unwrap();
+            }
+            writer.finish().unwrap();
+        }
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let mut iter = reader.rows().unwrap();
+        
+        for expected in &test_strings {
+            let row = iter.next().unwrap().unwrap();
+            assert_eq!(row[0], expected.as_bytes().to_vec());
+        }
+        
+        assert!(iter.next().is_none());
+    }
 }

@@ -164,3 +164,53 @@ fn test_compression_stability_across_random_seeds() {
     assert_eq!(reader1.row_count(), 1);
     assert_eq!(reader2.row_count(), 1);
 }
+
+#[test]
+fn test_random_payload_generation() {
+    // Test that random payload generation produces expected distributions
+    let payload = generate_random_bytes(0xDEADBEEF, 1000);
+    assert_eq!(payload.len(), 1000);
+    
+    // Check that it's not all zeros or all same value
+    let unique_values: std::collections::HashSet<_> = payload.iter().collect();
+    assert!(unique_values.len() > 1, "Random data should have multiple unique values");
+}
+
+#[test]
+fn test_entropy_distribution_validation() {
+    // Test entropy calculation on known distributions
+    let uniform = generate_random_bytes(0x123, 10000);
+    let entropy = calculate_entropy(&uniform);
+    assert!(entropy > 7.0, "Uniform random data should have high entropy");
+    
+    let constant = vec![42u8; 1000];
+    let entropy_const = calculate_entropy(&constant);
+    assert_eq!(entropy_const, 0.0, "Constant data should have zero entropy");
+}
+
+#[test]
+fn test_compression_stability() {
+    // Test that compression is stable across multiple runs with same data
+    let temp1 = NamedTempFile::new().unwrap();
+    let temp2 = NamedTempFile::new().unwrap();
+    
+    let schema = SchemaBuilder::new()
+        .add_field("data", FieldType::Blob, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let data = generate_random_bytes(0xCAFEBABE, 5000);
+
+    // Write same data twice
+    for temp in [&temp1, &temp2] {
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        writer.write_row(vec![data.clone()]).unwrap();
+        writer.finish().unwrap();
+    }
+
+    // Both files should be identical (deterministic compression)
+    let content1 = std::fs::read(temp1.path()).unwrap();
+    let content2 = std::fs::read(temp2.path()).unwrap();
+    assert_eq!(content1, content2, "Compression should be deterministic");
+}

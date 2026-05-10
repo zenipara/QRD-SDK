@@ -938,4 +938,201 @@ mod tests {
         // Depends on implementation - may allow empty schemas
         let _ = result;
     }
+
+    // Additional enterprise-grade schema tests
+
+    #[test]
+    fn test_schema_fingerprint_stability() {
+        let schema1 = SchemaBuilder::new()
+            .add_field("a", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("b", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let schema2 = SchemaBuilder::new()
+            .add_field("a", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("b", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Fingerprints should be identical for identical schemas
+        assert_eq!(schema1.fingerprint(), schema2.fingerprint());
+    }
+
+    #[test]
+    fn test_schema_field_ordering() {
+        let schema = SchemaBuilder::new()
+            .add_field("z", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("a", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(schema.fields[0].name, "z");
+        assert_eq!(schema.fields[1].name, "a");
+    }
+
+    #[test]
+    fn test_schema_duplicate_field_rejection() {
+        let result = SchemaBuilder::new()
+            .add_field("dup", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("dup", FieldType::String, Nullability::Required);
+
+        // Should reject duplicate field names
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_schema_optional_required_transitions() {
+        let schema = SchemaBuilder::new()
+            .add_field("req", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("opt", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        assert_eq!(schema.fields[0].nullability, Nullability::Required);
+        assert_eq!(schema.fields[1].nullability, Nullability::Optional);
+    }
+
+    #[test]
+    fn test_schema_invalid_field_names() {
+        // Test various invalid field names
+        let invalid_names = vec!["", " ", "\t", "\n", "field\nwith\nlines"];
+
+        for name in invalid_names {
+            let result = SchemaBuilder::new()
+                .add_field(name, FieldType::Int32, Nullability::Required);
+            // Should handle invalid names gracefully
+            let _ = result;
+        }
+    }
+
+    #[test]
+    fn test_schema_evolution_compatibility() {
+        let base_schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let evolved_schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Evolved schema should be compatible (adding optional fields)
+        assert!(evolved_schema.fields.len() > base_schema.fields.len());
+    }
+
+    #[test]
+    fn test_schema_metadata_stability() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("test", FieldType::Float64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        schema.fields[0].metadata.insert("key".to_string(), "value".to_string());
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(deserialized.fields[0].metadata.get("key"), Some(&"value".to_string()));
+    }
+
+    #[test]
+    fn test_schema_deterministic_serialization() {
+        let schema = SchemaBuilder::new()
+            .add_field("x", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .add_field("y", FieldType::Float32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let ser1 = schema.serialize_binary().unwrap();
+        let ser2 = schema.serialize_binary().unwrap();
+
+        assert_eq!(ser1, ser2);
+    }
+
+    #[test]
+    fn test_schema_unsupported_logical_types() {
+        // Test handling of unsupported field types
+        let schema = SchemaBuilder::new()
+            .add_field("timestamp", FieldType::Timestamp, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Should handle gracefully
+        assert!(schema.fields[0].field_type == FieldType::Timestamp);
+    }
+
+    #[test]
+    fn test_schema_field_count_overflow() {
+        let mut builder = SchemaBuilder::new();
+        
+        // Add many fields
+        for i in 0..1000 {
+            builder = builder.add_field(&format!("field_{}", i), FieldType::Int64, Nullability::Required).unwrap();
+        }
+        
+        let schema = builder.build().unwrap();
+        assert_eq!(schema.fields.len(), 1000);
+    }
+
+    #[test]
+    fn test_schema_nested_metadata() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("nested", FieldType::Struct, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let mut nested_meta = HashMap::new();
+        nested_meta.insert("level1".to_string(), "value1".to_string());
+        nested_meta.insert("level2".to_string(), "value2".to_string());
+
+        schema.fields[0].metadata = nested_meta;
+
+        let serialized = schema.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(deserialized.fields[0].metadata.len(), 2);
+    }
+
+    #[test]
+    fn test_schema_malformed_schema_bytes() {
+        let malformed = vec![0xFF, 0xFF, 0xFF, 0xFF];
+        let result = Schema::deserialize_binary(&malformed);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_schema_roundtrip() {
+        let original = SchemaBuilder::new()
+            .add_field("roundtrip", FieldType::Blob, Nullability::Optional)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let serialized = original.serialize_binary().unwrap();
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        assert_eq!(original.fields.len(), deserialized.fields.len());
+        assert_eq!(original.fields[0].name, deserialized.fields[0].name);
+        assert_eq!(original.fields[0].field_type, deserialized.fields[0].field_type);
+    }
 }

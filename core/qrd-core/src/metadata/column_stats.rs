@@ -837,4 +837,110 @@ mod tests {
         
         assert_eq!(json1, json2);
     }
+
+    // Additional tests for enterprise-grade coverage
+
+    #[test]
+    fn test_column_stats_overflow_edge_cases() {
+        let mut stats = ColumnStats::new("overflow_test".to_string(), FieldType::Int64);
+        
+        // Test with maximum u64 values for counts
+        for _ in 0..u64::MAX / 2 {
+            stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
+        }
+        // This would overflow in real usage, but test the logic
+        assert!(stats.total_count > 0);
+    }
+
+    #[test]
+    fn test_column_stats_mixed_null_non_null() {
+        let mut stats = ColumnStats::new("mixed".to_string(), FieldType::String);
+        
+        // Interleave nulls and values
+        stats.update(Some(b"first".to_vec().as_slice()));
+        stats.update(None);
+        stats.update(Some(b"second".to_vec().as_slice()));
+        stats.update(None);
+        stats.update(Some(b"third".to_vec().as_slice()));
+        
+        assert_eq!(stats.total_count, 5);
+        assert_eq!(stats.null_count, 2);
+        assert_eq!(stats.distinct_count, 3);
+        assert_eq!(stats.min_value, Some(b"first".to_vec()));
+        assert_eq!(stats.max_value, Some(b"third".to_vec()));
+    }
+
+    #[test]
+    fn test_column_stats_empty_column_stats() {
+        let stats = ColumnStats::new("empty".to_string(), FieldType::Float32);
+        
+        assert_eq!(stats.total_count, 0);
+        assert_eq!(stats.null_count, 0);
+        assert_eq!(stats.distinct_count, 0);
+        assert!(stats.min_value.is_none());
+        assert!(stats.max_value.is_none());
+    }
+
+    #[test]
+    fn test_column_stats_serialization_malformed() {
+        // Test that malformed JSON doesn't deserialize
+        let malformed_json = r#"{"name": "test", "field_type": "InvalidType"}"#;
+        let result: std::result::Result<ColumnStats, _> = serde_json::from_str(malformed_json);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_column_stats_deterministic_updates() {
+        let mut stats1 = ColumnStats::new("det1".to_string(), FieldType::Int32);
+        let mut stats2 = ColumnStats::new("det2".to_string(), FieldType::Int32);
+        
+        let values = vec![
+            Some(vec![1, 0, 0, 0]),
+            None,
+            Some(vec![3, 0, 0, 0]),
+            Some(vec![2, 0, 0, 0]),
+        ];
+        
+        for val in &values {
+            stats1.update(val.as_ref().map(|v| v.as_slice()));
+        }
+        
+        for val in &values {
+            stats2.update(val.as_ref().map(|v| v.as_slice()));
+        }
+        
+        assert_eq!(stats1.min_value, stats2.min_value);
+        assert_eq!(stats1.max_value, stats2.max_value);
+        assert_eq!(stats1.null_count, stats2.null_count);
+        assert_eq!(stats1.total_count, stats2.total_count);
+    }
+
+    #[test]
+    fn test_column_stats_large_values() {
+        let mut stats = ColumnStats::new("large".to_string(), FieldType::Int64);
+        
+        let large_val = i64::MAX.to_le_bytes().to_vec();
+        let small_val = i64::MIN.to_le_bytes().to_vec();
+        
+        stats.update(Some(&large_val));
+        stats.update(Some(&small_val));
+        
+        assert_eq!(stats.min_value, Some(small_val));
+        assert_eq!(stats.max_value, Some(large_val));
+    }
+
+    #[test]
+    fn test_column_stats_filter_edge_cases() {
+        let mut stats = ColumnStats::new("edge".to_string(), FieldType::Int64);
+        
+        // Single value
+        let val = 42i64.to_le_bytes().to_vec();
+        stats.update(Some(&val));
+        
+        // Test filters on single value
+        assert_eq!(stats.can_pass_filter(&ColumnFilter::Equal(val.clone())), FilterResult::MayPass);
+        assert_eq!(stats.can_pass_filter(&ColumnFilter::NotEqual(vec![99, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
+        assert_eq!(stats.can_pass_filter(&ColumnFilter::GreaterThan(vec![40, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
+        assert_eq!(stats.can_pass_filter(&ColumnFilter::LessThan(vec![50, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
+    }
 }

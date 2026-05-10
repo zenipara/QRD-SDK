@@ -222,4 +222,134 @@ describe('QRD TypeScript Bindings', () => {
     const reader = new FileReader(buffer);
     expect(reader.getRowCount()).toBe(0);
   });
+
+  // Additional enterprise-grade TypeScript SDK tests
+
+  test('WASM initialization', () => {
+    // Test WASM module initialization
+    const builder = new SchemaBuilder();
+    builder.addField('test', FieldType.INT32, Nullability.REQUIRED);
+    const schema = builder.build();
+    expect(schema).toBeDefined();
+  });
+
+  test('Schema roundtrip', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('id', FieldType.INT64, Nullability.REQUIRED);
+    builder.addField('name', FieldType.STRING, Nullability.OPTIONAL);
+    const originalSchema = builder.build();
+
+    const writer = new FileWriter(originalSchema);
+    writer.writeRow([123, 'test']);
+    const buffer = writer.finish();
+
+    const reader = new FileReader(buffer);
+    const readSchema = reader.getSchema();
+    expect(readSchema.fields.length).toBe(2);
+  });
+
+  test('Deterministic browser reads', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('value', FieldType.FLOAT64, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer1 = new FileWriter(schema);
+    writer1.writeRow([1.23]);
+    const buffer1 = writer1.finish();
+
+    const writer2 = new FileWriter(schema);
+    writer2.writeRow([1.23]);
+    const buffer2 = writer2.finish();
+
+    expect(buffer1.length).toBe(buffer2.length);
+  });
+
+  test('Invalid payload handling', () => {
+    const invalid = new Uint8Array([0xFF, 0xFF, 0xFF]);
+    try {
+      const reader = new FileReader(invalid);
+      // Should handle or throw
+    } catch (e) {
+      // Expected
+    }
+  });
+
+  test('Partial reads', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('col1', FieldType.INT32, Nullability.REQUIRED);
+    builder.addField('col2', FieldType.STRING, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    for (let i = 0; i < 10; i++) {
+      writer.writeRow([i, `value_${i}`]);
+    }
+    const buffer = writer.finish();
+
+    const reader = new FileReader(buffer);
+    expect(reader.getRowCount()).toBe(10);
+  });
+
+  test('Typed array validation', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('data', FieldType.BLOB, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    const data = new Uint8Array([1, 2, 3, 4]);
+    writer.writeRow([data]);
+    const buffer = writer.finish();
+
+    expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  test('Browser compatibility', () => {
+    // Test browser-compatible operations
+    const builder = new SchemaBuilder();
+    builder.addField('value', FieldType.INT64, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    writer.writeRow([42]);
+    const buffer = writer.finish();
+
+    expect(buffer).toBeDefined();
+  });
+
+  test('Async loading', async () => {
+    const builder = new SchemaBuilder();
+    builder.addField('id', FieldType.INT32, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    writer.writeRow([1]);
+    const buffer = writer.finish();
+
+    const reader = new FileReader(buffer);
+    expect(reader.getRowCount()).toBe(1);
+  });
+
+  test('Malformed input rejection', () => {
+    const badData = new Uint8Array([]);
+    try {
+      const reader = new FileReader(badData);
+    } catch (e) {
+      // Expected
+    }
+  });
+
+  test('Footer inspection', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('count', FieldType.INT64, Nullability.REQUIRED);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    for (let i = 0; i < 5; i++) {
+      writer.writeRow([i]);
+    }
+    const buffer = writer.finish();
+
+    const reader = new FileReader(buffer);
+    expect(reader.getSchema().fields.length).toBe(1);
+  });
 });

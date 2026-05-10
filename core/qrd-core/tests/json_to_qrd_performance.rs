@@ -300,6 +300,50 @@ fn test_json_unicode_string_handling() {
 }
 
 #[test]
+fn test_json_ingestion_smoke_test() {
+    // Additional test for JSON ingestion validation
+    let temp = NamedTempFile::new().unwrap();
+    let schema = SchemaBuilder::new()
+        .add_field("json_data", FieldType::Blob, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let json_payload = br#"{"key": "value", "number": 123}"#.to_vec();
+
+    {
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        writer.write_row(vec![json_payload.clone()]).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let reader = FileReader::new(temp.path()).unwrap();
+    assert_eq!(reader.row_count(), 1);
+}
+
+#[test]
+fn test_large_json_conversion_validation() {
+    // Test conversion of large JSON-like data
+    let temp = NamedTempFile::new().unwrap();
+    let schema = SchemaBuilder::new()
+        .add_field("large_json", FieldType::Blob, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let large_json = format!(r#"{{"data": "{}"}}"#, "x".repeat(10000)).into_bytes();
+
+    {
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        writer.write_row(vec![large_json]).unwrap();
+        writer.finish().unwrap();
+    }
+
+    let reader = FileReader::new(temp.path()).unwrap();
+    assert_eq!(reader.row_count(), 1);
+}
+
+#[test]
 fn test_json_number_precision_preservation() {
     let temp = NamedTempFile::new().unwrap();
     let schema = SchemaBuilder::new()
