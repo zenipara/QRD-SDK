@@ -48,8 +48,3 @@ public class SchemaBuilder {
             long id = QRD.INSTANCE.schemaId(handle);
             return new Schema(handle, id, new ArrayList<>(fields));
         } catch (Exception e) {
-            QRD.INSTANCE.schemaFree(handle);
-            throw e;
-        }
-    }
-}
