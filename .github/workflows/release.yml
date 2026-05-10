@@ -6,61 +6,22 @@ on:
     tags:
       - 'v*'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Publish to crates.io
-        run: cargo publish --workspace
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
-      - name: Build release binaries
-        run: cargo build --workspace --release
-
-      - name: Create release archives
-        run: |
-          tar -czf qrd-linux-x64.tar.gz -C target/release qrd-core
-          tar -czf qrd-wasm.tar.gz -C core/qrd-wasm/pkg .
-
-      - name: Generate release notes
-        run: |
-          echo "# Release ${{ github.ref_name }}" > release_notes.md
-          echo "## Changes" >> release_notes.md
-          git log --oneline ${{ github.event.before }}..${{ github.sha }} >> release_notes.md
-
-      - name: Create GitHub release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          body_path: release_notes.md
-          draft: false
-          prerelease: false
-
-      - name: Upload release assets
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./qrd-linux-x64.tar.gz
-          asset_name: qrd-linux-x64.tar.gz
-          asset_content_type: application/gzip
+    uses: ./.github/workflows/_core-release.yml
+    with:
+      release-type: crates
+      commands: |
+        cargo publish --workspace
+        cargo build --workspace --release
+        tar -czf qrd-linux-x64.tar.gz -C target/release qrd-core
+        tar -czf qrd-wasm.tar.gz -C core/qrd-wasm/pkg .
+      artifact-name: qrd-linux-x64.tar.gz
+      artifact-path: ./qrd-linux-x64.tar.gz
+      timeout: 45
+    secrets:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

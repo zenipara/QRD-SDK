@@ -11,17 +11,16 @@ on:
     paths:
       - '**/*.rs'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   fmt:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --check --all
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      components: rustfmt
+      cache-key: fmt
+      commands: cargo fmt --check --all
+      timeout: 10

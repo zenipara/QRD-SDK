@@ -11,42 +11,19 @@ on:
     paths:
       - 'sdk/java/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   java:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-
-      - name: Cache Maven
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2
-          key: ${{ runner.os }}-maven-${{ hashFiles('sdk/java/pom.xml') }}
-
-      - name: Build Java SDK
-        run: |
-          cd sdk/java
-          mvn clean compile
-
-      - name: Run Java tests
-        run: |
-          cd sdk/java
-          mvn test
-
-      - name: Package JAR
-        run: |
-          cd sdk/java
-          mvn package -DskipTests
-
-      - name: Upload JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: java-jar
-          path: sdk/java/target/*.jar
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: java
+      java-version: '11'
+      commands: |
+        mvn clean compile
+        mvn test
+        mvn package -DskipTests
+      artifact-name: java-jar
+      artifact-path: sdk/java/target/*.jar

@@ -11,39 +11,55 @@ on:
     paths:
       - 'sdk/python/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  python:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [ '3.8', '3.9', '3.10', '3.11' ]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  python-38:
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: python
+      python-version: '3.8'
+      commands: |
+        pip install maturin
+        maturin develop
+        python -m pytest tests/
+      artifact-name: python-wheel-38
+      artifact-path: sdk/python/target/wheels/*.whl
 
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
+  python-39:
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: python
+      python-version: '3.9'
+      commands: |
+        pip install maturin
+        maturin develop
+        python -m pytest tests/
+      artifact-name: python-wheel-39
+      artifact-path: sdk/python/target/wheels/*.whl
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+  python-310:
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: python
+      python-version: '3.10'
+      commands: |
+        pip install maturin
+        maturin develop
+        python -m pytest tests/
+      artifact-name: python-wheel-310
+      artifact-path: sdk/python/target/wheels/*.whl
 
-      - name: Install maturin
-        run: pip install maturin
-
-      - name: Build Python wheel
-        run: |
-          cd sdk/python
-          maturin develop
-
-      - name: Run Python tests
-        run: |
-          cd sdk/python
-          python -m pytest tests/
-
-      - name: Upload Python wheel
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-wheel-${{ matrix.python-version }}
-          path: sdk/python/target/wheels/*.whl
+  python-311:
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: python
+      python-version: '3.11'
+      commands: |
+        pip install maturin
+        maturin develop
+        python -m pytest tests/
+      artifact-name: python-wheel-311
+      artifact-path: sdk/python/target/wheels/*.whl

@@ -7,62 +7,27 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
   ci:
     name: Core CI Pipeline
-    runs-on: ubuntu-latest
-    strategy:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      components: clippy,rustfmt
+      cache-key: ci
+      commands: |
+        cargo build --workspace --release
+        cargo test --workspace --verbose
+        cargo clippy --workspace -- -D warnings
+        cargo fmt --check
+      artifact-name: ci-artifacts
+      artifact-path: target/release/
       fail-fast: true
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - name: Cache Cargo registry and target
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Build workspace
-        run: cargo build --workspace --release
-
-      - name: Run tests
-        run: cargo test --workspace --verbose
-
-      - name: Run clippy
-        run: cargo clippy --workspace -- -D warnings
-
-      - name: Check formatting
-        run: cargo fmt --check
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: test-results-${{ github.run_id }}
-          path: |
-            target/debug/deps/*.xml
-            target/nextest/ci/junit.xml
-          retention-days: 30
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-artifacts-${{ github.run_id }}
-          path: target/release/
-          retention-days: 7
+      timeout: 60

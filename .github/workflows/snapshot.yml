@@ -7,33 +7,19 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   snapshot:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run snapshot tests
-        run: cargo test --workspace -- --ignored snapshot
-
-      - name: Update snapshots if needed
-        run: cargo test --workspace -- --ignored snapshot -- --update-snapshots
-
-      - name: Upload snapshot diffs
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-diffs
-          path: snapshot_diffs/
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: snapshot
+      commands: |
+        cargo test --workspace -- --ignored snapshot
+        cargo test --workspace -- --ignored snapshot -- --update-snapshots
+      artifact-name: snapshot-diffs
+      artifact-path: snapshot_diffs/
+      timeout: 30

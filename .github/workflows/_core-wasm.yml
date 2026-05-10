@@ -1,0 +1,66 @@
+name: Core WASM
+# Shared reusable workflow for WASM builds
+
+on:
+  workflow_call:
+    inputs:
+      commands:
+        description: 'Commands to run'
+        type: string
+        required: true
+      artifact-name:
+        description: 'Artifact name for uploads'
+        type: string
+        default: ''
+        required: false
+      artifact-path:
+        description: 'Artifact path for uploads'
+        type: string
+        default: ''
+        required: false
+      timeout:
+        description: 'Job timeout in minutes'
+        type: number
+        default: 20
+        required: false
+
+jobs:
+  wasm:
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.timeout }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Execute WASM commands
+        run: |
+          set -euo pipefail
+          ${{ inputs.commands }}
+
+      - name: Upload artifacts
+        if: inputs.artifact-name != '' && inputs.artifact-path != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: ${{ inputs.artifact-path }}
+          retention-days: 30
+
+      - name: Generate step summary
+        if: always()
+        run: |
+          echo "## WASM Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Commands executed: ${{ inputs.commands }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Job status: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY

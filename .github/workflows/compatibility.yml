@@ -7,34 +7,19 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   compatibility:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Build validator
-        run: cargo build --bin validate_test_vectors --release
-
-      - name: Validate golden vectors
-        run: ./target/release/validate_test_vectors --golden-dir core/qrd-core/test_vectors/golden
-
-      - name: Upload validation report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: compatibility-report
-          path: validation_report.txt
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: compatibility
+      commands: |
+        cargo build --bin validate_test_vectors --release
+        ./target/release/validate_test_vectors --golden-dir core/qrd-core/test_vectors/golden
+      artifact-name: compatibility-report
+      artifact-path: validation_report.txt
+      timeout: 20

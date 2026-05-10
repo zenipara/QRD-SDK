@@ -9,31 +9,21 @@ on:
   schedule:
     - cron: '0 0 * * 0'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   audit:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run cargo audit
-        run: cargo audit --format json | tee audit.json
-
-      - name: Check for vulnerabilities
-        run: |
-          if jq -e '.vulnerabilities.found == true' audit.json > /dev/null; then
-            echo "Vulnerabilities found!"
-            exit 1
-          fi
-
-      - name: Upload audit results
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-audit-results
-          path: audit.json
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: audit
+      commands: |
+        cargo install cargo-audit
+        cargo audit --format json | tee audit.json
+        if jq -e '.vulnerabilities.found == true' audit.json > /dev/null; then
+          echo "Vulnerabilities found!"
+          exit 1
+        fi
+      artifact-name: cargo-audit-results
+      artifact-path: audit.json

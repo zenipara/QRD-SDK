@@ -7,35 +7,18 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   memory:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install valgrind
-        run: sudo apt-get update && sudo apt-get install -y valgrind
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run memory profiling tests
-        run: |
-          cargo test --workspace -- --ignored memory_profiling
-          valgrind --tool=massif --massif-out-file=massif.out.%p cargo test memory_profiling
-
-      - name: Upload memory reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: memory-reports
-          path: massif.out.*
+    uses: ./.github/workflows/_core-heavy.yml
+    with:
+      job-type: memory
+      commands: |
+        cargo test --workspace -- --ignored memory_profiling
+        valgrind --tool=massif --massif-out-file=massif.out.%p cargo test memory_profiling
+      artifact-name: memory-reports
+      artifact-path: massif.out.*
+      timeout: 45

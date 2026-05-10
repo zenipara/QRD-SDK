@@ -11,37 +11,19 @@ on:
     paths:
       - 'sdk/typescript/**'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typescript:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: sdk/typescript/package-lock.json
-
-      - name: Install dependencies
-        run: |
-          cd sdk/typescript
-          npm ci
-
-      - name: Build TypeScript
-        run: |
-          cd sdk/typescript
-          npm run build
-
-      - name: Run tests
-        run: |
-          cd sdk/typescript
-          npm test
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: typescript-dist
-          path: sdk/typescript/dist/
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: typescript
+      node-version: '18'
+      commands: |
+        npm ci
+        npm run build
+        npm test
+      artifact-name: typescript-dist
+      artifact-path: sdk/typescript/dist/

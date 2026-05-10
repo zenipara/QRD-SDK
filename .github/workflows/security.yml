@@ -9,24 +9,17 @@ on:
   schedule:
     - cron: '0 0 * * 0'  # Weekly
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   security:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
-
-      - name: Upload audit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-audit-report
-          path: audit_report.txt
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: audit
+      commands: |
+        cargo install cargo-audit
+        cargo audit
+      artifact-name: security-audit-report
+      artifact-path: audit_report.txt

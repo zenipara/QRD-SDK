@@ -7,35 +7,20 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   schema-validation:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run schema evolution tests
-        run: cargo test --workspace -- --ignored schema_evolution
-
-      - name: Validate schema compatibility
-        run: |
-          # Placeholder for schema validation logic
-          echo "Schema validation complete"
-
-      - name: Upload schema report
-        uses: actions/upload-artifact@v4
-        with:
-          name: schema-validation-report
-          path: schema_report.txt
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: schema-validation
+      commands: |
+        cargo test --workspace -- --ignored schema_evolution
+        # Placeholder for schema validation logic
+        echo "Schema validation complete"
+      artifact-name: schema-validation-report
+      artifact-path: schema_report.txt
+      timeout: 25

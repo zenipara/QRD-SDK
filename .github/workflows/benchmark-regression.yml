@@ -7,36 +7,20 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   benchmark-regression:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run benchmarks with baseline
-        run: |
-          cargo bench --workspace -- --save-baseline current
-
-      - name: Compare to baseline
-        run: |
-          # Placeholder for regression detection
-          echo "Regression check placeholder"
-
-      - name: Upload benchmark comparison
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-comparison
-          path: target/criterion/
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: benchmark-regression
+      commands: |
+        cargo bench --workspace -- --save-baseline current
+        # Placeholder for regression detection
+        echo "Regression check placeholder"
+      artifact-name: benchmark-comparison
+      artifact-path: target/criterion/
+      timeout: 60

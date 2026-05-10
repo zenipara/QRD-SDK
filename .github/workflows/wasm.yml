@@ -7,32 +7,19 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   wasm:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-
-      - name: Build WASM
-        run: wasm-pack build core/qrd-wasm --target web --out-dir pkg
-
-      - name: Test WASM in Node
-        run: |
-          cd core/qrd-wasm
-          npm install
-          npm test
-
-      - name: Upload WASM package
-        uses: actions/upload-artifact@v4
-        with:
-          name: wasm-package
-          path: core/qrd-wasm/pkg/
+    uses: ./.github/workflows/_core-wasm.yml
+    with:
+      commands: |
+        wasm-pack build core/qrd-wasm --target web --out-dir pkg
+        cd core/qrd-wasm
+        npm install
+        npm test
+      artifact-name: wasm-package
+      artifact-path: core/qrd-wasm/pkg/
+      timeout: 25

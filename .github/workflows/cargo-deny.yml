@@ -7,24 +7,17 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   deny:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-deny
-        run: cargo install cargo-deny
-
-      - name: Run cargo deny
-        run: cargo deny check
-
-      - name: Upload deny report
-        uses: actions/upload-artifact@v4
-        with:
-          name: cargo-deny-report
-          path: deny_report.txt
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: deny
+      commands: |
+        cargo install cargo-deny
+        cargo deny check
+      artifact-name: cargo-deny-report
+      artifact-path: deny_report.txt
