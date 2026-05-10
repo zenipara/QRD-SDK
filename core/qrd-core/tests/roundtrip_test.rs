@@ -11,8 +11,6 @@ use tempfile::NamedTempFile;
 
 /// Test complete roundtrip: FileWriter → FileReader
 #[test]
-#[ignore]
-#[ignore]
 fn test_file_writer_reader_roundtrip() {
     let temp = NamedTempFile::new().unwrap();
 
@@ -33,11 +31,11 @@ fn test_file_writer_reader_roundtrip() {
 
     // Test data
     let test_rows = vec![
-        (1i64, "Alice", 95.5f64, true, Some(b"tag1,tag2")),
-        (2i64, "Bob", 87.2f64, false, Some(b"tag3")),
-        (3i64, "Charlie", 91.8f64, true, None),
-        (4i64, "Diana", 88.9f64, true, Some(b"tag4,tag5,tag6")),
-        (5i64, "Eve", 93.3f64, false, Some(b"tag7")),
+        (1i64, "Alice", 95.5f64, true, Some(b"tag1,tag2".to_vec())),
+        (2i64, "Bob", 87.2f64, false, Some(b"tag3".to_vec())),
+        (3i64, "Charlie", 91.8f64, true, None::<Vec<u8>>),
+        (4i64, "Diana", 88.9f64, true, Some(b"tag4,tag5,tag6".to_vec())),
+        (5i64, "Eve", 93.3f64, false, Some(b"tag7".to_vec())),
     ];
 
     // Write data
@@ -49,7 +47,7 @@ fn test_file_writer_reader_roundtrip() {
             let name_bytes = serialize_string(name);
             let score_bytes = score.to_le_bytes().to_vec();
             let active_bytes = vec![*active as u8];
-            let tags_bytes = tags.map(|t| serialize_blob(t)).unwrap_or_default();
+            let tags_bytes = tags.as_ref().map(|t| serialize_blob(t.as_slice())).unwrap_or_default();
 
             writer.write_row(vec![id_bytes, name_bytes, score_bytes, active_bytes, tags_bytes]).unwrap();
         }
@@ -83,16 +81,17 @@ fn test_file_writer_reader_roundtrip() {
             assert_eq!(name, *expected_name);
 
             // Parse score (8 bytes)
-            let score = f64::from_le_bytes(row[name_end..name_end + 8].try_into().unwrap());
+            let score_start = 8 + name_end;
+            let score = f64::from_le_bytes(row[score_start..score_start + 8].try_into().unwrap());
             assert!((score - expected_score).abs() < 0.001);
 
             // Parse active (1 byte)
-            let active = row[name_end + 8] != 0;
+            let active = row[score_start + 8] != 0;
             assert_eq!(active, *expected_active);
 
             // Parse tags (optional blob)
             if let Some(expected_tags) = expected_tags {
-                let tags_start = name_end + 9;
+                let tags_start = score_start + 9; // score(8) + active(1)
                 let (tags, _) = deserialize_blob(&row[tags_start..]);
                 assert_eq!(tags, *expected_tags);
             }
@@ -102,8 +101,6 @@ fn test_file_writer_reader_roundtrip() {
 
 /// Test streaming writer → partial reader roundtrip
 #[test]
-#[ignore]
-#[ignore]
 fn test_streaming_writer_partial_reader_roundtrip() {
     // Create test data in memory
     let schema = SchemaBuilder::new()
@@ -164,94 +161,141 @@ fn test_streaming_writer_partial_reader_roundtrip() {
 
 /// Test all encoding types in roundtrip
 #[test]
-#[ignore]
-#[ignore]
 fn test_all_encodings_roundtrip() {
-    let encodings_to_test = vec![
-        ("plain_int", FieldType::Int32, vec![1i32, 2, 3, 4, 5]),
-        ("rle_int", FieldType::Int32, vec![1i32, 1, 1, 2, 2, 2, 2]),
-        ("delta_int", FieldType::Int64, vec![100i64, 105, 110, 115, 120]),
-        ("bitpacked_bool", FieldType::Boolean, vec![true, false, true, false, true]),
-        ("dictionary_string", FieldType::String, vec!["apple", "banana", "apple", "cherry", "banana"]),
-    ];
-
-    for (test_name, field_type, test_values) in encodings_to_test {
-        println!("Testing encoding roundtrip: {}", test_name);
-
+    // 1) Plain Int32
+    {
+        let values: Vec<i32> = vec![1, 2, 3, 4, 5];
         let schema = SchemaBuilder::new()
-            .add_field("test_col", field_type.clone(), Nullability::Required)
+            .add_field("test_col", FieldType::Int32, Nullability::Required)
             .unwrap()
             .build()
             .unwrap();
 
         let temp = NamedTempFile::new().unwrap();
-
-        // Write data
-        {
-            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-
-            for value in &test_values {
-                let bytes = match field_type {
-                    FieldType::Int32 => (value as &i32).to_le_bytes().to_vec(),
-                    FieldType::Int64 => (value as &i64).to_le_bytes().to_vec(),
-                    FieldType::Boolean => vec![*value as u8],
-                    FieldType::String => serialize_string(value as &str),
-                    _ => continue,
-                };
-                writer.write_row(vec![bytes]).unwrap();
-            }
-
-            writer.finish().unwrap();
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        for v in &values {
+            writer.write_row(vec![(v.to_le_bytes().to_vec())]).unwrap();
         }
+        writer.finish().unwrap();
 
-        // Read data back
-        {
-            let reader = FileReader::new(temp.path()).unwrap();
-            let decoded_columns = reader.read_decoded_row_group(0).unwrap();
+        let reader = FileReader::new(temp.path()).unwrap();
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        let col = &decoded[0];
+        for (i, expected) in values.iter().enumerate() {
+            let off = i * 4;
+            let actual = i32::from_le_bytes(col[off..off + 4].try_into().unwrap());
+            assert_eq!(actual, *expected);
+        }
+    }
 
-            assert_eq!(decoded_columns.len(), 1);
-            let column_data = &decoded_columns[0];
+    // 2) RLE Int32
+    {
+        let values: Vec<i32> = vec![1, 1, 1, 2, 2, 2, 2];
+        let schema = SchemaBuilder::new()
+            .add_field("test_col", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
 
-            // Verify roundtrip
-            match field_type {
-                FieldType::Int32 => {
-                    for (i, expected) in test_values.iter().enumerate() {
-                        let offset = i * 4;
-                        let actual = i32::from_le_bytes(column_data[offset..offset + 4].try_into().unwrap());
-                        assert_eq!(actual, *expected as i32);
-                    }
-                }
-                FieldType::Int64 => {
-                    for (i, expected) in test_values.iter().enumerate() {
-                        let offset = i * 8;
-                        let actual = i64::from_le_bytes(column_data[offset..offset + 8].try_into().unwrap());
-                        assert_eq!(actual, *expected as i64);
-                    }
-                }
-                FieldType::Boolean => {
-                    for (i, expected) in test_values.iter().enumerate() {
-                        let actual = column_data[i] != 0;
-                        assert_eq!(actual, *expected as bool);
-                    }
-                }
-                FieldType::String => {
-                    let mut offset = 0;
-                    for expected in &test_values {
-                        let (actual, new_offset) = deserialize_string(&column_data[offset..]);
-                        assert_eq!(actual, *expected as &str);
-                        offset = new_offset;
-                    }
-                }
-                _ => {}
-            }
+        let temp = NamedTempFile::new().unwrap();
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        for v in &values {
+            writer.write_row(vec![(v.to_le_bytes().to_vec())]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        let col = &decoded[0];
+        for (i, expected) in values.iter().enumerate() {
+            let off = i * 4;
+            let actual = i32::from_le_bytes(col[off..off + 4].try_into().unwrap());
+            assert_eq!(actual, *expected);
+        }
+    }
+
+    // 3) Delta Int64
+    {
+        let values: Vec<i64> = vec![100, 105, 110, 115, 120];
+        let schema = SchemaBuilder::new()
+            .add_field("test_col", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let temp = NamedTempFile::new().unwrap();
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        for v in &values {
+            writer.write_row(vec![(v.to_le_bytes().to_vec())]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        let col = &decoded[0];
+        for (i, expected) in values.iter().enumerate() {
+            let off = i * 8;
+            let actual = i64::from_le_bytes(col[off..off + 8].try_into().unwrap());
+            assert_eq!(actual, *expected);
+        }
+    }
+
+    // 4) Boolean bitpacked
+    {
+        let values: Vec<bool> = vec![true, false, true, false, true];
+        let schema = SchemaBuilder::new()
+            .add_field("test_col", FieldType::Boolean, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let temp = NamedTempFile::new().unwrap();
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        for v in &values {
+            writer.write_row(vec![vec![*v as u8]]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        let col = &decoded[0];
+        for (i, expected) in values.iter().enumerate() {
+            let actual = col[i] != 0;
+            assert_eq!(actual, *expected);
+        }
+    }
+
+    // 5) Dictionary string
+    {
+        let values: Vec<&str> = vec!["apple", "banana", "apple", "cherry", "banana"];
+        let schema = SchemaBuilder::new()
+            .add_field("test_col", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let temp = NamedTempFile::new().unwrap();
+        let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+        for v in &values {
+            writer.write_row(vec![serialize_string(v)]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let reader = FileReader::new(temp.path()).unwrap();
+        let decoded = reader.read_decoded_row_group(0).unwrap();
+        let col = &decoded[0];
+
+        let mut offset = 0usize;
+        for expected in &values {
+                let (actual, new_offset) = deserialize_string(&col[offset..]);
+                assert_eq!(actual, *expected);
+                offset += new_offset;
         }
     }
 }
 
 /// Test compression algorithms in roundtrip
 #[test]
-#[ignore]
-#[ignore]
 fn test_compression_roundtrip() {
     use qrd_core::compression::CompressionCodec;
 

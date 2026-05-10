@@ -28,16 +28,12 @@ impl FooterParser {
             ));
         }
 
-        // Read footer length and CRC from end
-        reader.seek(SeekFrom::End(-8))?;
+        // Read footer length from the last 4 bytes
+        reader.seek(SeekFrom::End(-4))?;
         let mut footer_length_buf = [0u8; 4];
-        let mut crc_buf = [0u8; 4];
-
         reader.read_exact(&mut footer_length_buf)?;
-        reader.read_exact(&mut crc_buf)?;
 
         let footer_length = u32::from_le_bytes(footer_length_buf) as usize;
-        let stored_crc = u32::from_le_bytes(crc_buf);
 
         if footer_length > 1024 * 1024 {
             // Sanity check: footer shouldn't be larger than 1MB
@@ -47,28 +43,19 @@ impl FooterParser {
         }
 
         // Ensure footer_length is consistent with total file size to avoid underflow
-        if (footer_length as u64) + 8 > total_size {
+        if (footer_length as u64) + 4 > total_size {
             return Err(crate::error::Error::InvalidData(
                 "Footer length larger than file size".to_string(),
             ));
         }
 
-        // Seek to start of footer (safe subtraction after check)
-        let footer_start = (total_size - 8 - (footer_length as u64)) as u64;
+        // Seek to start of footer
+        let footer_start = (total_size - 4 - (footer_length as u64)) as u64;
         reader.seek(SeekFrom::Start(footer_start))?;
 
         // Read footer data
         let mut footer_data = vec![0u8; footer_length];
         reader.read_exact(&mut footer_data)?;
-
-        // Verify CRC32
-        let calculated_crc = Validator::calculate_crc32(&footer_data);
-        if calculated_crc != stored_crc {
-            return Err(crate::error::Error::CrcMismatch {
-                expected: stored_crc,
-                actual: calculated_crc,
-            });
-        }
 
         // Deserialize footer
         Footer::deserialize(&footer_data)

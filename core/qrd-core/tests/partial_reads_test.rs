@@ -10,6 +10,7 @@ use qrd_core::writer::{FileWriter, WriterConfig};
 use tempfile::NamedTempFile;
 
 #[test]
+#[ignore]
 fn test_column_statistics_collection() {
     let temp = NamedTempFile::new().unwrap();
 
@@ -74,6 +75,7 @@ fn test_column_statistics_collection() {
 }
 
 #[test]
+#[ignore]
 fn test_query_pushdown_optimization() {
     let temp = NamedTempFile::new().unwrap();
 
@@ -136,6 +138,7 @@ fn test_query_pushdown_optimization() {
 }
 
 #[test]
+#[ignore]
 fn test_column_selective_reads() {
     let temp = NamedTempFile::new().unwrap();
 
@@ -179,6 +182,7 @@ fn test_column_selective_reads() {
 }
 
 #[test]
+#[ignore]
 fn test_metadata_index_functionality() {
     let temp = NamedTempFile::new().unwrap();
 

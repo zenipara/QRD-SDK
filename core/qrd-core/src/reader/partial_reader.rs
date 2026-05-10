@@ -146,8 +146,19 @@ impl<R: Read + Seek> PartialReader<R> {
             }
         }
 
-        // Read entire row group for now (full implementation would skip non-selected columns)
-        self.read_row_group(rg_index)
+        // Read raw row group data then select requested columns
+        let row_group_data = self.read_row_group_data(rg_index)?;
+        let row_group = RowGroup::deserialize(&row_group_data)?;
+
+        let mut selected: Vec<Vec<u8>> = Vec::with_capacity(column_indices.len());
+        for &col_idx in column_indices {
+            let column = row_group.columns.get(col_idx).ok_or_else(|| {
+                crate::error::Error::InvalidData(format!("Column index {} out of bounds", col_idx))
+            })?;
+            selected.push(column.encoded_data.clone());
+        }
+
+        Ok(selected)
     }
 
     /// Get metadata index if available
