@@ -14,7 +14,7 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::encryption::{EncryptionConfig, PerColumnEncryption};
+use crate::encryption::EncryptionConfig;
 use crate::ecc::{EccConfig, EccCodec};
 use crate::error::Result;
 use crate::footer::Footer;
@@ -25,6 +25,8 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use std::fs::File;
 use std::io::{Write, Seek, SeekFrom};
 use std::path::Path;
+
+const PER_COLUMN_ROW_GROUP_MARKER: u8 = 0xFF;
 
 /// Configuration for the writer
 #[derive(Debug, Clone)]
@@ -173,22 +175,47 @@ impl FileWriter {
     /// and the column name, allowing selective decryption of specific columns.
     fn encrypt_row_group_per_column(
         &self,
-        data: &[u8],
+        row_group: &RowGroup,
         enc_config: &EncryptionConfig,
     ) -> Result<Vec<u8>> {
-        // Use the first column name as a sample for simple per-column encryption
-        // In production, you might want to store column-specific metadata
-        if self.schema.fields.is_empty() {
-            return crate::encryption::encrypt(data, enc_config);
+        let mut wrapper = Vec::new();
+        wrapper.push(PER_COLUMN_ROW_GROUP_MARKER);
+        wrapper.write_u32::<LittleEndian>(row_group.row_count)?;
+        wrapper.write_u16::<LittleEndian>(row_group.columns.len() as u16)?;
+
+        for column in &row_group.columns {
+            let column_name = self.schema.fields[column.column_index].name.clone();
+            let derived_key = enc_config.derive_column_key(&column_name)?;
+            let column_config = EncryptionConfig::new(derived_key)?;
+
+            let mut chunk_bytes = Vec::new();
+            chunk_bytes.push(column.encoding.to_id());
+            chunk_bytes.push(column.compression.to_id());
+            chunk_bytes.write_u32::<LittleEndian>(column.encoded_data.len() as u32)?;
+            chunk_bytes.write_u32::<LittleEndian>(column.compressed_data.len() as u32)?;
+
+            if let Some(ref stats_vec) = row_group.column_stats {
+                if let Some(col_stats) = stats_vec.get(column.column_index) {
+                    chunk_bytes.write_u32::<LittleEndian>(col_stats.null_count as u32)?;
+                    chunk_bytes.write_u32::<LittleEndian>(col_stats.distinct_count as u32)?;
+                } else {
+                    chunk_bytes.write_u32::<LittleEndian>(0)?;
+                    chunk_bytes.write_u32::<LittleEndian>(0)?;
+                }
+            } else {
+                chunk_bytes.write_u32::<LittleEndian>(0)?;
+                chunk_bytes.write_u32::<LittleEndian>(0)?;
+            }
+
+            chunk_bytes.extend_from_slice(&column.compressed_data);
+            chunk_bytes.write_u32::<LittleEndian>(column.crc32)?;
+
+            let encrypted_chunk = crate::encryption::encrypt(&chunk_bytes, &column_config)?;
+            wrapper.write_u32::<LittleEndian>(encrypted_chunk.len() as u32)?;
+            wrapper.extend_from_slice(&encrypted_chunk);
         }
 
-        // For now, derive a key using the first column and encrypt
-        // In a full implementation, each column would get its own encryption
-        let first_column = &self.schema.fields[0].name;
-        let derived_key = enc_config.derive_column_key(first_column)?;
-        let column_config = EncryptionConfig::new(derived_key)?;
-        
-        crate::encryption::encrypt(data, &column_config)
+        Ok(wrapper)
     }
 
     /// Flush current row group to file
@@ -253,10 +280,10 @@ impl FileWriter {
         // STEP 1: Per-column or master encryption (if enabled)
         let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
             if self.config.per_column_encryption {
-                // Per-column encryption: encrypt with different key per column
-                self.encrypt_row_group_per_column(&rg_bytes, enc_config)?
+                // Per-column encryption: encrypt each column chunk with a unique derived key
+                self.encrypt_row_group_per_column(&row_group, enc_config)?
             } else {
-                // Master key encryption: single key for all data
+                // Master key encryption: single key for all row group bytes
                 crate::encryption::encrypt(&rg_bytes, enc_config)?
             }
         } else {
@@ -426,6 +453,54 @@ mod tests {
                 assert_eq!(actual_id, expected_id);
             }
         }
+    }
+
+    #[test]
+    fn test_per_column_encryption_round_trip() {
+        use crate::encryption::EncryptionConfig;
+        use std::fs::File;
+
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("secret", FieldType::String, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let key = EncryptionConfig::generate_key();
+        let mut config = WriterConfig::default();
+        config.encryption = Some(EncryptionConfig::new(key.clone()).unwrap());
+        config.per_column_encryption = true;
+        config.encrypt_footer = false;
+
+        let file = File::create(temp.path()).unwrap();
+        let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
+
+        for i in 0..3 {
+            let id_bytes = (i as i64).to_le_bytes().to_vec();
+            let secret = format!("secret_{}", i);
+            let secret_bytes = serialize_string(&secret);
+            writer.write_row(vec![id_bytes, secret_bytes]).unwrap();
+        }
+        writer.finish().unwrap();
+
+        let reader = FileReader::with_decryption(temp.path(), EncryptionConfig::new(key).unwrap()).unwrap();
+        assert_eq!(reader.row_count(), 3);
+        let decoded_columns = reader.read_decoded_row_group(0).unwrap();
+        assert_eq!(decoded_columns.len(), 2);
+
+        let id_data = &decoded_columns[0];
+        for i in 0..3 {
+            let expected_id = (i as i64).to_le_bytes();
+            let actual_id = &id_data[i * 8..(i + 1) * 8];
+            assert_eq!(actual_id, expected_id);
+        }
+
+        let secret_data = &decoded_columns[1];
+        let expected_secret = serialize_string("secret_0");
+        assert_eq!(secret_data[0..expected_secret.len()], expected_secret[..]);
     }
 
     #[test]

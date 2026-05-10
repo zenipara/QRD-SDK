@@ -17,11 +17,14 @@ use crate::error::Result;
 use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Cursor};
 use std::path::Path;
 use std::sync::Arc;
+
+const PER_COLUMN_ROW_GROUP_MARKER: u8 = 0xFF;
 
 /// Backing storage for a QRD file.
 #[derive(Debug)]
@@ -239,12 +242,77 @@ impl FileReader {
 
         // STEP 2: Decryption (if enabled)
         let decrypted = if let Some(ref enc_config) = self.encryption_config {
-            crate::encryption::decrypt(&ecc_recovered, enc_config)?
+            if let Some(&PER_COLUMN_ROW_GROUP_MARKER) = ecc_recovered.first() {
+                self.decrypt_per_column_row_group(&ecc_recovered, enc_config)?
+            } else {
+                crate::encryption::decrypt(&ecc_recovered, enc_config)?
+            }
         } else {
             ecc_recovered
         };
 
         Ok(decrypted)
+    }
+
+    fn decrypt_per_column_row_group(
+        &self,
+        data: &[u8],
+        enc_config: &EncryptionConfig,
+    ) -> Result<Vec<u8>> {
+        let mut cursor = Cursor::new(data);
+        let marker = cursor.read_u8()?;
+        if marker != PER_COLUMN_ROW_GROUP_MARKER {
+            return Err(crate::error::Error::InvalidData(
+                "Unexpected row group marker for per-column encrypted row group".to_string(),
+            ));
+        }
+
+        let row_count = cursor.read_u32::<LittleEndian>()?;
+        let column_count = cursor.read_u16::<LittleEndian>()? as usize;
+
+        let mut total_uncompressed = 0u32;
+        let mut total_compressed = 0u32;
+        let mut decrypted_chunks: Vec<Vec<u8>> = Vec::with_capacity(column_count);
+
+        for column_index in 0..column_count {
+            let encrypted_len = cursor.read_u32::<LittleEndian>()? as usize;
+            let mut encrypted_chunk = vec![0u8; encrypted_len];
+            cursor.read_exact(&mut encrypted_chunk)?;
+
+            let column_name = self.schema.fields.get(column_index).ok_or_else(|| {
+                crate::error::Error::InvalidSchema(format!(
+                    "Schema missing column at index {} while decrypting per-column row group",
+                    column_index
+                ))
+            })?;
+
+            let derived_key = enc_config.derive_column_key(&column_name.name)?;
+            let column_config = EncryptionConfig::new(derived_key)?;
+            let chunk_bytes = crate::encryption::decrypt(&encrypted_chunk, &column_config)?;
+
+            let mut chunk_cursor = Cursor::new(&chunk_bytes);
+            let mut id_buf = [0u8; 1];
+            chunk_cursor.read_exact(&mut id_buf)?;
+            chunk_cursor.read_exact(&mut id_buf)?;
+            let encoded_len = chunk_cursor.read_u32::<LittleEndian>()? as u32;
+            let compressed_len = chunk_cursor.read_u32::<LittleEndian>()? as u32;
+            total_uncompressed = total_uncompressed.saturating_add(encoded_len);
+            total_compressed = total_compressed.saturating_add(compressed_len);
+
+            decrypted_chunks.push(chunk_bytes);
+        }
+
+        let mut result = Vec::new();
+        result.write_u32::<LittleEndian>(row_count)?;
+        result.write_u32::<LittleEndian>(total_uncompressed)?;
+        result.write_u32::<LittleEndian>(total_compressed)?;
+        result.write_u16::<LittleEndian>(column_count as u16)?;
+
+        for chunk in decrypted_chunks {
+            result.extend_from_slice(&chunk);
+        }
+
+        Ok(result)
     }
 
     /// Read all row groups
