@@ -10,7 +10,10 @@ fn main() -> Result<()> {
     let test_file = "test_output.qrd";
 
     if !Path::new(test_file).exists() {
-        println!("Test file '{}' not found. Run basic_writer first.", test_file);
+        println!(
+            "Test file '{}' not found. Run basic_writer first.",
+            test_file
+        );
         return Ok(());
     }
 
@@ -33,7 +36,10 @@ fn main() -> Result<()> {
         // Try to interpret first few values from first column
         if !decoded_columns.is_empty() {
             let first_col = &decoded_columns[0];
-            println!("\nFirst column data (first 20 bytes): {:?}", &first_col[..first_col.len().min(20)]);
+            println!(
+                "\nFirst column data (first 20 bytes): {:?}",
+                &first_col[..first_col.len().min(20)]
+            );
         }
     }
 

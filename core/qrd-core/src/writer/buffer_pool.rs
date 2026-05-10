@@ -108,10 +108,10 @@ impl BufferPool {
     /// Determine size tier for buffer
     fn tier_for_size(&self, size: usize) -> usize {
         match size {
-            0..=65535 => 0,           // <64KB
-            65536..=262143 => 1,      // 64KB-256KB
-            262144..=1048575 => 2,    // 256KB-1MB
-            _ => 3,                   // >1MB
+            0..=65535 => 0,        // <64KB
+            65536..=262143 => 1,   // 64KB-256KB
+            262144..=1048575 => 2, // 256KB-1MB
+            _ => 3,                // >1MB
         }
     }
 }

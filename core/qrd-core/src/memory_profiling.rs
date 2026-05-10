@@ -52,14 +52,18 @@ impl MemoryProfiler {
 
     /// Get current memory statistics
     pub fn stats() -> MemoryStats {
-        PROFILER.stats.lock()
+        PROFILER
+            .stats
+            .lock()
             .expect("Memory profiler stats lock poisoned - critical system state error")
             .clone()
     }
 
     /// Reset memory statistics
     pub fn reset_stats() {
-        let mut stats = PROFILER.stats.lock()
+        let mut stats = PROFILER
+            .stats
+            .lock()
             .expect("Memory profiler stats lock poisoned - cannot reset statistics");
         *stats = MemoryStats::default();
     }
@@ -87,7 +91,9 @@ unsafe impl GlobalAlloc for MemoryProfiler {
         if !ptr.is_null() {
             // SAFETY: We're in a GlobalAlloc implementation where exclusive access is guaranteed.
             // Lock poisoning here indicates a critical system corruption and we defensively unwrap.
-            let mut stats = self.stats.lock()
+            let mut stats = self
+                .stats
+                .lock()
                 .expect("Global allocator stats lock poisoned - potential undefined behavior");
             stats.total_allocations += 1;
             stats.total_bytes_allocated += layout.size();
@@ -106,7 +112,9 @@ unsafe impl GlobalAlloc for MemoryProfiler {
 
         // SAFETY: We're in a GlobalAlloc implementation where exclusive access is guaranteed.
         // Lock poisoning here indicates a critical system corruption and we defensively unwrap.
-        let mut stats = self.stats.lock()
+        let mut stats = self
+            .stats
+            .lock()
             .expect("Global allocator stats lock poisoned during dealloc");
         stats.total_deallocations += 1;
         stats.total_bytes_deallocated += layout.size();
@@ -135,12 +143,24 @@ impl MemoryProfileScope {
         let current = MemoryProfiler::stats();
 
         MemoryStats {
-            current_bytes: current.current_bytes.saturating_sub(self.start_stats.current_bytes),
-            peak_bytes: current.peak_bytes.saturating_sub(self.start_stats.peak_bytes),
-            total_allocations: current.total_allocations.saturating_sub(self.start_stats.total_allocations),
-            total_deallocations: current.total_deallocations.saturating_sub(self.start_stats.total_deallocations),
-            total_bytes_allocated: current.total_bytes_allocated.saturating_sub(self.start_stats.total_bytes_allocated),
-            total_bytes_deallocated: current.total_bytes_deallocated.saturating_sub(self.start_stats.total_bytes_deallocated),
+            current_bytes: current
+                .current_bytes
+                .saturating_sub(self.start_stats.current_bytes),
+            peak_bytes: current
+                .peak_bytes
+                .saturating_sub(self.start_stats.peak_bytes),
+            total_allocations: current
+                .total_allocations
+                .saturating_sub(self.start_stats.total_allocations),
+            total_deallocations: current
+                .total_deallocations
+                .saturating_sub(self.start_stats.total_deallocations),
+            total_bytes_allocated: current
+                .total_bytes_allocated
+                .saturating_sub(self.start_stats.total_bytes_allocated),
+            total_bytes_deallocated: current
+                .total_bytes_deallocated
+                .saturating_sub(self.start_stats.total_bytes_deallocated),
         }
     }
 }

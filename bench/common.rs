@@ -319,9 +319,9 @@ pub fn entropy_dataset(row_count: usize) -> BenchmarkDataset {
         let mut blob = vec![0u8; 96 + (index % 11) * 16];
         rng.fill_bytes(&mut blob);
 
-        let checksum = blob
-            .iter()
-            .fold(0u64, |acc, byte| acc.wrapping_mul(131).wrapping_add(*byte as u64));
+        let checksum = blob.iter().fold(0u64, |acc, byte| {
+            acc.wrapping_mul(131).wrapping_add(*byte as u64)
+        });
 
         rows.push(
             EntropyRecord {

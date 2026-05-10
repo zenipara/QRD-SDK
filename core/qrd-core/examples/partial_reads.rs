@@ -3,8 +3,8 @@
 //! Demonstrates column-selective reads, query pushdown optimization,
 //! and metadata indexing for efficient data access.
 
-use qrd_core::prelude::*;
 use qrd_core::metadata::{ColumnFilter, ColumnFilterSpec};
+use qrd_core::prelude::*;
 use qrd_core::reader::PartialReader;
 use tempfile::NamedTempFile;
 
@@ -58,12 +58,9 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
     // Create writer with small row groups for demonstration
     let mut config = qrd_core::writer::WriterConfig::default();
     config.row_group_size = 100; // Small groups to show pushdown
-    
-    let mut writer = qrd_core::writer::FileWriter::with_config(
-        std::fs::File::create(&temp)?,
-        schema,
-        config
-    )?;
+
+    let mut writer =
+        qrd_core::writer::FileWriter::with_config(std::fs::File::create(&temp)?, schema, config)?;
 
     // Generate sample data
     let domains = ["gmail.com", "yahoo.com", "outlook.com", "company.com"];
@@ -74,7 +71,11 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
         let username = format!("user_{}", i);
         let email_domain = domains[i % domains.len()];
         let signup_date = 1609459200 + (i as i64 * 86400); // Jan 2021 + i days
-        let last_login = if i % 3 != 0 { Some(1640995200 + (i as i64 * 3600)) } else { None }; // Some users never logged in
+        let last_login = if i % 3 != 0 {
+            Some(1640995200 + (i as i64 * 3600))
+        } else {
+            None
+        }; // Some users never logged in
         let login_count = (i % 100) as i32;
         let is_active = i % 5 != 0; // 80% active users
         let account_type = account_types[i % account_types.len()];
@@ -84,7 +85,9 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
         let username_bytes = serialize_string(&username);
         let email_domain_bytes = serialize_string(email_domain);
         let signup_date_bytes = signup_date.to_le_bytes().to_vec();
-        let last_login_bytes = last_login.map(|ts| ts.to_le_bytes().to_vec()).unwrap_or_default();
+        let last_login_bytes = last_login
+            .map(|ts| ts.to_le_bytes().to_vec())
+            .unwrap_or_default();
         let login_count_bytes = login_count.to_le_bytes().to_vec();
         let is_active_bytes = vec![is_active as u8];
         let account_type_bytes = serialize_string(account_type);
@@ -103,7 +106,10 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
 
     let rg_count = writer.row_group_count();
     writer.finish()?;
-    println!("  Generated {} user records in {} row groups", 1000, rg_count);
+    println!(
+        "  Generated {} user records in {} row groups",
+        1000, rg_count
+    );
 
     Ok(temp)
 }
@@ -112,7 +118,8 @@ fn demonstrate_column_selective_reads(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n📊 Column-Selective Reads");
     println!("-------------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
+    let mut reader =
+        PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
 
     // Read only user_id and login_count columns (indices 0 and 5)
     let column_indices = vec![0, 5];
@@ -121,7 +128,12 @@ fn demonstrate_column_selective_reads(temp_file: &NamedTempFile) -> Result<()> {
     let result = reader.read_columns_with_filters(&column_indices, &[])?;
     let elapsed = start_time.elapsed();
 
-    println!("  Read {} columns from {} rows in {:?}", column_indices.len(), result.len() / column_indices.len(), elapsed);
+    println!(
+        "  Read {} columns from {} rows in {:?}",
+        column_indices.len(),
+        result.len() / column_indices.len(),
+        elapsed
+    );
     println!("  Memory efficient: Only loaded required columns");
 
     // Show sample data
@@ -141,7 +153,8 @@ fn demonstrate_query_pushdown(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n🚀 Query Pushdown Optimization");
     println!("------------------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
+    let mut reader =
+        PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
 
     // Query: Find active premium users with high login counts
     let filters = vec![
@@ -179,8 +192,8 @@ fn demonstrate_query_pushdown(temp_file: &NamedTempFile) -> Result<()> {
     println!("  Sample premium users with high activity:");
     for i in (0..result.len()).step_by(4).take(3) {
         if let (Some(user_id_bytes), Some(username_bytes), Some(login_count_bytes)) =
-            (result.get(i), result.get(i + 1), result.get(i + 2)) {
-
+            (result.get(i), result.get(i + 1), result.get(i + 2))
+        {
             let user_id = i64::from_le_bytes(user_id_bytes[..8].try_into().unwrap());
             let username = deserialize_string(username_bytes);
             let login_count = i32::from_le_bytes(login_count_bytes[..4].try_into().unwrap());
@@ -196,7 +209,8 @@ fn demonstrate_metadata_indexing(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n📋 Metadata Indexing");
     println!("--------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
+    let mut reader =
+        PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
     let metadata_index = reader.metadata_index().unwrap();
 
     // Show column index mapping
@@ -214,7 +228,10 @@ fn demonstrate_metadata_indexing(temp_file: &NamedTempFile) -> Result<()> {
 
     // Show row group statistics
     println!("  Row group statistics:");
-    println!("    Total row groups: {}", metadata_index.row_group_offsets.len());
+    println!(
+        "    Total row groups: {}",
+        metadata_index.row_group_offsets.len()
+    );
     for (i, rg_stats) in metadata_index.row_group_stats.iter().enumerate() {
         println!("    Row group {}: {} rows", i, rg_stats.row_count);
     }
@@ -223,10 +240,19 @@ fn demonstrate_metadata_indexing(temp_file: &NamedTempFile) -> Result<()> {
     let login_stats = metadata_index.get_column_stats(5); // login_count column
     println!("  Login count statistics across row groups:");
     for (i, col_stats) in login_stats.iter().enumerate() {
-        println!("    Row group {}: min={}, max={}, nulls={}",
+        println!(
+            "    Row group {}: min={}, max={}, nulls={}",
             i,
-            col_stats.min_value.as_ref().map(|v| i32::from_le_bytes(v[..4].try_into().unwrap())).unwrap_or(0),
-            col_stats.max_value.as_ref().map(|v| i32::from_le_bytes(v[..4].try_into().unwrap())).unwrap_or(0),
+            col_stats
+                .min_value
+                .as_ref()
+                .map(|v| i32::from_le_bytes(v[..4].try_into().unwrap()))
+                .unwrap_or(0),
+            col_stats
+                .max_value
+                .as_ref()
+                .map(|v| i32::from_le_bytes(v[..4].try_into().unwrap()))
+                .unwrap_or(0),
             col_stats.null_count
         );
     }

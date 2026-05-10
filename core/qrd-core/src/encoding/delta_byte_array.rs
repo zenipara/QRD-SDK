@@ -56,7 +56,9 @@ fn parse_length_prefixed_values(data: &[u8]) -> Result<Vec<Vec<u8>>> {
         offset += 4;
 
         if offset + len > data.len() {
-            return Err(Error::DecodingError("Value length exceeds data".to_string()));
+            return Err(Error::DecodingError(
+                "Value length exceeds data".to_string(),
+            ));
         }
 
         values.push(data[offset..offset + len].to_vec());
@@ -103,7 +105,8 @@ fn encode_delta_byte_array(values: &[Vec<u8>]) -> Result<Vec<u8>> {
         let curr = &values[i];
 
         // Find shared prefix length
-        let shared_len = prev.iter()
+        let shared_len = prev
+            .iter()
             .zip(curr.iter())
             .take_while(|(a, b)| a == b)
             .count();
@@ -134,7 +137,9 @@ fn decode_delta_byte_array(data: &[u8], count: usize) -> Result<Vec<Vec<u8>>> {
     offset += size;
 
     if offset + first_len as usize > data.len() {
-        return Err(Error::DecodingError("First value length exceeds data".to_string()));
+        return Err(Error::DecodingError(
+            "First value length exceeds data".to_string(),
+        ));
     }
 
     let first_value = data[offset..offset + first_len as usize].to_vec();
@@ -153,7 +158,9 @@ fn decode_delta_byte_array(data: &[u8], count: usize) -> Result<Vec<Vec<u8>>> {
         offset += size;
 
         if offset + suffix_len as usize > data.len() {
-            return Err(Error::DecodingError("Suffix length exceeds data".to_string()));
+            return Err(Error::DecodingError(
+                "Suffix length exceeds data".to_string(),
+            ));
         }
 
         // Reconstruct value
@@ -231,7 +238,15 @@ mod tests {
     fn test_is_sorted_byte_arrays() {
         assert!(is_sorted_byte_arrays(&[]));
         assert!(is_sorted_byte_arrays(&[b"a".to_vec()]));
-        assert!(is_sorted_byte_arrays(&[b"a".to_vec(), b"b".to_vec(), b"c".to_vec()]));
-        assert!(!is_sorted_byte_arrays(&[b"c".to_vec(), b"b".to_vec(), b"a".to_vec()]));
+        assert!(is_sorted_byte_arrays(&[
+            b"a".to_vec(),
+            b"b".to_vec(),
+            b"c".to_vec()
+        ]));
+        assert!(!is_sorted_byte_arrays(&[
+            b"c".to_vec(),
+            b"b".to_vec(),
+            b"a".to_vec()
+        ]));
     }
 }

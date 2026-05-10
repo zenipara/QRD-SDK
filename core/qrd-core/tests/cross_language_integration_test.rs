@@ -3,10 +3,10 @@
 //! Validates that all SDK language bindings (Python, TypeScript, Go, Java)
 //! can read and write QRD files consistently with the same binary output
 
+use qrd_core::error::Result;
 use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::writer::FileWriter;
-use qrd_core::error::Result;
 use std::fs;
 use std::path::Path;
 
@@ -44,7 +44,11 @@ fn validate_reference_file(path: &Path) -> Result<()> {
     let reader = FileReader::new(path)?;
 
     assert_eq!(reader.row_count(), 10, "Row count should be 10");
-    assert_eq!(reader.schema().fields.len(), 4, "Schema should have 4 fields");
+    assert_eq!(
+        reader.schema().fields.len(),
+        4,
+        "Schema should have 4 fields"
+    );
 
     // Read all rows
     let columns = reader.read_decoded_row_group(0)?;
@@ -197,7 +201,7 @@ fn test_go_io_integration() {
     //     Build()
     // writer := NewFileWriter(file, schema)
     // reader := NewFileReader(file)
-    // 
+    //
     // Support for io.Reader/Writer interfaces
 
     println!("✓ Go io.Reader/Writer API defined");
@@ -235,7 +239,7 @@ fn test_java_stream_integration() {
     //     .build();
     // FileWriter writer = new FileWriter(path, schema);
     // FileReader reader = new FileReader(path);
-    // 
+    //
     // Support for InputStream/OutputStream
 
     println!("✓ Java Stream API defined");
@@ -250,7 +254,7 @@ fn test_java_stream_integration() {
 fn test_encoding_consistency_across_bindings() {
     // Test requirement: same input data should produce identical encoded output
     // regardless of which binding is used
-    
+
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file = temp_dir.path().join("encoding_test.qrd");
 
@@ -345,7 +349,10 @@ fn test_datatype_support_matrix() {
         println!("✓ Type {} supported in Rust", type_name);
 
         // Requirement: same type must be supported in all bindings
-        println!("  Requirement: {} must be supported in Python, TypeScript, Go, Java", type_name);
+        println!(
+            "  Requirement: {} must be supported in Python, TypeScript, Go, Java",
+            type_name
+        );
     }
 }
 
@@ -371,12 +378,14 @@ fn test_error_handling_consistency() {
     }
 
     // Test 2: Invalid file path
-    let result = FileWriter::new(Path::new("/invalid/nonexistent/path.qrd"), 
+    let result = FileWriter::new(
+        Path::new("/invalid/nonexistent/path.qrd"),
         SchemaBuilder::new()
             .add_field("id", FieldType::Int32, Nullability::Required)
             .expect("Failed")
             .build()
-            .expect("Failed"));
+            .expect("Failed"),
+    );
 
     match result {
         Err(_) => println!("✓ Invalid path error handled"),

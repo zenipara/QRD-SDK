@@ -4,8 +4,8 @@
 //! selected based on data characteristics.
 
 use qrd_core::prelude::*;
-use tempfile::NamedTempFile;
 use std::fs::File;
+use tempfile::NamedTempFile;
 
 fn main() -> Result<()> {
     println!("QRD Encoding Showcase Example");
@@ -13,12 +13,12 @@ fn main() -> Result<()> {
 
     // Create schema that will trigger different encodings
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required)?           // PLAIN (unique values)
-        .add_field("category", FieldType::String, Nullability::Required)?    // DICTIONARY (few unique values)
-        .add_field("status", FieldType::Int32, Nullability::Required)?       // RLE (repeated values)
-        .add_field("sequence", FieldType::Int64, Nullability::Required)?     // DELTA (sequential)
-        .add_field("bit_flags", FieldType::Int8, Nullability::Required)?     // BIT_PACKED (small range)
-        .add_field("sparse_data", FieldType::Int64, Nullability::Optional)?  // DELTA_BYTE_ARRAY (optional)
+        .add_field("id", FieldType::Int64, Nullability::Required)? // PLAIN (unique values)
+        .add_field("category", FieldType::String, Nullability::Required)? // DICTIONARY (few unique values)
+        .add_field("status", FieldType::Int32, Nullability::Required)? // RLE (repeated values)
+        .add_field("sequence", FieldType::Int64, Nullability::Required)? // DELTA (sequential)
+        .add_field("bit_flags", FieldType::Int8, Nullability::Required)? // BIT_PACKED (small range)
+        .add_field("sparse_data", FieldType::Int64, Nullability::Optional)? // DELTA_BYTE_ARRAY (optional)
         .build()?;
 
     println!("Schema created with {} columns", schema.column_count());
@@ -92,12 +92,8 @@ fn main() -> Result<()> {
 
     let raw = std::fs::read(temp_file.path())?;
     let len = raw.len();
-    let footer_len = u32::from_le_bytes([
-        raw[len - 4],
-        raw[len - 3],
-        raw[len - 2],
-        raw[len - 1],
-    ]) as usize;
+    let footer_len =
+        u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
     let footer_start = len - 4 - footer_len;
     let footer_bytes = &raw[footer_start..footer_start + footer_len];
     let footer = qrd_core::footer::Footer::deserialize(footer_bytes)?;
@@ -108,10 +104,8 @@ fn main() -> Result<()> {
     println!("\nDemonstrating partial column reading...");
 
     let file = File::open(temp_file.path())?;
-    let mut partial_reader = qrd_core::reader::PartialReader::new(
-        file,
-        qrd_core::reader::PartialReadConfig::default(),
-    )?;
+    let mut partial_reader =
+        qrd_core::reader::PartialReader::new(file, qrd_core::reader::PartialReadConfig::default())?;
 
     // Read the first row group's first column
     let cols = partial_reader.read_columns(0, &[0])?; // read column 0 of row group 0

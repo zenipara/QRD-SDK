@@ -21,8 +21,8 @@ fn test_boundary_zero_rows() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     // Finish without writing any rows - should produce valid header/footer
     let result = writer.finish();
@@ -40,8 +40,8 @@ fn test_boundary_moderate_row_count() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let mut writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let mut writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     // Add rows up to practical limit
     for i in 0..100 {
@@ -57,9 +57,8 @@ fn test_boundary_moderate_row_count() {
 /// Test Q4.2: Empty schema fields
 #[test]
 fn test_boundary_empty_schema() {
-    let result = SchemaBuilder::new()
-        .build();
-    
+    let result = SchemaBuilder::new().build();
+
     // Empty schema should be an error or return schema with no fields
     // Just ensure no panic either way
     _ = result;
@@ -75,14 +74,17 @@ fn test_boundary_zero_value_in_row() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let mut writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let mut writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     // Write row with zero value
     let zero_bytes: i32 = 0;
     let row_data = vec![zero_bytes.to_le_bytes().to_vec()];
     let result = writer.write_row(row_data);
-    assert!(result.is_ok() || result.is_err(), "Should handle zero values without panic");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "Should handle zero values without panic"
+    );
 }
 
 /// Test Q4.3: Moderately large input handling
@@ -95,14 +97,17 @@ fn test_boundary_large_blob_row() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let mut writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let mut writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     // Write a large blob (100KB)
     let large_data = vec![0xABu8; 100 * 1024];
     let result = writer.write_row(vec![large_data]);
     // Should either succeed or return a clear error, not panic/crash
-    assert!(result.is_ok() || result.is_err(), "Should handle large rows without panic");
+    assert!(
+        result.is_ok() || result.is_err(),
+        "Should handle large rows without panic"
+    );
 }
 
 /// Test Q4.3: Memory bounded operation - many small rows
@@ -117,8 +122,8 @@ fn test_boundary_many_small_rows_bounded_memory() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let mut writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let mut writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     // Write many small rows - should auto-flush and not accumulate unbounded memory
     for i in 0..1000 {
@@ -130,7 +135,10 @@ fn test_boundary_many_small_rows_bounded_memory() {
 
     // Finishing should not exhaust memory
     let finish_result = writer.finish();
-    assert!(finish_result.is_ok() || finish_result.is_err(), "Should complete without OOM");
+    assert!(
+        finish_result.is_ok() || finish_result.is_err(),
+        "Should complete without OOM"
+    );
 }
 
 /// Test Q4.1: Column offset arithmetic doesn't overflow
@@ -162,8 +170,8 @@ fn test_boundary_minimal_valid_file() {
         .expect("Failed to build schema");
 
     let buffer = Vec::new();
-    let writer = StreamingWriter::new(Cursor::new(buffer), schema.clone())
-        .expect("Failed to create writer");
+    let writer =
+        StreamingWriter::new(Cursor::new(buffer), schema.clone()).expect("Failed to create writer");
 
     let result = writer.finish();
     assert!(result.is_ok(), "Should create valid minimal file");

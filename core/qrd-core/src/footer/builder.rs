@@ -79,7 +79,7 @@ impl FooterBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{SchemaBuilder, FieldType, Nullability};
+    use crate::schema::{FieldType, Nullability, SchemaBuilder};
 
     fn make_schema(names: Vec<&str>) -> crate::schema::Schema {
         let mut builder = SchemaBuilder::new();
@@ -126,7 +126,10 @@ mod tests {
         let bytes1 = builder1.build_and_serialize()?;
         let bytes2 = builder2.build_and_serialize()?;
 
-        assert_eq!(bytes1, bytes2, "Footer serialization should be deterministic");
+        assert_eq!(
+            bytes1, bytes2,
+            "Footer serialization should be deterministic"
+        );
 
         Ok(())
     }

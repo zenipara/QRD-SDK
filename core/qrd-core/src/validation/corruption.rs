@@ -38,10 +38,7 @@ pub struct CorruptionReport {
 
 impl CorruptionReport {
     /// Create new corruption report
-    pub fn new(
-        corruption_type: CorruptionType,
-        message: impl Into<String>,
-    ) -> Self {
+    pub fn new(corruption_type: CorruptionType, message: impl Into<String>) -> Self {
         CorruptionReport {
             corruption_type,
             location: None,
@@ -68,10 +65,7 @@ pub struct CorruptionDetector;
 
 impl CorruptionDetector {
     /// Detect truncated file
-    pub fn detect_truncation(
-        file_size: u64,
-        expected_min: u64,
-    ) -> Option<CorruptionReport> {
+    pub fn detect_truncation(file_size: u64, expected_min: u64) -> Option<CorruptionReport> {
         if file_size < expected_min {
             Some(
                 CorruptionReport::new(
@@ -89,10 +83,7 @@ impl CorruptionDetector {
     }
 
     /// Detect invalid offsets
-    pub fn detect_invalid_offset(
-        offset: u64,
-        file_size: u64,
-    ) -> Option<CorruptionReport> {
+    pub fn detect_invalid_offset(offset: u64, file_size: u64) -> Option<CorruptionReport> {
         if offset >= file_size {
             Some(
                 CorruptionReport::new(
@@ -144,10 +135,7 @@ impl CorruptionDetector {
     }
 
     /// Validate row group boundaries
-    pub fn validate_row_group_bounds(
-        rg_offsets: &[u64],
-        file_size: u64,
-    ) -> Result<()> {
+    pub fn validate_row_group_bounds(rg_offsets: &[u64], file_size: u64) -> Result<()> {
         for (idx, &offset) in rg_offsets.iter().enumerate() {
             if offset >= file_size {
                 return Err(crate::error::Error::InvalidData(format!(
@@ -233,18 +221,14 @@ mod tests {
 
     #[test]
     fn test_recovery_recommendation() {
-        let fatal_report = CorruptionReport::new(
-            CorruptionType::BadHeader,
-            "test",
-        );
+        let fatal_report = CorruptionReport::new(CorruptionType::BadHeader, "test");
         assert_eq!(
             RecoveryStrategy::recommend(&fatal_report),
             RecoveryAction::Abort
         );
 
         let recoverable_report =
-            CorruptionReport::new(CorruptionType::ChecksumMismatch, "test")
-                .with_fatal(false);
+            CorruptionReport::new(CorruptionType::ChecksumMismatch, "test").with_fatal(false);
         assert_eq!(
             RecoveryStrategy::recommend(&recoverable_report),
             RecoveryAction::SkipChunk

@@ -1,13 +1,13 @@
 //! Security integration tests for encryption and ECC
 //! Tests encryption + ECC pipeline integration with reader/writer
 
-use qrd_core::encryption::EncryptionConfig;
 use qrd_core::ecc::EccConfig;
-use qrd_core::writer::{FileWriter, WriterConfig};
+use qrd_core::encryption::EncryptionConfig;
 use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use tempfile::NamedTempFile;
+use qrd_core::writer::{FileWriter, WriterConfig};
 use std::io::Write;
+use tempfile::NamedTempFile;
 
 fn serialize_string(s: &str) -> Vec<u8> {
     let mut result = Vec::new();
@@ -58,9 +58,9 @@ fn test_encrypted_write_read_roundtrip() {
     // Write some test data
     for i in 0..10 {
         let row = vec![
-            (i as i64).to_le_bytes().to_vec(), // id: i64
+            (i as i64).to_le_bytes().to_vec(),          // id: i64
             serialize_string(&format!("record_{}", i)), // name: string
-            (i as f64 * 1.5).to_le_bytes().to_vec(), // value: f64
+            (i as f64 * 1.5).to_le_bytes().to_vec(),    // value: f64
         ];
         writer.write_row(row).unwrap();
     }
@@ -110,8 +110,7 @@ fn test_encrypted_wrong_key_fails() {
     writer.finish().unwrap();
 
     // Try to read with wrong key
-    let wrong_enc_config =
-        EncryptionConfig::derive_from_password("wrong-password", &salt).unwrap();
+    let wrong_enc_config = EncryptionConfig::derive_from_password("wrong-password", &salt).unwrap();
     let result = FileReader::with_decryption(temp.path(), wrong_enc_config);
 
     // Should succeed in opening, but fail when trying to read
@@ -164,7 +163,7 @@ fn test_ecc_corruption_recovery() {
 
     // Now corrupt the file by modifying some bytes in the first row group
     let mut file_data = std::fs::read(temp.path()).unwrap();
-    
+
     // Skip header (32 bytes) and corrupt at offset 100 and 200
     if file_data.len() > 200 {
         file_data[100] ^= 0xFF; // Flip bits
@@ -222,12 +221,8 @@ fn test_encrypted_ecc_combined() {
     writer.finish().unwrap();
 
     // Read with both encryption and ECC
-    let reader = FileReader::with_security(
-        temp.path(),
-        Some(enc_config),
-        Some(ecc_config),
-    )
-    .unwrap();
+    let reader =
+        FileReader::with_security(temp.path(), Some(enc_config), Some(ecc_config)).unwrap();
 
     assert_eq!(reader.row_count(), 30);
 

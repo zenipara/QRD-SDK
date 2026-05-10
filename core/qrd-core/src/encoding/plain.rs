@@ -1,7 +1,7 @@
 //! PLAIN encoding - raw data without transformation
 
-use crate::error::Result;
 use super::Encoder;
+use crate::error::Result;
 
 /// Plain encoder - passes data through unchanged
 pub struct PlainEncoder;

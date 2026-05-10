@@ -3,8 +3,8 @@
 //! Tests edge cases, malformed inputs, and corruption scenarios
 //! to ensure the format handles all error conditions gracefully.
 
-use qrd_core::encryption::{EncryptionConfig, encrypt, decrypt};
 use qrd_core::ecc::{EccCodec, EccConfig};
+use qrd_core::encryption::{decrypt, encrypt, EncryptionConfig};
 use qrd_core::error::Error;
 use qrd_core::validation::CorruptionDetector;
 use std::io::Cursor;
@@ -52,30 +52,51 @@ fn fuzz_decryption_corrupted_ciphertexts() {
 
     // Apply various corruptions
     let corruptions: Vec<(&str, Box<dyn FnMut(&mut Vec<u8>)>)> = vec![
-        ("truncate to 1 byte", Box::new(|ct: &mut Vec<u8>| ct.truncate(1))),
-        ("truncate to half", Box::new(|ct: &mut Vec<u8>| ct.truncate(ct.len() / 2))),
-        ("flip first byte", Box::new(|ct: &mut Vec<u8>| ct[0] ^= 0xFF)),
-        ("flip last byte", Box::new(|ct: &mut Vec<u8>| {
-            if !ct.is_empty() {
-                let idx = ct.len() - 1;
-                ct[idx] ^= 0xFF;
-            }
-        })),
-        ("flip middle", Box::new(|ct: &mut Vec<u8>| {
-            let len = ct.len();
-            if len > 2 {
-                let idx = len / 2;
-                ct[idx] ^= 0xFF;
-            }
-        })),
-        ("zero all", Box::new(|ct: &mut Vec<u8>| {
-            for b in ct.iter_mut() {
-                *b = 0;
-            }
-        })),
-        ("add random bytes", Box::new(|ct: &mut Vec<u8>| {
-            ct.extend_from_slice(&[0xFF; 100]);
-        })),
+        (
+            "truncate to 1 byte",
+            Box::new(|ct: &mut Vec<u8>| ct.truncate(1)),
+        ),
+        (
+            "truncate to half",
+            Box::new(|ct: &mut Vec<u8>| ct.truncate(ct.len() / 2)),
+        ),
+        (
+            "flip first byte",
+            Box::new(|ct: &mut Vec<u8>| ct[0] ^= 0xFF),
+        ),
+        (
+            "flip last byte",
+            Box::new(|ct: &mut Vec<u8>| {
+                if !ct.is_empty() {
+                    let idx = ct.len() - 1;
+                    ct[idx] ^= 0xFF;
+                }
+            }),
+        ),
+        (
+            "flip middle",
+            Box::new(|ct: &mut Vec<u8>| {
+                let len = ct.len();
+                if len > 2 {
+                    let idx = len / 2;
+                    ct[idx] ^= 0xFF;
+                }
+            }),
+        ),
+        (
+            "zero all",
+            Box::new(|ct: &mut Vec<u8>| {
+                for b in ct.iter_mut() {
+                    *b = 0;
+                }
+            }),
+        ),
+        (
+            "add random bytes",
+            Box::new(|ct: &mut Vec<u8>| {
+                ct.extend_from_slice(&[0xFF; 100]);
+            }),
+        ),
     ];
 
     for (desc, mut corruption) in corruptions {
@@ -83,13 +104,15 @@ fn fuzz_decryption_corrupted_ciphertexts() {
         corruption(&mut corrupted);
 
         println!("Testing decryption with {}", desc);
-        
+
         let result = decrypt(&corrupted, &config);
         match result {
             Ok(decrypted) => {
                 // Should either fail or produce garbage
-                assert_ne!(decrypted, plaintext, 
-                    "Corrupted ciphertext should not decrypt to original");
+                assert_ne!(
+                    decrypted, plaintext,
+                    "Corrupted ciphertext should not decrypt to original"
+                );
                 println!("  Result: Produced garbage (acceptable)");
             }
             Err(e) => {
@@ -114,13 +137,17 @@ fn fuzz_password_derivation_invalid_salt() {
     for (salt, desc) in test_cases {
         println!("Testing password derivation with {}", desc);
         // Some underlying KDF crates may panic on invalid salt lengths; guard with catch_unwind
-        let res = std::panic::catch_unwind(|| EncryptionConfig::derive_from_password(password, &salt));
+        let res =
+            std::panic::catch_unwind(|| EncryptionConfig::derive_from_password(password, &salt));
         match res {
             Ok(Ok(_)) => {
                 if salt.len() == 32 {
                     println!("  ✓ Correctly accepted valid salt");
                 } else {
-                    println!("  ✓ Accepted non-32 salt (validator allows variable salt lengths): {}", desc);
+                    println!(
+                        "  ✓ Accepted non-32 salt (validator allows variable salt lengths): {}",
+                        desc
+                    );
                 }
             }
             Ok(Err(_)) => {
@@ -128,7 +155,10 @@ fn fuzz_password_derivation_invalid_salt() {
             }
             Err(_) => {
                 // Panic from underlying crate; treat as rejection for invalid salts
-                println!("  ✓ Panic treated as rejection for malformed salt: {}", desc);
+                println!(
+                    "  ✓ Panic treated as rejection for malformed salt: {}",
+                    desc
+                );
             }
         }
     }
@@ -150,7 +180,7 @@ fn fuzz_ecc_invalid_config() {
 
     for (parity, chunk_size, desc) in test_cases {
         println!("Testing ECC config with {}", desc);
-        
+
         let result = EccConfig::with_chunk_size(parity, chunk_size);
         match result {
             Ok(_) if parity > 0 && chunk_size > 0 => {
@@ -183,11 +213,11 @@ fn fuzz_ecc_extreme_sizes() {
 
     for (desc, data) in test_cases {
         println!("Testing ECC with {} data", desc);
-        
+
         match codec.encode(&data) {
             Ok(encoded) => {
                 println!("  ✓ Successfully encoded");
-                
+
                 // Try to recover with one loss
                 let mut shards = encoded.shards_as_options();
                 if shards.len() > 0 {
@@ -215,7 +245,7 @@ fn fuzz_ecc_extreme_sizes() {
 fn fuzz_ecc_loss_patterns() {
     let config = EccConfig::with_chunk_size(3, 512).expect("Config creation failed");
     let mut codec = EccCodec::new(config.clone()).expect("Codec creation failed");
-    
+
     let data = vec![42u8; 2048];
     let encoded = codec.encode(&data).expect("Encoding failed");
     let shard_count = encoded.total_shards();
@@ -227,8 +257,11 @@ fn fuzz_ecc_loss_patterns() {
             continue;
         }
 
-        println!("Testing ECC loss pattern: lose {} of {} shards", loss_count, shard_count);
-        
+        println!(
+            "Testing ECC loss pattern: lose {} of {} shards",
+            loss_count, shard_count
+        );
+
         let mut shards = encoded.shards_as_options();
         for i in 0..loss_count {
             if i < shards.len() {
@@ -271,7 +304,7 @@ fn fuzz_file_header_parsing() {
 
     for (desc, data) in test_cases {
         println!("Testing file header parsing with {}", desc);
-        
+
         // This would normally go through FooterParser
         // For now, just verify it doesn't panic
         let _result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -279,7 +312,7 @@ fn fuzz_file_header_parsing() {
             let cursor = Cursor::new(data);
             let _ = cursor;
         }));
-        
+
         println!("  ✓ No panic");
     }
 }
@@ -306,11 +339,10 @@ fn test_encryption_boundary_values() {
 
     for (desc, data) in test_cases {
         println!("Testing encryption with {} data", desc);
-        
+
         match encrypt(&data, &config) {
             Ok(encrypted) => {
-                let decrypted = decrypt(&encrypted, &config)
-                    .expect("Decryption should succeed");
+                let decrypted = decrypt(&encrypted, &config).expect("Decryption should succeed");
                 assert_eq!(decrypted, data, "Roundtrip should preserve data");
                 println!("  ✓ Successfully encrypted and decrypted");
             }
@@ -330,7 +362,7 @@ fn test_encryption_boundary_values() {
 fn test_concurrent_encryption() {
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
-    
+
     let handles: Vec<_> = (0..10)
         .map(|i| {
             let config = config.clone();
@@ -346,7 +378,7 @@ fn test_concurrent_encryption() {
     for handle in handles {
         handle.join().expect("Thread panicked");
     }
-    
+
     println!("✓ All concurrent operations succeeded");
 }
 
@@ -356,17 +388,15 @@ fn test_concurrent_ecc() {
     let handles: Vec<_> = (0..5)
         .map(|_| {
             std::thread::spawn(|| {
-                let config = EccConfig::with_chunk_size(2, 256)
-                    .expect("Config creation failed");
-                let mut codec = EccCodec::new(config.clone())
-                    .expect("Codec creation failed");
-                
+                let config = EccConfig::with_chunk_size(2, 256).expect("Config creation failed");
+                let mut codec = EccCodec::new(config.clone()).expect("Codec creation failed");
+
                 let data = vec![42u8; 512];
                 let encoded = codec.encode(&data).expect("Encoding failed");
-                
+
                 let mut shards = encoded.shards_as_options();
                 shards[0] = None;
-                
+
                 let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
                     .expect("Recovery failed");
                 assert_eq!(recovered, data, "Concurrent ECC operation failed");
@@ -377,7 +407,7 @@ fn test_concurrent_ecc() {
     for handle in handles {
         handle.join().expect("Thread panicked");
     }
-    
+
     println!("✓ All concurrent ECC operations succeeded");
 }
 
@@ -393,13 +423,13 @@ fn test_encryption_all_byte_values() {
 
     for byte_val in 0u8..=255 {
         let data = vec![byte_val; 256];
-        
+
         let encrypted = encrypt(&data, &config).expect("Encryption failed");
         let decrypted = decrypt(&encrypted, &config).expect("Decryption failed");
-        
+
         assert_eq!(decrypted, data, "Failed for byte value {}", byte_val);
     }
-    
+
     println!("✓ All byte values encrypted/decrypted correctly");
 }
 
@@ -409,19 +439,21 @@ fn test_encryption_various_lengths() {
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
 
-    for len in &[0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 256, 512, 1024] {
+    for len in &[
+        0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 256, 512, 1024,
+    ] {
         let data = if *len > 0 {
             let byte_value = (*len % 256) as u8;
             vec![byte_value; *len]
         } else {
             Vec::new()
         };
-        
+
         let encrypted = encrypt(&data, &config).expect("Encryption failed");
         let decrypted = decrypt(&encrypted, &config).expect("Decryption failed");
-        
+
         assert_eq!(decrypted, data, "Roundtrip failed for length {}", len);
     }
-    
+
     println!("✓ All tested lengths encrypted/decrypted correctly");
 }

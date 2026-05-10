@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
-use wide::{u8x16, u8x32, i32x8};
 use bytemuck::cast;
 use core::mem;
+use wide::{i32x8, u8x16, u8x32};
 
 /// SIMD instruction set support
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,7 +29,10 @@ impl SimdOps {
     /// Create new SIMD operations instance
     pub fn new() -> Self {
         let (enabled, instruction_set) = detect_simd_support();
-        SimdOps { enabled, instruction_set }
+        SimdOps {
+            enabled,
+            instruction_set,
+        }
     }
 
     /// Check if SIMD operations are available
@@ -45,7 +48,9 @@ impl SimdOps {
     /// SIMD-accelerated memory copy
     pub fn memcpy(&self, dst: &mut [u8], src: &[u8]) -> Result<()> {
         if dst.len() != src.len() {
-            return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
+            return Err(Error::InvalidInput(
+                "Destination and source lengths must match".to_string(),
+            ));
         }
 
         if !self.enabled {
@@ -93,7 +98,9 @@ impl SimdOps {
     /// SIMD-accelerated XOR operation (useful for some encoding schemes)
     pub fn xor(&self, dst: &mut [u8], src: &[u8]) -> Result<()> {
         if dst.len() != src.len() {
-            return Err(Error::InvalidInput("Destination and source lengths must match".to_string()));
+            return Err(Error::InvalidInput(
+                "Destination and source lengths must match".to_string(),
+            ));
         }
 
         if !self.enabled {

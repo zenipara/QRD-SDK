@@ -4,8 +4,10 @@
 //! These vectors ensure deterministic output across all language bindings.
 
 use crate::{
-    reader::FileReader, schema::{FieldType, Nullability, SchemaBuilder},
-    writer::FileWriter, error::Result,
+    error::Result,
+    reader::FileReader,
+    schema::{FieldType, Nullability, SchemaBuilder},
+    writer::FileWriter,
 };
 use std::{fs, path::Path};
 
@@ -81,10 +83,23 @@ fn generate_basic_types_vector(golden_dir: &Path) -> Result<()> {
         let duration_val = (i as u64 * 1000000).to_le_bytes().to_vec();
 
         writer.write_row(vec![
-            bool_val, int8_val, int16_val, int32_val, int64_val,
-            uint8_val, uint16_val, uint32_val, uint64_val,
-            float32_val, float64_val, string_val, blob_val,
-            timestamp_val, date_val, time_val, duration_val,
+            bool_val,
+            int8_val,
+            int16_val,
+            int32_val,
+            int64_val,
+            uint8_val,
+            uint16_val,
+            uint32_val,
+            uint64_val,
+            float32_val,
+            float64_val,
+            string_val,
+            blob_val,
+            timestamp_val,
+            date_val,
+            time_val,
+            duration_val,
         ])?;
     }
 
@@ -101,7 +116,11 @@ fn generate_encoding_showcase_vector(golden_dir: &Path) -> Result<()> {
         .add_field("delta_int", FieldType::Int64, Nullability::Required)?
         .add_field("bitpacked_bool", FieldType::Boolean, Nullability::Required)?
         .add_field("dictionary_str", FieldType::String, Nullability::Required)?
-        .add_field("byte_stream_float", FieldType::Float32, Nullability::Required)?
+        .add_field(
+            "byte_stream_float",
+            FieldType::Float32,
+            Nullability::Required,
+        )?
         .build()?;
 
     let output_path = golden_dir.join("encoding_showcase.qrd");
@@ -122,7 +141,14 @@ fn generate_encoding_showcase_vector(golden_dir: &Path) -> Result<()> {
         }); // Dictionary encoding
         let byte_stream_float = ((i as f32 * 3.14) + 1.0).to_le_bytes().to_vec(); // Byte stream split
 
-        writer.write_row(vec![plain_int, rle_int, delta_int, bitpacked_bool, dictionary_str, byte_stream_float])?;
+        writer.write_row(vec![
+            plain_int,
+            rle_int,
+            delta_int,
+            bitpacked_bool,
+            dictionary_str,
+            byte_stream_float,
+        ])?;
     }
 
     writer.finish()?;
@@ -148,10 +174,7 @@ fn generate_compression_test_vector(golden_dir: &Path) -> Result<()> {
         // Incompressible: random-like data
         let random: Vec<u8> = (0..1000).map(|j| ((i * j) % 256) as u8).collect();
 
-        writer.write_row(vec![
-            serialize_blob(&compressible),
-            serialize_blob(&random),
-        ])?;
+        writer.write_row(vec![serialize_blob(&compressible), serialize_blob(&random)])?;
     }
 
     writer.finish()?;
@@ -174,7 +197,9 @@ fn generate_large_dataset_vector(golden_dir: &Path) -> Result<()> {
     // Generate 10,000 rows of realistic telemetry data
     for i in 0..10_000 {
         let id = (i as i64).to_le_bytes().to_vec();
-        let timestamp = ((i as i64 * 60000) + 1609459200000000).to_le_bytes().to_vec(); // 2021-01-01 + i minutes
+        let timestamp = ((i as i64 * 60000) + 1609459200000000)
+            .to_le_bytes()
+            .to_vec(); // 2021-01-01 + i minutes
         let value = ((i as f64 % 100.0) + 10.0).to_le_bytes().to_vec();
         let category = serialize_string(match i % 4 {
             0 => "temperature",
@@ -208,21 +233,21 @@ fn generate_edge_cases_vector(golden_dir: &Path) -> Result<()> {
     let mut writer = FileWriter::new(&output_path, schema)?;
 
     // Write edge case values
-    let edge_cases = vec![
-        (
-            serialize_string(""),           // empty string
-            serialize_blob(&[]),            // empty blob
-            0i64.to_le_bytes().to_vec(),    // zero
-            i64::MAX.to_le_bytes().to_vec(), // max
-            i64::MIN.to_le_bytes().to_vec(), // min
-            0.0f64.to_le_bytes().to_vec(),   // zero float
-            f64::NAN.to_le_bytes().to_vec(), // NaN
-            f64::INFINITY.to_le_bytes().to_vec(), // infinity
-        ),
-    ];
+    let edge_cases = vec![(
+        serialize_string(""),                 // empty string
+        serialize_blob(&[]),                  // empty blob
+        0i64.to_le_bytes().to_vec(),          // zero
+        i64::MAX.to_le_bytes().to_vec(),      // max
+        i64::MIN.to_le_bytes().to_vec(),      // min
+        0.0f64.to_le_bytes().to_vec(),        // zero float
+        f64::NAN.to_le_bytes().to_vec(),      // NaN
+        f64::INFINITY.to_le_bytes().to_vec(), // infinity
+    )];
 
     for case in edge_cases {
-        writer.write_row(vec![case.0, case.1, case.2, case.3, case.4, case.5, case.6, case.7])?;
+        writer.write_row(vec![
+            case.0, case.1, case.2, case.3, case.4, case.5, case.6, case.7,
+        ])?;
     }
 
     writer.finish()?;

@@ -5,7 +5,7 @@ use crate::compression::{compress, decompress, CompressionCodec, CompressionLeve
 use crate::encoding::EncodingType;
 use crate::error::Result;
 use crate::validation::Validator;
-use byteorder::{LittleEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 
 /// Encoded and compressed column chunk
@@ -94,10 +94,16 @@ impl RowGroup {
         result.write_u32::<LittleEndian>(self.row_count)?;
 
         // Calculate total sizes
-        let total_uncompressed: u32 =
-            self.columns.iter().map(|c| c.encoded_data.len() as u32).sum();
-        let total_compressed: u32 =
-            self.columns.iter().map(|c| c.compressed_data.len() as u32).sum();
+        let total_uncompressed: u32 = self
+            .columns
+            .iter()
+            .map(|c| c.encoded_data.len() as u32)
+            .sum();
+        let total_compressed: u32 = self
+            .columns
+            .iter()
+            .map(|c| c.compressed_data.len() as u32)
+            .sum();
 
         result.write_u32::<LittleEndian>(total_uncompressed)?;
         result.write_u32::<LittleEndian>(total_compressed)?;
@@ -145,16 +151,18 @@ impl RowGroup {
             let mut id_buf = [0u8; 1];
             cursor.read_exact(&mut id_buf)?;
             let encoding_id = id_buf[0];
-            
+
             cursor.read_exact(&mut id_buf)?;
             let compression_id = id_buf[0];
 
             let encoding = EncodingType::from_id(encoding_id)?;
-            
-            let compression = CompressionCodec::from_id(compression_id)
-                .ok_or_else(|| crate::error::Error::InvalidData(
-                    format!("Unknown compression ID: {}", compression_id)
-                ))?;
+
+            let compression = CompressionCodec::from_id(compression_id).ok_or_else(|| {
+                crate::error::Error::InvalidData(format!(
+                    "Unknown compression ID: {}",
+                    compression_id
+                ))
+            })?;
 
             let _encoded_len = cursor.read_u32::<LittleEndian>()? as usize;
             let compressed_len = cursor.read_u32::<LittleEndian>()? as usize;
@@ -231,13 +239,12 @@ mod tests {
 
         let size = chunk.total_size();
         assert!(size > 0);
-
     }
 
     #[test]
     fn test_row_group_serialization_round_trip() {
         let mut rg = RowGroup::new(10);
-        
+
         let chunk = EncodedColumnChunk {
             column_index: 0,
             column_name: "test".to_string(),
@@ -247,12 +254,12 @@ mod tests {
             compressed_data: vec![1, 2, 3, 4, 5],
             crc32: 0x12345678,
         };
-        
+
         rg.columns.push(chunk);
-        
+
         let serialized = rg.serialize().unwrap();
         let deserialized = RowGroup::deserialize(&serialized).unwrap();
-        
+
         assert_eq!(deserialized.row_count, 10);
         assert_eq!(deserialized.columns.len(), 1);
         assert_eq!(deserialized.columns[0].column_index, 0);

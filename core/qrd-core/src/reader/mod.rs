@@ -8,20 +8,20 @@
 pub mod partial_reader;
 pub mod range_reader;
 
-pub use partial_reader::{PartialReader, PartialReadConfig};
+pub use partial_reader::{PartialReadConfig, PartialReader};
 pub use range_reader::{ByteRange, RangeReader};
 
-use crate::encryption::EncryptionConfig;
 use crate::ecc::EccConfig;
+use crate::encryption::EncryptionConfig;
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use crate::validation::Validator;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
-use std::io::{Read, Cursor};
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -65,7 +65,17 @@ impl FileReader {
         let mut file_data = Vec::new();
         file.read_to_end(&mut file_data)?;
 
-        Self::from_file_data(Arc::new(FileData::InMemory(file_data)))
+        Self::from_bytes(file_data)
+    }
+
+    /// Create a file reader from owned in-memory bytes.
+    pub fn from_bytes(bytes: Vec<u8>) -> Result<Self> {
+        Self::from_file_data(Arc::new(FileData::InMemory(bytes)))
+    }
+
+    /// Create a file reader from a borrowed byte slice.
+    pub fn from_slice(data: &[u8]) -> Result<Self> {
+        Self::from_bytes(data.to_vec())
     }
 
     /// Open a QRD file using memory-mapped storage for large files.
@@ -113,7 +123,7 @@ impl FileReader {
 
         let version_major = u16::from_le_bytes([header[4], header[5]]);
         let version_minor = u16::from_le_bytes([header[6], header[7]]);
-        
+
         if version_major != crate::QRD_VERSION_MAJOR || version_minor != crate::QRD_VERSION_MINOR {
             return Err(crate::error::Error::UnsupportedVersion {
                 major: version_major,
@@ -149,13 +159,11 @@ impl FileReader {
 
         // Verify schema ID matches
         if footer.schema.schema_id != schema_id {
-            return Err(crate::error::Error::InvalidSchema(
-                format!(
-                    "Schema ID mismatch: header schema_id={:#x} but footer schema_id={:#x}. \
+            return Err(crate::error::Error::InvalidSchema(format!(
+                "Schema ID mismatch: header schema_id={:#x} but footer schema_id={:#x}. \
                      This indicates the file was created with a different schema than expected.",
-                    schema_id, footer.schema.schema_id
-                ),
-            ));
+                schema_id, footer.schema.schema_id
+            )));
         }
 
         let row_count = if header_row_count == u32::MAX {
@@ -237,7 +245,7 @@ impl FileReader {
     }
 
     /// Decrypt and recover row group data from storage bytes
-    /// 
+    ///
     /// Reverse pipeline:
     /// storage bytes → ECC recovery (if enabled) → decryption (if enabled) → deserialized bytes
     fn decrypt_and_recover_row_group(&self, raw_bytes: &[u8]) -> Result<Vec<u8>> {
@@ -427,12 +435,13 @@ impl FileReader {
                                     ))
                                 })?;
 
-                                let len_bytes = column.encoded_data.get(offset..len_end).ok_or_else(|| {
-                                    crate::error::Error::InvalidData(format!(
+                                let len_bytes =
+                                    column.encoded_data.get(offset..len_end).ok_or_else(|| {
+                                        crate::error::Error::InvalidData(format!(
                                         "Length prefix out of bounds for field {} ({}) at row {}",
                                         field.name, field.field_type, row_idx
                                     ))
-                                })?;
+                                    })?;
                                 let len = u32::from_le_bytes([
                                     len_bytes[0],
                                     len_bytes[1],
@@ -478,14 +487,15 @@ impl FileReader {
             .unwrap_or(self.footer_offset as usize);
 
         if offset >= end_offset || offset >= self.file_data.as_slice().len() {
-            return Err(crate::error::Error::InvalidData(
-                format!("Invalid row group offset: {}", offset)
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Invalid row group offset: {}",
+                offset
+            )));
         }
 
         // Read row group data (encrypted/ECC encoded if applicable)
         let row_group_data_raw = &self.file_data.as_slice()[offset..end_offset];
-        
+
         // Decrypt and recover if needed
         self.decrypt_and_recover_row_group(row_group_data_raw)
     }
@@ -506,12 +516,10 @@ impl FileReader {
 
             for (col_idx, _column) in row_group.columns.iter().enumerate() {
                 if col_idx >= self.schema.fields.len() {
-                    return Err(crate::error::Error::InvalidSchema(
-                        format!(
-                            "Column index {} exceeds schema field count for row group field set",
-                            col_idx
-                        )
-                    ));
+                    return Err(crate::error::Error::InvalidSchema(format!(
+                        "Column index {} exceeds schema field count for row group field set",
+                        col_idx
+                    )));
                 }
 
                 let field = &self.schema.fields[col_idx];
@@ -568,12 +576,13 @@ impl FileReader {
                             ))
                         })?;
 
-                        let value = decoded_column.get(value_start..value_end).ok_or_else(|| {
-                            crate::error::Error::InvalidData(format!(
+                        let value =
+                            decoded_column.get(value_start..value_end).ok_or_else(|| {
+                                crate::error::Error::InvalidData(format!(
                                 "Variable-length data out of bounds for field {} ({}) at row {}",
                                 field.name, field.field_type, row_idx
                             ))
-                        })?;
+                            })?;
 
                         row_data.extend_from_slice(len_bytes);
                         row_data.extend_from_slice(value);
@@ -587,7 +596,6 @@ impl FileReader {
 
         Ok(rows)
     }
-
 }
 
 #[cfg(test)]
@@ -625,14 +633,18 @@ mod tests {
 
         {
             let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-            writer.write_row(vec![
-                vec![1u8, 0, 0, 0, 0, 0, 0, 0],
-                vec![10u8, 0, 0, 0, 0, 0, 0, 0],
-            ]).unwrap();
-            writer.write_row(vec![
-                vec![2u8, 0, 0, 0, 0, 0, 0, 0],
-                vec![20u8, 0, 0, 0, 0, 0, 0, 0],
-            ]).unwrap();
+            writer
+                .write_row(vec![
+                    vec![1u8, 0, 0, 0, 0, 0, 0, 0],
+                    vec![10u8, 0, 0, 0, 0, 0, 0, 0],
+                ])
+                .unwrap();
+            writer
+                .write_row(vec![
+                    vec![2u8, 0, 0, 0, 0, 0, 0, 0],
+                    vec![20u8, 0, 0, 0, 0, 0, 0, 0],
+                ])
+                .unwrap();
             writer.finish().unwrap();
         }
 
@@ -673,10 +685,12 @@ mod tests {
         {
             let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
             for (idx, name) in names.iter().enumerate() {
-                writer.write_row(vec![
-                    (idx as i64).to_le_bytes().to_vec(),
-                    serialize_string(name),
-                ]).unwrap();
+                writer
+                    .write_row(vec![
+                        (idx as i64).to_le_bytes().to_vec(),
+                        serialize_string(name),
+                    ])
+                    .unwrap();
             }
             writer.finish().unwrap();
         }
@@ -696,7 +710,41 @@ mod tests {
 
         let mixed_columns = reader.read_columns(&[0, 1]).unwrap();
         assert_eq!(mixed_columns[0].len(), 10 * 8);
-        assert!(mixed_columns[1].windows(4).any(|window| window == [0, 0, 0, 0]));
+        assert!(mixed_columns[1]
+            .windows(4)
+            .any(|window| window == [0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn test_reader_from_bytes_roundtrip() {
+        let temp = NamedTempFile::new().unwrap();
+        let schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        {
+            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
+            writer
+                .write_row(vec![vec![1u8, 0, 0, 0, 0, 0, 0, 0]])
+                .unwrap();
+            writer.finish().unwrap();
+        }
+
+        let bytes = std::fs::read(temp.path()).unwrap();
+        let reader = FileReader::from_bytes(bytes).unwrap();
+
+        assert_eq!(reader.row_count(), 1);
+        assert_eq!(reader.schema().schema_id, schema.schema_id);
+        let rows = reader.rows().unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn test_reader_from_bytes_rejects_invalid_data() {
+        let invalid = vec![0, 1, 2, 3];
+        assert!(FileReader::from_bytes(invalid).is_err());
     }
 
     #[test]
@@ -724,10 +772,9 @@ mod tests {
                 payload.extend_from_slice(&(blob.len() as u32).to_le_bytes());
                 payload.extend_from_slice(blob);
 
-                writer.write_row(vec![
-                    (idx as i64).to_le_bytes().to_vec(),
-                    payload,
-                ]).unwrap();
+                writer
+                    .write_row(vec![(idx as i64).to_le_bytes().to_vec(), payload])
+                    .unwrap();
             }
             writer.finish().unwrap();
         }
@@ -759,7 +806,9 @@ mod tests {
 
         {
             let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-            writer.write_row(vec![serialize_string(&large_string)]).unwrap();
+            writer
+                .write_row(vec![serialize_string(&large_string)])
+                .unwrap();
             writer.finish().unwrap();
         }
 

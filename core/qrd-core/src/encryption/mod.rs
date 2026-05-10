@@ -5,10 +5,10 @@ use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng},
     Aes256Gcm, Key, Nonce,
 };
+use argon2::password_hash::SaltString;
+use argon2::{Argon2, PasswordHasher};
 use hkdf::Hkdf;
 use sha2::Sha256;
-use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::SaltString;
 
 /// Encryption configuration
 #[derive(Debug, Clone)]
@@ -38,11 +38,12 @@ impl EncryptionConfig {
             ));
         }
         if salt.len() != 32 {
-            return Err(Error::ConfigError(
-                "Salt must be 32 bytes".to_string(),
-            ));
+            return Err(Error::ConfigError("Salt must be 32 bytes".to_string()));
         }
-        Ok(EncryptionConfig { key, salt: Some(salt) })
+        Ok(EncryptionConfig {
+            key,
+            salt: Some(salt),
+        })
     }
 
     /// Generate a random key
@@ -61,19 +62,21 @@ impl EncryptionConfig {
         // Prefer stronger password hashing for user passwords. Delegate to
         // the Argon2-backed helper which is the recommended flow.
         // Keep a compatibility wrapper that enforces Argon2-based derivation.
-        Ok(EncryptionConfig::derive_from_user_password(password, Some(salt))?
-        )
+        Ok(EncryptionConfig::derive_from_user_password(
+            password,
+            Some(salt),
+        )?)
     }
 
     /// Derive encryption key from user password using Argon2id + HKDF
-    /// 
+    ///
     /// This is the recommended method for user-provided passwords.
     /// Uses Argon2id (password hashing) followed by HKDF (key derivation).
-    /// 
+    ///
     /// # Arguments
     /// * `password` - User-provided password (any length)
     /// * `argon2_salt` - Salt for Argon2 (16 bytes recommended, will be generated if None)
-    /// 
+    ///
     /// # Returns
     /// EncryptionConfig with derived key and Argon2 salt stored
     pub fn derive_from_user_password(password: &str, argon2_salt: Option<&[u8]>) -> Result<Self> {
@@ -98,7 +101,8 @@ impl EncryptionConfig {
             .map_err(|_| Error::ConfigError("Failed to hash password with Argon2".to_string()))?;
 
         // Convert hash output to owned bytes for HKDF
-        let hash_bytes = password_hash.hash
+        let hash_bytes = password_hash
+            .hash
             .ok_or_else(|| Error::ConfigError("Argon2 hash missing output".to_string()))?
             .as_bytes()
             .to_vec();
@@ -107,7 +111,9 @@ impl EncryptionConfig {
         let hkdf = Hkdf::<Sha256>::new(None, &hash_bytes);
         let mut key = vec![0u8; 32];
         hkdf.expand(b"qrd-encryption-key-from-password", &mut key)
-            .map_err(|_| Error::ConfigError("Failed to derive key from password hash".to_string()))?;
+            .map_err(|_| {
+                Error::ConfigError("Failed to derive key from password hash".to_string())
+            })?;
 
         // Store the Argon2 salt for key derivation consistency (raw bytes)
         let argon2_salt_vec = argon2_salt_vec;
@@ -138,9 +144,7 @@ impl EncryptionConfig {
             &mut column_key,
         )
         .map_err(|_| {
-            Error::ConfigError(
-                format!("Failed to derive column key for '{}'", column_name),
-            )
+            Error::ConfigError(format!("Failed to derive column key for '{}'", column_name))
         })?;
 
         Ok(column_key)
@@ -148,7 +152,7 @@ impl EncryptionConfig {
 }
 
 /// Per-column encryption information
-/// 
+///
 /// Stores metadata about which columns are encrypted and with which keys
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PerColumnEncryption {
@@ -185,10 +189,10 @@ impl PerColumnEncryption {
 
 /// Encrypt data with AES-256-GCM
 
-/// 
+///
 /// Output format (standardized):
 /// [1B flags][optional 32B salt][12B nonce][ciphertext][16B GCM tag]
-/// 
+///
 /// flags byte:
 ///   bit 0: has_salt (1 = ada salt, 0 = tanpa salt)
 ///   bit 1-7: reserved (harus 0)
@@ -208,7 +212,7 @@ pub fn encrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
 
     // Build result with flags byte
     let mut result = Vec::new();
-    
+
     // Flags byte: bit 0 = has_salt
     let flags: u8 = if config.salt.is_some() { 0x01 } else { 0x00 };
     result.push(flags);
@@ -228,11 +232,13 @@ pub fn encrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
 }
 
 /// Decrypt data with AES-256-GCM
-/// 
+///
 /// Expects format: [1B flags][optional 32B salt][12B nonce][ciphertext][16B GCM tag]
 pub fn decrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
     if data.len() < 1 {
-        return Err(Error::EncryptionError("Encrypted data too short - missing flags byte".to_string()));
+        return Err(Error::EncryptionError(
+            "Encrypted data too short - missing flags byte".to_string(),
+        ));
     }
 
     let flags = data[0];
@@ -299,9 +305,9 @@ pub fn decrypt(data: &[u8], config: &EncryptionConfig) -> Result<Vec<u8>> {
     let cipher = Aes256Gcm::new(key);
 
     // Decrypt the data
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext_with_tag)
-        .map_err(|_| Error::EncryptionError("Failed to decrypt data - invalid key or corrupted data".to_string()))?;
+    let plaintext = cipher.decrypt(nonce, ciphertext_with_tag).map_err(|_| {
+        Error::EncryptionError("Failed to decrypt data - invalid key or corrupted data".to_string())
+    })?;
 
     Ok(plaintext)
 }
@@ -409,14 +415,14 @@ mod tests {
     #[test]
     fn test_per_column_encryption_metadata() {
         let mut pc_enc = PerColumnEncryption::new(None);
-        
+
         assert!(pc_enc.enabled);
         assert!(!pc_enc.is_column_encrypted("temperature"));
-        
+
         pc_enc.mark_column_encrypted("temperature".to_string());
         assert!(pc_enc.is_column_encrypted("temperature"));
         assert!(!pc_enc.is_column_encrypted("humidity"));
-        
+
         pc_enc.mark_column_encrypted("humidity".to_string());
         assert_eq!(pc_enc.encrypted_columns.len(), 2);
     }

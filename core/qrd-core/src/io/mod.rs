@@ -1,7 +1,7 @@
 //! I/O operations and utilities
 
-use std::io::{Read, Write, Seek};
 use crate::error::Result;
+use std::io::{Read, Seek, Write};
 
 /// Reader wrapper
 pub struct BufferedReader<R: Read + Seek> {
@@ -85,7 +85,8 @@ impl<W: Write> BufferedWriter<W> {
             let available = self.buffer_size - self.buffer.len();
             let to_write = available.min(data.len() - offset);
 
-            self.buffer.extend_from_slice(&data[offset..offset + to_write]);
+            self.buffer
+                .extend_from_slice(&data[offset..offset + to_write]);
             offset += to_write;
 
             if self.buffer.len() >= self.buffer_size {

@@ -16,13 +16,13 @@ fn main() -> Result<()> {
     //     .build()?;
     //
     // let mut reader = FileReader::new("large_file.qrd")?;
-    // 
+    //
     // let mut row_count = 0;
     // for row in reader.rows()? {
     //     // Process each row independently
     //     // Memory usage = single row size, not entire file
     //     row_count += 1;
-    //     
+    //
     //     if row_count % 100_000 == 0 {
     //         println!("Processed {} rows", row_count);
     //     }

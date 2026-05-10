@@ -19,7 +19,11 @@ pub struct ColumnChunk {
 
 impl ColumnChunk {
     /// Create new column chunk
-    pub fn new(column_index: usize, column_name: String, field_type: crate::schema::FieldType) -> Self {
+    pub fn new(
+        column_index: usize,
+        column_name: String,
+        field_type: crate::schema::FieldType,
+    ) -> Self {
         ColumnChunk {
             column_index,
             column_name,

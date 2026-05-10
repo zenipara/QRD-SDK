@@ -1,13 +1,15 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use qrd_core::schema::{FieldType, Nullability, Schema, SchemaBuilder};
 use qrd_core::writer::StreamingWriter;
-use qrd_core::schema::{Schema, SchemaBuilder, FieldType, Nullability};
 use std::io::Cursor;
 
 /// Create simple test schema
 fn make_schema(fields: Vec<&str>) -> Schema {
     let mut builder = SchemaBuilder::new();
     for name in fields {
-        builder = builder.add_field(name, FieldType::Blob, Nullability::Required).unwrap();
+        builder = builder
+            .add_field(name, FieldType::Blob, Nullability::Required)
+            .unwrap();
     }
     builder.build().unwrap()
 }
@@ -55,8 +57,7 @@ fn benchmark_auto_flush(c: &mut Criterion) {
                     let mut config = qrd_core::writer::StreamingWriterConfig::default();
                     config.row_group_size = rg_size as u32;
 
-                    let mut writer =
-                        StreamingWriter::with_config(buffer, schema, config).unwrap();
+                    let mut writer = StreamingWriter::with_config(buffer, schema, config).unwrap();
 
                     for i in 0..(rg_size * 3) {
                         let val1 = (i as u32).to_le_bytes().to_vec();
@@ -80,9 +81,7 @@ fn benchmark_compression_detection(c: &mut Criterion) {
     // Low entropy (compressible) data
     let low_entropy = black_box(vec![1u8; 10000]);
     group.bench_function("detect_low_entropy", |b| {
-        b.iter(|| {
-            qrd_core::compression::EntropyCalculator::calculate(&low_entropy)
-        });
+        b.iter(|| qrd_core::compression::EntropyCalculator::calculate(&low_entropy));
     });
 
     // High entropy (incompressible) data
@@ -110,7 +109,10 @@ fn benchmark_should_compress(c: &mut Criterion) {
 
     let scenarios = vec![
         ("repetitive", vec![1u8; 50000]),
-        ("random", (0..50000).map(|i| (i as u8).wrapping_mul(7)).collect()),
+        (
+            "random",
+            (0..50000).map(|i| (i as u8).wrapping_mul(7)).collect(),
+        ),
         ("mixed", {
             let mut v = vec![0u8; 50000];
             for i in 0..5000 {
@@ -123,9 +125,7 @@ fn benchmark_should_compress(c: &mut Criterion) {
     for (name, data) in scenarios {
         group.bench_function(name, |b| {
             b.iter(|| {
-                qrd_core::compression::CompressionSelector::should_compress(
-                    black_box(&data),
-                )
+                qrd_core::compression::CompressionSelector::should_compress(black_box(&data))
             });
         });
     }

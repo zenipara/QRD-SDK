@@ -35,8 +35,9 @@ fn json_to_qrd_bench(c: &mut Criterion) {
                                 }
                             } else {
                                 for json_row in &dataset.json_rows {
-                                    let parsed: common::AiEventRecord = from_str(black_box(json_row))
-                                        .expect("AI event JSON must parse");
+                                    let parsed: common::AiEventRecord =
+                                        from_str(black_box(json_row))
+                                            .expect("AI event JSON must parse");
                                     rows.push(parsed.to_row());
                                 }
                             }

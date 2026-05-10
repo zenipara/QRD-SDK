@@ -30,7 +30,9 @@ impl Encoder for BitPackedEncoder {
             }
             Ok(packed)
         } else {
-            Err(Error::EncodingError("BIT_PACKED requires boolean data (0/1 bytes)".to_string()))
+            Err(Error::EncodingError(
+                "BIT_PACKED requires boolean data (0/1 bytes)".to_string(),
+            ))
         }
     }
 

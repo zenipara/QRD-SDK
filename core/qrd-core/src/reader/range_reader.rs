@@ -22,9 +22,10 @@ impl ByteRange {
     /// Create new byte range
     pub fn new(start: u64, end: u64) -> Result<Self> {
         if start > end {
-            return Err(crate::error::Error::InvalidData(
-                format!("Invalid range: start {} > end {}", start, end),
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Invalid range: start {} > end {}",
+                start, end
+            )));
         }
         Ok(ByteRange { start, end })
     }
@@ -191,7 +192,9 @@ mod tests {
 
     #[test]
     fn test_parse_http_range() {
-        let range = ByteRange::parse_http_range("bytes=0-1023").unwrap().unwrap();
+        let range = ByteRange::parse_http_range("bytes=0-1023")
+            .unwrap()
+            .unwrap();
         assert_eq!(range.start, 0);
         assert_eq!(range.end, 1023);
 

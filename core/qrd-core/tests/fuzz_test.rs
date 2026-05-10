@@ -5,7 +5,7 @@
 
 use qrd_core::error::Result;
 use qrd_core::footer::{Footer, FooterParser};
-use qrd_core::reader::{FileReader, PartialReader, PartialReadConfig};
+use qrd_core::reader::{FileReader, PartialReadConfig, PartialReader};
 use qrd_core::rowgroup::RowGroup;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::validation::CorruptionDetector;
@@ -208,12 +208,16 @@ fn fuzz_validation_edge_cases() {
         // Non-monotonic offsets
         {
             let mut data = vec![0, 10, 5, 20]; // 5 < 10, non-monotonic
-            data.into_iter().flat_map(|x| (x as u64).to_le_bytes()).collect()
+            data.into_iter()
+                .flat_map(|x| (x as u64).to_le_bytes())
+                .collect()
         },
         // Overlapping ranges
         {
             let mut data = vec![0, 5, 3, 10]; // 3-10 overlaps with 0-5
-            data.into_iter().flat_map(|x| (x as u64).to_le_bytes()).collect()
+            data.into_iter()
+                .flat_map(|x| (x as u64).to_le_bytes())
+                .collect()
         },
     ];
 
@@ -221,7 +225,8 @@ fn fuzz_validation_edge_cases() {
         println!("Testing validation case {}", i);
 
         // Test monotonic validation
-        let offsets: Vec<u64> = test_data.chunks_exact(8)
+        let offsets: Vec<u64> = test_data
+            .chunks_exact(8)
             .map(|chunk| u64::from_le_bytes(chunk.try_into().unwrap()))
             .collect();
 
@@ -244,7 +249,7 @@ fn fuzz_validation_edge_cases() {
 /// Fuzz test encoding/decoding with malformed data
 #[test]
 fn fuzz_encoding_malformed_data() {
-    use qrd_core::encoding::{EncodingType, get_encoder};
+    use qrd_core::encoding::{get_encoder, EncodingType};
 
     let malformed_inputs = vec![
         // Empty data
@@ -256,7 +261,9 @@ fn fuzz_encoding_malformed_data() {
         // Data with null bytes
         vec![0x00; 1000],
         // Alternating pattern
-        (0..1000).map(|i| if i % 2 == 0 { 0x00 } else { 0xFF }).collect(),
+        (0..1000)
+            .map(|i| if i % 2 == 0 { 0x00 } else { 0xFF })
+            .collect(),
     ];
 
     let encoder = get_encoder(EncodingType::Plain).expect("Failed to get encoder");

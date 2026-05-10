@@ -46,11 +46,7 @@
 //! # }
 //! ```
 
-#![warn(
-    missing_docs,
-    rust_2018_idioms,
-    rustdoc::missing_crate_level_docs
-)]
+#![warn(missing_docs, rust_2018_idioms, rustdoc::missing_crate_level_docs)]
 
 pub mod columnar;
 pub mod compression;
@@ -77,8 +73,8 @@ pub mod prelude {
     pub use crate::error::{Error, Result};
     pub use crate::reader::FileReader;
     pub use crate::schema::{FieldType, Nullability, Schema, SchemaBuilder};
-    pub use crate::writer::FileWriter;
     pub use crate::validation::Validator;
+    pub use crate::writer::FileWriter;
 }
 
 pub use error::{Error, Result};

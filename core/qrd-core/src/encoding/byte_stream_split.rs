@@ -20,7 +20,11 @@ impl Encoder for ByteStreamSplitEncoder {
         }
 
         // Assume data is sequence of fixed-size values (4 or 8 bytes)
-        let value_size = if data.len() % 8 == 0 { 8 } else if data.len() % 4 == 0 { 4 } else {
+        let value_size = if data.len() % 8 == 0 {
+            8
+        } else if data.len() % 4 == 0 {
+            4
+        } else {
             return Err(Error::EncodingError(
                 "BYTE_STREAM_SPLIT requires data length to be multiple of 4 or 8 bytes".to_string(),
             ));
@@ -36,9 +40,14 @@ impl Encoder for ByteStreamSplitEncoder {
         }
 
         // Assume data is sequence of fixed-size values (4 or 8 bytes)
-        let value_size = if expected_length % 8 == 0 { 8 } else if expected_length % 4 == 0 { 4 } else {
+        let value_size = if expected_length % 8 == 0 {
+            8
+        } else if expected_length % 4 == 0 {
+            4
+        } else {
             return Err(Error::DecodingError(
-                "BYTE_STREAM_SPLIT requires expected length to be multiple of 4 or 8 bytes".to_string(),
+                "BYTE_STREAM_SPLIT requires expected length to be multiple of 4 or 8 bytes"
+                    .to_string(),
             ));
         };
 
@@ -71,10 +80,13 @@ fn encode_byte_stream_split(data: &[u8], value_size: usize, num_values: usize) -
 fn decode_byte_stream_split(data: &[u8], value_size: usize, num_values: usize) -> Result<Vec<u8>> {
     let expected_data_len = num_values * value_size;
     if data.len() != expected_data_len {
-        return Err(Error::DecodingError(
-            format!("Data length {} doesn't match expected {} for {} values of size {}",
-                data.len(), expected_data_len, num_values, value_size)
-        ));
+        return Err(Error::DecodingError(format!(
+            "Data length {} doesn't match expected {} for {} values of size {}",
+            data.len(),
+            expected_data_len,
+            num_values,
+            value_size
+        )));
     }
 
     let mut result = vec![0u8; expected_data_len];

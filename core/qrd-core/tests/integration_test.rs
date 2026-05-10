@@ -1,9 +1,9 @@
 //! Integration test for Phase 2 advanced features
 
 use qrd_core::ecc::{EccCodec, EccConfig};
-use qrd_core::encryption::{EncryptionConfig, encrypt, decrypt};
-use qrd_core::utils::simd::SimdOps;
+use qrd_core::encryption::{decrypt, encrypt, EncryptionConfig};
 use qrd_core::utils::bit_ops::*;
+use qrd_core::utils::simd::SimdOps;
 
 #[test]
 fn test_encryption_integration() {
@@ -35,8 +35,8 @@ fn test_ecc_integration() {
     let mut shards = encoded.shards_as_options();
     shards[0] = None; // Lose first data chunk
 
-        // Recover
-        let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards).unwrap();
+    // Recover
+    let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards).unwrap();
     assert_eq!(recovered, original_data);
 }
 
@@ -132,7 +132,8 @@ fn test_combined_features() {
     shards[1] = None; // Lose a chunk
 
     // Recover with ECC
-        let ecc_recovered = qrd_core::ecc::decode_and_recover_with_options(&ecc_encoded, &shards).unwrap();
+    let ecc_recovered =
+        qrd_core::ecc::decode_and_recover_with_options(&ecc_encoded, &shards).unwrap();
 
     // Decrypt
     let final_decrypted = decrypt(&ecc_recovered, &encrypt_config).unwrap();

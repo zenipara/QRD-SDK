@@ -14,11 +14,11 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::encryption::EncryptionConfig;
 use crate::ecc::EccConfig;
+use crate::encryption::EncryptionConfig;
 use crate::error::Result;
 use crate::footer::Footer;
-use crate::metadata::{RowGroupStats, MetadataIndex};
+use crate::metadata::{MetadataIndex, RowGroupStats};
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
 use crate::validation::Validator;
@@ -61,7 +61,11 @@ impl Default for WriterConfig {
 
 /// Helper function to write QRD file header
 /// This is shared between FileWriter and StreamingWriter to avoid duplication
-pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
+pub(crate) fn write_header(
+    writer: &mut dyn Write,
+    schema: &Schema,
+    row_group_size: u32,
+) -> Result<()> {
     crate::utils::write_header(writer, schema, row_group_size)
 }
 
@@ -130,8 +134,15 @@ impl FileWriter {
             .collect();
 
         // Convert original row data to Option<Vec<u8>> for statistics (empty vec = null)
-        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
-            .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
+        let stats_row: Vec<Option<Vec<u8>>> = row
+            .iter()
+            .map(|col| {
+                if col.is_empty() {
+                    None
+                } else {
+                    Some(col.clone())
+                }
+            })
             .collect();
 
         // Update statistics
@@ -149,7 +160,7 @@ impl FileWriter {
     }
 
     /// Encrypt row group using per-column keys derived from master key
-    /// 
+    ///
     /// Each column is encrypted with a unique key derived from the master key
     /// and the column name, allowing selective decryption of specific columns.
     fn encrypt_row_group_per_column(
@@ -220,7 +231,8 @@ impl FileWriter {
             let processed_columns: Result<Vec<_>> = columns
                 .into_par_iter()
                 .map(|column| {
-                    let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
+                    let encoding =
+                        crate::encoding::select_encoding(&column.field_type, &column.data);
                     let mut temp_row_group = RowGroup::new(self.row_buffer.row_count());
                     temp_row_group.process_column(
                         column,
@@ -255,7 +267,7 @@ impl FileWriter {
 
         // Serialize and write row group with security pipeline
         let rg_bytes = row_group.serialize()?;
-        
+
         // STEP 1: Per-column or master encryption (if enabled)
         let encrypted_bytes = if let Some(ref enc_config) = self.config.encryption {
             if self.config.per_column_encryption {
@@ -289,7 +301,10 @@ impl FileWriter {
         self.row_group_count += 1;
 
         // Save current row group statistics and reset for next group
-        let completed_stats = std::mem::replace(&mut self.current_row_group_stats, RowGroupStats::new(&self.schema));
+        let completed_stats = std::mem::replace(
+            &mut self.current_row_group_stats,
+            RowGroupStats::new(&self.schema),
+        );
         self.row_group_stats.push(completed_stats);
 
         Ok(())
@@ -316,17 +331,14 @@ impl FileWriter {
         );
 
         // Build footer with metadata index
-        let mut footer = Footer::with_metadata_index(
-            self.schema.clone(),
-            self.total_rows,
-            metadata_index
-        );
+        let mut footer =
+            Footer::with_metadata_index(self.schema.clone(), self.total_rows, metadata_index);
         footer.row_group_offsets = self.row_group_offsets;
 
         let footer_bytes = footer.serialize()?;
 
         // CRC computed over serialized footer bytes
-        
+
         // Encrypt footer if enabled and configured
         let final_footer_bytes = if self.config.encrypt_footer {
             if let Some(ref enc_config) = self.config.encryption {
@@ -474,7 +486,8 @@ mod tests {
         }
         writer.finish().unwrap();
 
-        let reader = FileReader::with_decryption(temp.path(), EncryptionConfig::new(key).unwrap()).unwrap();
+        let reader =
+            FileReader::with_decryption(temp.path(), EncryptionConfig::new(key).unwrap()).unwrap();
         assert_eq!(reader.row_count(), 3);
         let decoded_columns = reader.read_decoded_row_group(0).unwrap();
         assert_eq!(decoded_columns.len(), 2);
@@ -525,17 +538,24 @@ mod tests {
         }
 
         let reader = FileReader::with_security(temp.path(), None, config.ecc.clone()).unwrap();
-        assert!(reader.read_row_group(0).is_err(), "Corrupted ECC-protected row group should be rejected by checksum verification");
+        assert!(
+            reader.read_row_group(0).is_err(),
+            "Corrupted ECC-protected row group should be rejected by checksum verification"
+        );
     }
 
     #[test]
     fn test_column_statistics_null_count_roundtrip() {
         use tempfile::NamedTempFile;
-        
+
         let temp = NamedTempFile::new().unwrap();
 
         let schema = crate::schema::SchemaBuilder::new()
-            .add_field("opt", crate::schema::FieldType::String, crate::schema::Nullability::Optional)
+            .add_field(
+                "opt",
+                crate::schema::FieldType::String,
+                crate::schema::Nullability::Optional,
+            )
             .unwrap()
             .build()
             .unwrap();
@@ -548,7 +568,9 @@ mod tests {
                     writer.write_row(vec![vec![]]).unwrap(); // null represented as empty
                 } else {
                     let s = format!("row_{}", i);
-                    let mut v = Vec::new(); v.extend_from_slice(&(s.len() as u32).to_le_bytes()); v.extend_from_slice(s.as_bytes());
+                    let mut v = Vec::new();
+                    v.extend_from_slice(&(s.len() as u32).to_le_bytes());
+                    v.extend_from_slice(s.as_bytes());
                     writer.write_row(vec![v]).unwrap();
                 }
             }
@@ -558,7 +580,8 @@ mod tests {
         // Read file bytes and parse footer to inspect metadata index
         let raw = std::fs::read(temp.path()).unwrap();
         let len = raw.len();
-        let footer_len = u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
+        let footer_len =
+            u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
         let footer_start = len - 4 - footer_len;
         let footer_bytes = &raw[footer_start..footer_start + footer_len];
         let footer = crate::footer::Footer::deserialize(footer_bytes).unwrap();
@@ -576,7 +599,11 @@ mod tests {
         let temp = NamedTempFile::new().unwrap();
 
         let schema = crate::schema::SchemaBuilder::new()
-            .add_field("v", crate::schema::FieldType::Int32, crate::schema::Nullability::Required)
+            .add_field(
+                "v",
+                crate::schema::FieldType::Int32,
+                crate::schema::Nullability::Required,
+            )
             .unwrap()
             .build()
             .unwrap();
@@ -585,7 +612,9 @@ mod tests {
         {
             let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
             for i in 1..=100 {
-                writer.write_row(vec![(i as i32).to_le_bytes().to_vec()]).unwrap();
+                writer
+                    .write_row(vec![(i as i32).to_le_bytes().to_vec()])
+                    .unwrap();
             }
             writer.finish().unwrap();
         }
@@ -594,7 +623,8 @@ mod tests {
         let len = raw.len();
         // Footer format: [footer_bytes][footer_length: u32]
         // footer_length is the last 4 bytes
-        let footer_len = u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
+        let footer_len =
+            u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
         let footer_start = len - 4 - footer_len;
         let footer_bytes = &raw[footer_start..footer_start + footer_len];
         let footer = crate::footer::Footer::deserialize(footer_bytes).unwrap();
@@ -641,15 +671,15 @@ mod tests {
         // Write data
         {
             let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-            
+
             // Write a row (1 column with 8 bytes for Int64)
             let row = vec![vec![1u8, 0, 0, 0, 0, 0, 0, 0]]; // 1 as little-endian i64
             writer.write_row(row).unwrap();
-            
+
             // Write another row
             let row = vec![vec![2u8, 0, 0, 0, 0, 0, 0, 0]]; // 2 as little-endian i64
             writer.write_row(row).unwrap();
-            
+
             writer.finish().unwrap();
         }
 

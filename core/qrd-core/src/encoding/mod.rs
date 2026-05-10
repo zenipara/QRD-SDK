@@ -3,13 +3,13 @@
 use crate::error::{Error, Result};
 use std::fmt;
 
-pub mod plain;
-pub mod rle;
-pub mod delta_binary;
 pub mod bit_packed;
+pub mod byte_stream_split;
+pub mod delta_binary;
 pub mod delta_byte_array;
 pub mod dictionary_rle;
-pub mod byte_stream_split;
+pub mod plain;
+pub mod rle;
 
 /// PASSTHROUGH encoder for pre-serialized data.
 pub struct PassthroughEncoder;
@@ -120,9 +120,13 @@ pub fn get_encoder(encoding: EncodingType) -> Result<Box<dyn Encoder>> {
         EncodingType::Rle => Ok(Box::new(rle::RleEncoder::new())),
         EncodingType::DeltaBinary => Ok(Box::new(delta_binary::DeltaBinaryEncoder::new())),
         EncodingType::BitPacked => Ok(Box::new(bit_packed::BitPackedEncoder::new())),
-        EncodingType::DeltaByteArray => Ok(Box::new(delta_byte_array::DeltaByteArrayEncoder::new())),
+        EncodingType::DeltaByteArray => {
+            Ok(Box::new(delta_byte_array::DeltaByteArrayEncoder::new()))
+        }
         EncodingType::DictionaryRle => Ok(Box::new(dictionary_rle::DictionaryRleEncoder::new())),
-        EncodingType::ByteStreamSplit => Ok(Box::new(byte_stream_split::ByteStreamSplitEncoder::new())),
+        EncodingType::ByteStreamSplit => {
+            Ok(Box::new(byte_stream_split::ByteStreamSplitEncoder::new()))
+        }
         EncodingType::Passthrough => Ok(Box::new(PassthroughEncoder::new())),
         // All variants handled above; no fallback required.
     }
@@ -166,7 +170,9 @@ fn read_int_at(field_type: &crate::schema::FieldType, data: &[u8], index: usize)
         }
         match field_type {
             crate::schema::FieldType::Int8 => data[offset] as i8 as i64,
-            crate::schema::FieldType::Int16 => i16::from_le_bytes([data[offset], data[offset + 1]]) as i64,
+            crate::schema::FieldType::Int16 => {
+                i16::from_le_bytes([data[offset], data[offset + 1]]) as i64
+            }
             crate::schema::FieldType::Int32 => i32::from_le_bytes([
                 data[offset],
                 data[offset + 1],
@@ -271,7 +277,11 @@ fn is_low_cardinality(data: &[u8], max_distinct: usize) -> bool {
 
 /// Check if integer data has low cardinality
 #[allow(dead_code)]
-fn is_low_cardinality_integers(field_type: &crate::schema::FieldType, data: &[u8], max_distinct: usize) -> bool {
+fn is_low_cardinality_integers(
+    field_type: &crate::schema::FieldType,
+    data: &[u8],
+    max_distinct: usize,
+) -> bool {
     if let Some(size) = field_type.fixed_size() {
         if data.len() % size != 0 {
             return false;

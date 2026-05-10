@@ -3,8 +3,10 @@
 //! Demonstrates how to use the memory profiling utilities to track
 //! memory usage during QRD operations.
 
+use qrd_core::memory_profiling::{
+    profile_reader_memory_usage, profile_writer_memory_usage, MemoryProfileScope,
+};
 use qrd_core::prelude::*;
-use qrd_core::memory_profiling::{profile_writer_memory_usage, profile_reader_memory_usage, MemoryProfileScope};
 use tempfile::NamedTempFile;
 
 fn main() -> Result<()> {
@@ -29,7 +31,8 @@ fn main() -> Result<()> {
     println!("\nProfiling memory usage during write operation...");
     let (_res, write_stats) = qrd_core::memory_profiling::MemoryProfiler::profile(|| {
         // Perform a write workload
-        let mut writer = qrd_core::writer::FileWriter::new(temp_file.path(), schema.clone()).unwrap();
+        let mut writer =
+            qrd_core::writer::FileWriter::new(temp_file.path(), schema.clone()).unwrap();
         for i in 0..1000 {
             let blob = vec![(i % 256) as u8; 128];
             let data = serialize_blob(&blob);
@@ -39,9 +42,15 @@ fn main() -> Result<()> {
     });
 
     println!("Write operation memory statistics:");
-    println!("  Peak memory usage: {}", format_memory_size(write_stats.peak_bytes));
+    println!(
+        "  Peak memory usage: {}",
+        format_memory_size(write_stats.peak_bytes)
+    );
     println!("  Total allocations: {}", write_stats.total_allocations);
-    println!("  Total bytes allocated: {}", format_memory_size(write_stats.total_bytes_allocated));
+    println!(
+        "  Total bytes allocated: {}",
+        format_memory_size(write_stats.total_bytes_allocated)
+    );
 
     // Profile memory usage during reading
     println!("\nProfiling memory usage during read operation...");
@@ -52,9 +61,15 @@ fn main() -> Result<()> {
     });
 
     println!("Read operation memory statistics:");
-    println!("  Peak memory usage: {}", format_memory_size(read_stats.peak_bytes));
+    println!(
+        "  Peak memory usage: {}",
+        format_memory_size(read_stats.peak_bytes)
+    );
     println!("  Total allocations: {}", read_stats.total_allocations);
-    println!("  Total bytes allocated: {}", format_memory_size(read_stats.total_bytes_allocated));
+    println!(
+        "  Total bytes allocated: {}",
+        format_memory_size(read_stats.total_bytes_allocated)
+    );
 
     // Demonstrate scoped profiling
     println!("\nDemonstrating scoped memory profiling...");

@@ -1,7 +1,7 @@
 //! RLE (Run-Length Encoding) implementation
 
-use crate::error::Result;
 use super::Encoder;
+use crate::error::Result;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::Cursor;
 

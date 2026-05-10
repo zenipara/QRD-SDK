@@ -2,13 +2,13 @@
 //!
 //! Ensures deterministic output and backward compatibility across QRD versions
 
+use qrd_core::error::Result;
 use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::writer::FileWriter;
-use qrd_core::error::Result;
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use std::collections::HashMap;
 
 // ============================================================================
 // GOLDEN TEST VECTOR GENERATION & VALIDATION
@@ -22,29 +22,32 @@ fn test_golden_vector_generation() {
 
     // Generate v1 vectors
     generate_golden_basic_types(&file_path).expect("Generation failed");
-    
+
     // Read file metadata
     let file1_size = fs::metadata(&file_path)
         .expect("Failed to read metadata")
         .len();
-    
+
     // Read file hash
     let file1_hash = calculate_file_hash(&file_path);
 
     // Generate again in same session
     let file_path2 = temp_dir.path().join("golden_basic_2.qrd");
     generate_golden_basic_types(&file_path2).expect("Generation failed");
-    
+
     let file2_size = fs::metadata(&file_path2)
         .expect("Failed to read metadata")
         .len();
-    
+
     let file2_hash = calculate_file_hash(&file_path2);
 
     // Files should be identical (deterministic output)
     assert_eq!(file1_size, file2_size, "File sizes should match");
-    assert_eq!(file1_hash, file2_hash, "File hashes should match for deterministic output");
-    
+    assert_eq!(
+        file1_hash, file2_hash,
+        "File hashes should match for deterministic output"
+    );
+
     println!("✓ Golden vector generation is deterministic");
 }
 
@@ -92,9 +95,8 @@ fn test_backward_compatibility_v1_0() {
     create_minimal_file(&file_path).expect("File creation failed");
 
     // Should still be readable with v1.2
-    let reader = FileReader::new(&file_path)
-        .expect("Failed to open file");
-    
+    let reader = FileReader::new(&file_path).expect("Failed to open file");
+
     assert_eq!(reader.row_count(), 50, "Should read correct row count");
     println!("✓ v1.0 files are backward compatible");
 }
@@ -132,10 +134,10 @@ fn test_encoding_compatibility() {
     // Read back and validate
     let reader = FileReader::new(&file_path).expect("Failed");
     assert_eq!(reader.row_count(), 100);
-    
+
     let columns = reader.read_decoded_row_group(0).expect("Failed");
     assert_eq!(columns.len(), 3);
-    
+
     println!("✓ All encodings are read correctly");
 }
 
@@ -185,10 +187,10 @@ fn test_type_roundtrip() {
         // Read back
         let reader = FileReader::new(&file_path).expect("Failed");
         assert_eq!(reader.row_count(), 1, "Failed for type {}", type_name);
-        
+
         let columns = reader.read_decoded_row_group(0).expect("Failed");
         assert_eq!(columns.len(), 1, "Failed for type {}", type_name);
-        
+
         println!("✓ Type {} round-trips correctly", type_name);
     }
 }
@@ -239,7 +241,10 @@ fn test_schema_determinism() {
         .build()
         .expect("Failed");
 
-    assert_eq!(schema1.schema_id, schema2.schema_id, "Identical schemas should have identical IDs");
+    assert_eq!(
+        schema1.schema_id, schema2.schema_id,
+        "Identical schemas should have identical IDs"
+    );
     println!("✓ Schema determinism verified");
 }
 
@@ -298,7 +303,7 @@ fn test_large_file_performance() {
     // Verify
     let reader = FileReader::new(&file_path).expect("Failed");
     assert_eq!(reader.row_count(), 5000);
-    
+
     println!("✓ Large file handling works");
 }
 
@@ -333,7 +338,7 @@ fn test_statistics_collection() {
     // Verify
     let reader = FileReader::new(&file_path).expect("Failed");
     assert_eq!(reader.row_count(), 100);
-    
+
     println!("✓ Statistics collection works");
 }
 

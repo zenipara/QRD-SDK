@@ -2,7 +2,7 @@
 
 pub mod entropy;
 
-pub use entropy::{EntropyCalculator, CompressionSelector};
+pub use entropy::{CompressionSelector, EntropyCalculator};
 
 use std::fmt;
 
@@ -84,10 +84,7 @@ pub fn compress(
 }
 
 /// Decompress data
-pub fn decompress(
-    data: &[u8],
-    codec: CompressionCodec,
-) -> crate::error::Result<Vec<u8>> {
+pub fn decompress(data: &[u8], codec: CompressionCodec) -> crate::error::Result<Vec<u8>> {
     match codec {
         CompressionCodec::None => Ok(data.to_vec()),
         CompressionCodec::Zstd => decompress_zstd(data),

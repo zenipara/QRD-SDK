@@ -156,7 +156,9 @@ pub struct RowGroupStats {
 impl RowGroupStats {
     /// Create new row group statistics
     pub fn new(schema: &Schema) -> Self {
-        let column_stats = schema.fields.iter()
+        let column_stats = schema
+            .fields
+            .iter()
             .map(|field| ColumnStats::new(field.name.clone(), field.field_type))
             .collect();
 
@@ -238,7 +240,9 @@ impl FilterResult {
     /// Combine two filter results
     pub fn combine(self, other: FilterResult) -> FilterResult {
         match (self, other) {
-            (FilterResult::MustNotPass, _) | (_, FilterResult::MustNotPass) => FilterResult::MustNotPass,
+            (FilterResult::MustNotPass, _) | (_, FilterResult::MustNotPass) => {
+                FilterResult::MustNotPass
+            }
             _ => FilterResult::MayPass,
         }
     }
@@ -258,7 +262,11 @@ impl QueryOptimizer {
     }
 
     /// Optimize row group access based on filters
-    pub fn optimize_access(&self, row_group_stats: &[RowGroupStats], filters: &[ColumnFilterSpec]) -> Vec<usize> {
+    pub fn optimize_access(
+        &self,
+        row_group_stats: &[RowGroupStats],
+        filters: &[ColumnFilterSpec],
+    ) -> Vec<usize> {
         let mut accessible_groups = Vec::new();
 
         for (idx, stats) in row_group_stats.iter().enumerate() {
@@ -271,7 +279,11 @@ impl QueryOptimizer {
     }
 
     /// Estimate result count based on statistics
-    pub fn estimate_result_count(&self, row_group_stats: &[RowGroupStats], filters: &[ColumnFilterSpec]) -> u64 {
+    pub fn estimate_result_count(
+        &self,
+        row_group_stats: &[RowGroupStats],
+        filters: &[ColumnFilterSpec],
+    ) -> u64 {
         let mut total_estimate = 0u64;
 
         for stats in row_group_stats {
@@ -303,7 +315,11 @@ pub struct MetadataIndex {
 
 impl MetadataIndex {
     /// Create metadata index from footer and statistics
-    pub fn new(schema: &Schema, row_group_offsets: Vec<u64>, row_group_stats: Vec<RowGroupStats>) -> Self {
+    pub fn new(
+        schema: &Schema,
+        row_group_offsets: Vec<u64>,
+        row_group_stats: Vec<RowGroupStats>,
+    ) -> Self {
         let mut column_indices = std::collections::HashMap::new();
 
         for (idx, field) in schema.fields.iter().enumerate() {
@@ -337,7 +353,8 @@ impl MetadataIndex {
 
     /// Get statistics for a specific column across all row groups
     pub fn get_column_stats(&self, column_index: usize) -> Vec<&ColumnStats> {
-        self.row_group_stats.iter()
+        self.row_group_stats
+            .iter()
             .filter_map(|rg_stats| rg_stats.column_stats.get(column_index))
             .collect()
     }

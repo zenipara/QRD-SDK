@@ -11,9 +11,9 @@ pub mod parser;
 pub use builder::FooterBuilder;
 pub use parser::FooterParser;
 
-use crate::schema::Schema;
 use crate::error::Result;
 use crate::metadata::MetadataIndex;
+use crate::schema::Schema;
 use serde::{Deserialize, Serialize};
 
 /// Footer structure
@@ -55,7 +55,11 @@ impl Footer {
     }
 
     /// Create footer with metadata index
-    pub fn with_metadata_index(schema: Schema, row_count: u32, metadata_index: MetadataIndex) -> Self {
+    pub fn with_metadata_index(
+        schema: Schema,
+        row_count: u32,
+        metadata_index: MetadataIndex,
+    ) -> Self {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

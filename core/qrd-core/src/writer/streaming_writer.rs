@@ -9,9 +9,9 @@
 
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
-use crate::error::Result;
-use crate::encryption::EncryptionConfig;
 use crate::ecc::EccConfig;
+use crate::encryption::EncryptionConfig;
+use crate::error::Result;
 use crate::schema::Schema;
 use crate::validation::Validator;
 use crate::writer::buffer_pool::{BufferPool, BufferPoolConfig};
@@ -107,8 +107,15 @@ impl<W: Write> StreamingWriter<W> {
         }
 
         // Update statistics similar to FileWriter
-        let stats_row: Vec<Option<Vec<u8>>> = row.iter()
-            .map(|col| if col.is_empty() { None } else { Some(col.clone()) })
+        let stats_row: Vec<Option<Vec<u8>>> = row
+            .iter()
+            .map(|col| {
+                if col.is_empty() {
+                    None
+                } else {
+                    Some(col.clone())
+                }
+            })
             .collect();
         self.current_row_group_stats.update_row(&stats_row);
 
@@ -138,7 +145,7 @@ impl<W: Write> StreamingWriter<W> {
 
         // Process each column
         let mut row_group = crate::rowgroup::RowGroup::new(self.row_buffer.row_count());
-        
+
         for column in columns {
             let encoding = crate::encoding::select_encoding(&column.field_type, &column.data);
             row_group.process_column(
@@ -187,7 +194,10 @@ impl<W: Write> StreamingWriter<W> {
         self.row_group_count += 1;
 
         // Save and reset statistics
-        let completed_stats = std::mem::replace(&mut self.current_row_group_stats, crate::metadata::RowGroupStats::new(&self.schema));
+        let completed_stats = std::mem::replace(
+            &mut self.current_row_group_stats,
+            crate::metadata::RowGroupStats::new(&self.schema),
+        );
         self.row_group_stats.push(completed_stats);
 
         Ok(())
@@ -202,7 +212,7 @@ impl<W: Write> StreamingWriter<W> {
     }
 
     /// Encrypt row group using per-column keys derived from master key
-    /// 
+    ///
     /// Each column is encrypted with a unique key derived from the master key
     /// and the column name, allowing selective decryption of specific columns.
     fn encrypt_row_group_per_column(
@@ -311,8 +321,8 @@ impl<W: Write> StreamingWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::{FieldType, Nullability, SchemaBuilder};
     use std::io::Cursor;
-    use crate::schema::{SchemaBuilder, FieldType, Nullability};
 
     fn make_schema(names: Vec<&str>) -> crate::schema::Schema {
         let mut builder = SchemaBuilder::new();
@@ -349,7 +359,9 @@ mod tests {
                 inner.extend_from_slice(buf);
                 Ok(buf.len())
             }
-            fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
         }
 
         let shared = Arc::new(Mutex::new(Vec::new()));
@@ -366,7 +378,8 @@ mod tests {
         let buf = shared.lock().unwrap();
         let len = buf.len();
         assert!(len > 12);
-        let footer_len = u32::from_le_bytes([buf[len - 4], buf[len - 3], buf[len - 2], buf[len - 1]]) as usize;
+        let footer_len =
+            u32::from_le_bytes([buf[len - 4], buf[len - 3], buf[len - 2], buf[len - 1]]) as usize;
         let footer_start = len - 4 - footer_len;
         let footer_bytes = &buf[footer_start..footer_start + footer_len];
         let footer = crate::footer::Footer::deserialize(footer_bytes)?;
@@ -381,7 +394,7 @@ mod tests {
         let buffer = Cursor::new(Vec::new());
         let mut config = StreamingWriterConfig::default();
         config.row_group_size = 100;
-        
+
         let mut writer = StreamingWriter::with_config(buffer, schema, config)?;
 
         // Write should stay bounded

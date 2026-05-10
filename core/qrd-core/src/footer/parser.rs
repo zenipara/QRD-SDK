@@ -75,9 +75,10 @@ impl FooterParser {
         let rg_index = (row_index / row_group_size) as usize;
 
         if rg_index >= footer.row_group_offsets.len() {
-            return Err(crate::error::Error::InvalidData(
-                format!("Row {} beyond available row groups", row_index),
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Row {} beyond available row groups",
+                row_index
+            )));
         }
 
         Ok(rg_index)
@@ -103,9 +104,10 @@ impl FooterParser {
         file_size: u64,
     ) -> Result<(u64, u64)> {
         if rg_index >= footer.row_group_offsets.len() {
-            return Err(crate::error::Error::InvalidData(
-                format!("Row group {} not found", rg_index),
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Row group {} not found",
+                rg_index
+            )));
         }
 
         let start = footer.row_group_offsets[rg_index];
@@ -136,7 +138,11 @@ mod tests {
         let mut builder = crate::schema::SchemaBuilder::new();
         for name in names {
             builder = builder
-                .add_field(name, crate::schema::FieldType::Blob, crate::schema::Nullability::Required)
+                .add_field(
+                    name,
+                    crate::schema::FieldType::Blob,
+                    crate::schema::Nullability::Required,
+                )
                 .unwrap();
         }
         builder.build().unwrap()

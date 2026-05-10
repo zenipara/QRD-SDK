@@ -40,7 +40,9 @@ impl Encoder for DictionaryRleEncoder {
 fn parse_fixed_values(data: &[u8], size: usize) -> Result<Vec<Vec<u8>>> {
     if data.len() % size != 0 {
         return Err(Error::EncodingError(format!(
-            "Data length {} not divisible by value size {}", data.len(), size
+            "Data length {} not divisible by value size {}",
+            data.len(),
+            size
         )));
     }
 
@@ -117,13 +119,17 @@ fn decode_dictionary_rle(data: &[u8], count: usize) -> Result<Vec<Vec<u8>>> {
     let mut dict = Vec::with_capacity(dict_size);
     for _ in 0..dict_size {
         if offset + 4 > data.len() {
-            return Err(Error::DecodingError("Dictionary entry length missing".to_string()));
+            return Err(Error::DecodingError(
+                "Dictionary entry length missing".to_string(),
+            ));
         }
         let entry_len = u32::from_le_bytes(data[offset..offset + 4].try_into().unwrap()) as usize;
         offset += 4;
 
         if offset + entry_len > data.len() {
-            return Err(Error::DecodingError("Dictionary entry data missing".to_string()));
+            return Err(Error::DecodingError(
+                "Dictionary entry data missing".to_string(),
+            ));
         }
         dict.push(data[offset..offset + entry_len].to_vec());
         offset += entry_len;
@@ -201,13 +207,15 @@ mod tests {
         let encoder = DictionaryRleEncoder::new();
 
         // Create data with repeated values
-        let values = vec![
-            42i64, 42, 42, 100, 100, 42, 200
-        ];
+        let values = vec![42i64, 42, 42, 100, 100, 42, 200];
         let data = serialize_fixed_values(
-            &values.iter().map(|&v| v.to_le_bytes().to_vec()).collect::<Vec<_>>(),
-            8
-        ).unwrap();
+            &values
+                .iter()
+                .map(|&v| v.to_le_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            8,
+        )
+        .unwrap();
 
         let encoded = encoder.encode(&data).unwrap();
         let decoded = encoder.decode(&encoded, values.len()).unwrap();
@@ -222,9 +230,13 @@ mod tests {
         let encoder = DictionaryRleEncoder::new();
         let values = vec![42i64];
         let data = serialize_fixed_values(
-            &values.iter().map(|&v| v.to_le_bytes().to_vec()).collect::<Vec<_>>(),
-            8
-        ).unwrap();
+            &values
+                .iter()
+                .map(|&v| v.to_le_bytes().to_vec())
+                .collect::<Vec<_>>(),
+            8,
+        )
+        .unwrap();
 
         let encoded = encoder.encode(&data).unwrap();
         let decoded = encoder.decode(&encoded, 1).unwrap();

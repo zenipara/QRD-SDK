@@ -4,7 +4,7 @@
 //! compression algorithms, and reader types.
 
 use qrd_core::prelude::*;
-use qrd_core::reader::{PartialReader, PartialReadConfig};
+use qrd_core::reader::{PartialReadConfig, PartialReader};
 use qrd_core::writer::{StreamingWriter, StreamingWriterConfig};
 use std::io::Cursor;
 use tempfile::NamedTempFile;
@@ -34,7 +34,13 @@ fn test_file_writer_reader_roundtrip() {
         (1i64, "Alice", 95.5f64, true, Some(b"tag1,tag2".to_vec())),
         (2i64, "Bob", 87.2f64, false, Some(b"tag3".to_vec())),
         (3i64, "Charlie", 91.8f64, true, None::<Vec<u8>>),
-        (4i64, "Diana", 88.9f64, true, Some(b"tag4,tag5,tag6".to_vec())),
+        (
+            4i64,
+            "Diana",
+            88.9f64,
+            true,
+            Some(b"tag4,tag5,tag6".to_vec()),
+        ),
         (5i64, "Eve", 93.3f64, false, Some(b"tag7".to_vec())),
     ];
 
@@ -47,9 +53,20 @@ fn test_file_writer_reader_roundtrip() {
             let name_bytes = serialize_string(name);
             let score_bytes = score.to_le_bytes().to_vec();
             let active_bytes = vec![*active as u8];
-            let tags_bytes = tags.as_ref().map(|t| serialize_blob(t.as_slice())).unwrap_or_default();
+            let tags_bytes = tags
+                .as_ref()
+                .map(|t| serialize_blob(t.as_slice()))
+                .unwrap_or_default();
 
-            writer.write_row(vec![id_bytes, name_bytes, score_bytes, active_bytes, tags_bytes]).unwrap();
+            writer
+                .write_row(vec![
+                    id_bytes,
+                    name_bytes,
+                    score_bytes,
+                    active_bytes,
+                    tags_bytes,
+                ])
+                .unwrap();
         }
 
         writer.finish().unwrap();
@@ -70,7 +87,8 @@ fn test_file_writer_reader_roundtrip() {
 
         // Verify each row
         for (i, row) in all_rows.iter().enumerate() {
-            let (expected_id, expected_name, expected_score, expected_active, expected_tags) = &test_rows[i];
+            let (expected_id, expected_name, expected_score, expected_active, expected_tags) =
+                &test_rows[i];
 
             // Parse ID (first 8 bytes)
             let id = i64::from_le_bytes(row[0..8].try_into().unwrap());
@@ -287,9 +305,9 @@ fn test_all_encodings_roundtrip() {
 
         let mut offset = 0usize;
         for expected in &values {
-                let (actual, new_offset) = deserialize_string(&col[offset..]);
-                assert_eq!(actual, *expected);
-                offset += new_offset;
+            let (actual, new_offset) = deserialize_string(&col[offset..]);
+            assert_eq!(actual, *expected);
+            offset += new_offset;
         }
     }
 }
@@ -299,7 +317,11 @@ fn test_all_encodings_roundtrip() {
 fn test_compression_roundtrip() {
     use qrd_core::compression::CompressionCodec;
 
-    let compressions = vec![CompressionCodec::None, CompressionCodec::Zstd, CompressionCodec::Lz4];
+    let compressions = vec![
+        CompressionCodec::None,
+        CompressionCodec::Zstd,
+        CompressionCodec::Lz4,
+    ];
 
     for compression in compressions {
         println!("Testing compression roundtrip: {:?}", compression);

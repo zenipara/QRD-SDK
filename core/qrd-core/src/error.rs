@@ -95,10 +95,18 @@ impl fmt::Display for Error {
                 write!(f, "CRC mismatch: expected {}, got {}", expected, actual)
             }
             Error::RowCountMismatch { expected, actual } => {
-                write!(f, "Row count mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "Row count mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             Error::ColumnCountMismatch { expected, actual } => {
-                write!(f, "Column count mismatch: expected {}, got {}", expected, actual)
+                write!(
+                    f,
+                    "Column count mismatch: expected {}, got {}",
+                    expected, actual
+                )
             }
             Error::TypeMismatch(msg) => write!(f, "Type mismatch: {}", msg),
             Error::ConfigError(msg) => write!(f, "Config error: {}", msg),

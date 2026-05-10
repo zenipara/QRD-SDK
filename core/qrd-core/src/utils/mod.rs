@@ -9,7 +9,11 @@ pub mod bit_ops;
 pub mod simd;
 
 /// Write QRD file header to a writer
-pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
+pub(crate) fn write_header(
+    writer: &mut dyn Write,
+    schema: &Schema,
+    row_group_size: u32,
+) -> Result<()> {
     // Magic bytes
     writer.write_all(crate::QRD_MAGIC)?;
     // Version
@@ -90,7 +94,9 @@ pub mod varint {
             let value = (encoded >> 1) as i64 ^ -((encoded & 1) as i64);
             Ok((value, bytes))
         } else {
-            Err(crate::error::Error::DecodingError("Invalid varint".to_string()))
+            Err(crate::error::Error::DecodingError(
+                "Invalid varint".to_string(),
+            ))
         }
     }
 }
@@ -133,9 +139,9 @@ pub mod bits {
 
 /// Read/write helpers
 pub mod rwhelper {
+    use crate::error::Result;
     use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
     use std::io::Cursor;
-    use crate::error::Result;
 
     /// Read u32 little-endian
     pub fn read_u32_le(data: &[u8]) -> Result<u32> {

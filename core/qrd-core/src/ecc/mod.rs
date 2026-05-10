@@ -60,8 +60,9 @@ impl EccCodec {
         // For Reed-Solomon, we need at least 1 data shard
         // We'll determine the actual data shard count during encoding
         Ok(EccCodec {
-            rs: ReedSolomon::new(1, config.parity_chunks as usize)
-                .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec: {}", e)))?,
+            rs: ReedSolomon::new(1, config.parity_chunks as usize).map_err(|e| {
+                Error::EccError(format!("Failed to create Reed-Solomon codec: {}", e))
+            })?,
             config,
         })
     }
@@ -94,11 +95,14 @@ impl EccCodec {
         }
 
         // Reconstruct Reed-Solomon codec with correct data shard count
-        self.rs = ReedSolomon::new(data_shards, self.config.parity_chunks as usize)
-            .map_err(|e| Error::EccError(format!("Failed to reconstruct Reed-Solomon codec: {}", e)))?;
+        self.rs =
+            ReedSolomon::new(data_shards, self.config.parity_chunks as usize).map_err(|e| {
+                Error::EccError(format!("Failed to reconstruct Reed-Solomon codec: {}", e))
+            })?;
 
         // Encode parity
-        self.rs.encode(&mut shards)
+        self.rs
+            .encode(&mut shards)
             .map_err(|e| Error::EccError(format!("Failed to encode parity: {}", e)))?;
 
         Ok(EccEncodedData {
@@ -124,8 +128,13 @@ impl EccCodec {
         let mut shard_data: Vec<Option<Vec<u8>>> = shards.iter().cloned().collect();
 
         // Reconstruct Reed-Solomon codec
-        let rs = ReedSolomon::new(data_shards, self.config.parity_chunks as usize)
-            .map_err(|e| Error::EccError(format!("Failed to create Reed-Solomon codec for decoding: {}", e)))?;
+        let rs =
+            ReedSolomon::new(data_shards, self.config.parity_chunks as usize).map_err(|e| {
+                Error::EccError(format!(
+                    "Failed to create Reed-Solomon codec for decoding: {}",
+                    e
+                ))
+            })?;
 
         // Reconstruct data
         rs.reconstruct(&mut shard_data)
@@ -212,7 +221,7 @@ impl EccEncodedData {
         use std::io::Write;
 
         let mut result = Vec::new();
-        
+
         // Metadata header
         result.write_u64::<LittleEndian>(self.original_size as u64)?;
         result.write_u32::<LittleEndian>(self.data_shards as u32)?;
@@ -251,7 +260,9 @@ impl EccEncodedData {
 
         // Validate basic header values
         if data_shards == 0 {
-            return Err(Error::EccError("EccEncodedData: data_shards must be > 0".to_string()));
+            return Err(Error::EccError(
+                "EccEncodedData: data_shards must be > 0".to_string(),
+            ));
         }
 
         if data_shards + parity_shards != total_shards {
@@ -392,7 +403,8 @@ mod tests {
     #[test]
     fn test_encode_decode_roundtrip() {
         let config = EccConfig::with_chunk_size(2, 64).unwrap();
-        let original_data = b"Hello, QRD ECC world! This is a test message for Reed-Solomon encoding.";
+        let original_data =
+            b"Hello, QRD ECC world! This is a test message for Reed-Solomon encoding.";
 
         let encoded = encode(original_data, &config).unwrap();
         assert_eq!(encoded.parity_shards, 2);

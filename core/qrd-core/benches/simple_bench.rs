@@ -29,9 +29,7 @@ fn simd_benchmarks(c: &mut Criterion) {
 
         // Test find runs
         group.bench_with_input(BenchmarkId::new("find_runs", size), &size, |b, _| {
-            let runs_data: Vec<u8> = (0..size as u32)
-                .map(|i| ((i % 10) as u8))
-                .collect();
+            let runs_data: Vec<u8> = (0..size as u32).map(|i| ((i % 10) as u8)).collect();
             b.iter(|| {
                 let result = simd.find_runs(black_box(&runs_data));
                 black_box(result);
@@ -40,9 +38,7 @@ fn simd_benchmarks(c: &mut Criterion) {
 
         // Test count bytes
         group.bench_with_input(BenchmarkId::new("count_bytes", size), &size, |b, _| {
-            let bytes: Vec<u8> = (0..size as u32)
-                .map(|i| ((i % 255) as u8))
-                .collect();
+            let bytes: Vec<u8> = (0..size as u32).map(|i| ((i % 255) as u8)).collect();
             b.iter(|| {
                 let result = simd.count_bytes(black_box(&bytes), 42);
                 black_box(result);
@@ -52,13 +48,10 @@ fn simd_benchmarks(c: &mut Criterion) {
         // Test XOR operation
         group.bench_with_input(BenchmarkId::new("xor", size), &size, |b, _| {
             let dst = vec![0u8; size];
-            let src: Vec<u8> = (0..size as u32)
-                .map(|i| ((i % 255) as u8))
-                .collect();
+            let src: Vec<u8> = (0..size as u32).map(|i| ((i % 255) as u8)).collect();
             b.iter(|| {
                 let mut dst_copy = dst.clone();
-                simd.xor(black_box(&mut dst_copy), black_box(&src))
-                    .unwrap();
+                simd.xor(black_box(&mut dst_copy), black_box(&src)).unwrap();
                 black_box(dst_copy);
             });
         });
@@ -66,9 +59,7 @@ fn simd_benchmarks(c: &mut Criterion) {
         // Test memcpy
         group.bench_with_input(BenchmarkId::new("memcpy", size), &size, |b, _| {
             let dst = vec![0u8; size];
-            let src: Vec<u8> = (0..size as u32)
-                .map(|i| ((i % 255) as u8))
-                .collect();
+            let src: Vec<u8> = (0..size as u32).map(|i| ((i % 255) as u8)).collect();
             b.iter(|| {
                 let mut dst_copy = dst.clone();
                 simd.memcpy(black_box(&mut dst_copy), black_box(&src))
@@ -110,8 +101,7 @@ fn varint_benchmarks(c: &mut Criterion) {
             b.iter(|| {
                 let mut results = Vec::new();
                 for data in &encoded {
-                    let (decoded, _) =
-                        qrd_core::utils::varint::decode(black_box(data)).unwrap();
+                    let (decoded, _) = qrd_core::utils::varint::decode(black_box(data)).unwrap();
                     results.push(decoded);
                 }
                 black_box(results);

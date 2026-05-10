@@ -9,9 +9,9 @@
 
 use crate::error::Result;
 use crate::footer::{Footer, FooterParser};
+use crate::metadata::{ColumnFilterSpec, MetadataIndex};
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
-use crate::metadata::{ColumnFilterSpec, MetadataIndex};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Configuration for partial reads
@@ -85,9 +85,10 @@ impl<R: Read + Seek> PartialReader<R> {
     /// Read raw row group data from file
     fn read_row_group_data(&mut self, rg_index: usize) -> Result<Vec<u8>> {
         if rg_index >= self.footer.row_group_offsets.len() {
-            return Err(crate::error::Error::InvalidData(
-                format!("Row group {} not found", rg_index),
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Row group {} not found",
+                rg_index
+            )));
         }
 
         // Get row group offset
@@ -130,19 +131,25 @@ impl<R: Read + Seek> PartialReader<R> {
     }
 
     /// Read specific columns by index
-    pub fn read_columns(&mut self, rg_index: usize, column_indices: &[usize]) -> Result<Vec<Vec<u8>>> {
+    pub fn read_columns(
+        &mut self,
+        rg_index: usize,
+        column_indices: &[usize],
+    ) -> Result<Vec<Vec<u8>>> {
         if rg_index >= self.footer.row_group_offsets.len() {
-            return Err(crate::error::Error::InvalidData(
-                format!("Row group {} not found", rg_index),
-            ));
+            return Err(crate::error::Error::InvalidData(format!(
+                "Row group {} not found",
+                rg_index
+            )));
         }
 
         // Validate column indices
         for &col_idx in column_indices {
             if col_idx >= self.footer.schema.fields.len() {
-                return Err(crate::error::Error::InvalidData(
-                    format!("Column {} out of bounds", col_idx),
-                ));
+                return Err(crate::error::Error::InvalidData(format!(
+                    "Column {} out of bounds",
+                    col_idx
+                )));
             }
         }
 
@@ -167,12 +174,18 @@ impl<R: Read + Seek> PartialReader<R> {
     }
 
     /// Read columns by name with query pushdown optimization
-    pub fn read_columns_by_name(&mut self, column_names: &[&str], filters: &[ColumnFilterSpec]) -> Result<Vec<Vec<u8>>> {
+    pub fn read_columns_by_name(
+        &mut self,
+        column_names: &[&str],
+        filters: &[ColumnFilterSpec],
+    ) -> Result<Vec<Vec<u8>>> {
         // Convert column names to indices
         let column_indices: Vec<usize> = column_names
             .iter()
             .filter_map(|name| {
-                self.footer.schema.fields
+                self.footer
+                    .schema
+                    .fields
                     .iter()
                     .position(|field| &field.name == name)
             })
@@ -188,7 +201,11 @@ impl<R: Read + Seek> PartialReader<R> {
     }
 
     /// Read columns with query pushdown optimization
-    pub fn read_columns_with_filters(&mut self, column_indices: &[usize], filters: &[ColumnFilterSpec]) -> Result<Vec<Vec<u8>>> {
+    pub fn read_columns_with_filters(
+        &mut self,
+        column_indices: &[usize],
+        filters: &[ColumnFilterSpec],
+    ) -> Result<Vec<Vec<u8>>> {
         // Use metadata index for query pushdown if available
         if let Some(metadata_index) = &self.footer.metadata_index {
             let accessible_groups = metadata_index.get_accessible_row_groups(filters);
@@ -240,10 +257,19 @@ impl<R: Read + Seek> PartialReader<R> {
     }
 
     /// Get column statistics for a specific column
-    pub fn get_column_statistics(&self, column_name: &str) -> Option<Vec<crate::metadata::ColumnStats>> {
+    pub fn get_column_statistics(
+        &self,
+        column_name: &str,
+    ) -> Option<Vec<crate::metadata::ColumnStats>> {
         if let Some(metadata_index) = &self.footer.metadata_index {
             if let Some(col_idx) = metadata_index.get_column_index(column_name) {
-                Some(metadata_index.get_column_stats(col_idx).into_iter().cloned().collect())
+                Some(
+                    metadata_index
+                        .get_column_stats(col_idx)
+                        .into_iter()
+                        .cloned()
+                        .collect(),
+                )
             } else {
                 None
             }
@@ -253,7 +279,11 @@ impl<R: Read + Seek> PartialReader<R> {
     }
 
     /// Read partial row (only specified columns) from a specific row group
-    pub fn read_partial_row(&mut self, rg_index: usize, column_indices: &[usize]) -> Result<Option<Vec<Option<Vec<u8>>>>> {
+    pub fn read_partial_row(
+        &mut self,
+        rg_index: usize,
+        column_indices: &[usize],
+    ) -> Result<Option<Vec<Option<Vec<u8>>>>> {
         if rg_index >= self.footer.row_group_offsets.len() {
             return Ok(None);
         }

@@ -13,13 +13,13 @@ use std::ffi::c_void;
 use std::ffi::CStr;
 use std::io::{self, Write};
 use std::os::raw::{c_char, c_int};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::slice;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex as StdMutex;
 use std::sync::{Arc, Mutex};
 use tempfile::NamedTempFile;
-use std::sync::Mutex as StdMutex;
 
 extern "C" {
     fn malloc(size: usize) -> *mut c_void;
@@ -115,7 +115,9 @@ fn split_row_bytes(row_bytes: &[u8], schema: &Schema) -> Option<Vec<Vec<u8>>> {
             None => {
                 let len_end = offset.checked_add(4)?;
                 let len_bytes = row_bytes.get(offset..len_end)?;
-                let len = u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]]) as usize;
+                let len =
+                    u32::from_le_bytes([len_bytes[0], len_bytes[1], len_bytes[2], len_bytes[3]])
+                        as usize;
                 let value_end = len_end.checked_add(len)?;
                 let value_bytes = row_bytes.get(len_end..value_end)?;
 
@@ -144,7 +146,12 @@ fn collect_rows(reader: &CoreFileReader, schema: &Schema) -> Option<Vec<Vec<u8>>
     eprintln!("collect_rows: found {} row_groups", row_groups.len());
 
     for (rg_idx, row_group) in row_groups.into_iter().enumerate() {
-        eprintln!("collect_rows: processing row_group {}: row_count={}, columns={}", rg_idx, row_group.row_count, row_group.columns.len());
+        eprintln!(
+            "collect_rows: processing row_group {}: row_count={}, columns={}",
+            rg_idx,
+            row_group.row_count,
+            row_group.columns.len()
+        );
 
         let decoded_columns = match row_group.decode_columns() {
             Ok(dc) => dc,
@@ -158,9 +165,23 @@ fn collect_rows(reader: &CoreFileReader, schema: &Schema) -> Option<Vec<Vec<u8>>
         let mut col_offsets = vec![0usize; row_group.columns.len()];
 
         for (col_idx, col_buf) in decoded_columns.iter().enumerate() {
-            let encoded_len = row_group.columns.get(col_idx).map(|c| c.encoded_data.len()).unwrap_or(0);
-            let encoding_id = row_group.columns.get(col_idx).map(|c| c.encoding.to_id()).unwrap_or(255);
-            eprintln!("collect_rows: decoded column {} length={} encoding={} encoded_len={}", col_idx, col_buf.len(), encoding_id, encoded_len);
+            let encoded_len = row_group
+                .columns
+                .get(col_idx)
+                .map(|c| c.encoded_data.len())
+                .unwrap_or(0);
+            let encoding_id = row_group
+                .columns
+                .get(col_idx)
+                .map(|c| c.encoding.to_id())
+                .unwrap_or(255);
+            eprintln!(
+                "collect_rows: decoded column {} length={} encoding={} encoded_len={}",
+                col_idx,
+                col_buf.len(),
+                encoding_id,
+                encoded_len
+            );
             if col_buf.len() > 0 {
                 let preview = &col_buf[..std::cmp::min(8, col_buf.len())];
                 eprintln!("collect_rows: col {} preview={:02x?}", col_idx, preview);
@@ -264,8 +285,12 @@ mod tests {
     #[test]
     fn test_collect_rows_roundtrip() {
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
-        builder = builder.add_field("name", FieldType::String, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap();
+        builder = builder
+            .add_field("name", FieldType::String, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
 
         let buffer = SharedVecWriter::new();
@@ -295,21 +320,26 @@ mod tests {
     fn test_writer_zero_length_finish() {
         // Test that writer with no rows finishes without calling malloc(0)
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
 
         let buffer = SharedVecWriter::new();
         let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Finish without writing any rows
         writer.finish().unwrap();
         let bytes = buffer.bytes();
-        
+
         // The finish() call should produce a valid QRD file (with headers/footer)
         // but in the FFI finish, if somehow the final buffer is empty, it should
         // safely return NULL/0 without calling malloc(0).
         // This test primarily validates the structural soundness of zero-row output.
-        assert!(bytes.len() > 0, "Expected QRD file with headers/footer even for zero rows");
+        assert!(
+            bytes.len() > 0,
+            "Expected QRD file with headers/footer even for zero rows"
+        );
     }
 }
 
@@ -344,7 +374,8 @@ pub extern "C" fn qrd_last_error_ffi() -> *const c_char {
     LAST_ERROR.with(|e| {
         if let Ok(err) = e.lock() {
             ERROR_MSG_PTR.with(|ptr| {
-                let c_str = std::ffi::CString::new(err.clone()).unwrap_or_else(|_| std::ffi::CString::new("Unknown error").unwrap());
+                let c_str = std::ffi::CString::new(err.clone())
+                    .unwrap_or_else(|_| std::ffi::CString::new("Unknown error").unwrap());
                 *ptr.borrow_mut() = c_str.into_raw();
                 *ptr.borrow()
             })
@@ -444,8 +475,10 @@ pub extern "C" fn qrd_schema_builder_free(ptr: *mut QrdSchemaBuilder) {
 }
 
 fn qrd_schema_builder_free_impl(ptr: *mut QrdSchemaBuilder) {
-    if !ptr.is_null() { 
-        unsafe { drop(Box::from_raw(ptr)); } 
+    if !ptr.is_null() {
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
     }
 }
 
@@ -488,23 +521,29 @@ fn qrd_schema_builder_add_field_impl(
     }
 
     let name_str = unsafe { CStr::from_ptr(name).to_string_lossy().into_owned() };
-    
+
     let ft = match field_type_from_int(field_type) {
         Ok(ft) => ft,
-        Err(e) => { set_last_error(e); return -1; }
+        Err(e) => {
+            set_last_error(e);
+            return -1;
+        }
     };
 
     let null = match nullability_from_int(nullability) {
         Ok(n) => n,
-        Err(e) => { set_last_error(e); return -1; }
+        Err(e) => {
+            set_last_error(e);
+            return -1;
+        }
     };
 
     unsafe {
         let builder_ref = &mut *builder;
-        
+
         // Extract the builder from Option, or create a new one if none exists
         let old_builder = builder_ref.0.take().unwrap_or_else(SchemaBuilder::new);
-        
+
         // Add the new field
         match old_builder.add_field(name_str, ft, null) {
             Ok(new_builder) => {
@@ -539,15 +578,13 @@ pub extern "C" fn qrd_schema_builder_build_ffi(builder: *mut QrdSchemaBuilder) -
 
     unsafe {
         let builder_ref = &mut *builder;
-        
+
         // Extract the builder from Option
         match builder_ref.0.take() {
             Some(inner_builder) => {
                 // Build the schema
                 match inner_builder.build() {
-                    Ok(schema) => {
-                        Box::into_raw(Box::new(FFISchema { inner: schema }))
-                    }
+                    Ok(schema) => Box::into_raw(Box::new(FFISchema { inner: schema })),
                     Err(e) => {
                         set_last_error(format!("build failed: {}", e));
                         std::ptr::null_mut()
@@ -566,7 +603,9 @@ pub extern "C" fn qrd_schema_builder_build_ffi(builder: *mut QrdSchemaBuilder) -
 #[no_mangle]
 pub extern "C" fn qrd_schema_free_ffi(schema: *mut FFISchema) {
     if !schema.is_null() {
-        unsafe { drop(Box::from_raw(schema)); }
+        unsafe {
+            drop(Box::from_raw(schema));
+        }
     }
 }
 
@@ -597,10 +636,11 @@ pub extern "C" fn qrd_writer_new_ffi(schema: *const FFISchema) -> *mut FFIWriter
 
     unsafe {
         let buffer = SharedVecWriter::new();
-        let writer = match qrd_core::writer::StreamingWriter::new(buffer.clone(), (*schema).inner.clone()) {
-            Ok(writer) => writer,
-            Err(_) => return std::ptr::null_mut(),
-        };
+        let writer =
+            match qrd_core::writer::StreamingWriter::new(buffer.clone(), (*schema).inner.clone()) {
+                Ok(writer) => writer,
+                Err(_) => return std::ptr::null_mut(),
+            };
 
         let ffi_writer = FFIWriter {
             inner: Some(writer),
@@ -637,7 +677,9 @@ pub extern "C" fn qrd_writer_write_row_ffi(writer: *mut FFIWriter, row: *const F
             for (i, val) in row_ref.values.iter().enumerate() {
                 if val.is_empty() {
                     if let Some(field) = writer_ref.schema.fields.get(i) {
-                        if field.nullability == qrd_core::schema::Nullability::Optional && field.field_type.fixed_size().is_none() {
+                        if field.nullability == qrd_core::schema::Nullability::Optional
+                            && field.field_type.fixed_size().is_none()
+                        {
                             normalized.push(vec![0, 0, 0, 0]);
                             continue;
                         }
@@ -658,7 +700,11 @@ pub extern "C" fn qrd_writer_write_row_ffi(writer: *mut FFIWriter, row: *const F
 
 /// FFI function to finish writing.
 #[no_mangle]
-pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut u8, size: *mut usize) -> i32 {
+pub extern "C" fn qrd_writer_finish_ffi(
+    writer: *mut FFIWriter,
+    data: *mut *mut u8,
+    size: *mut usize,
+) -> i32 {
     if writer.is_null() || data.is_null() || size.is_null() {
         return -1;
     }
@@ -670,14 +716,14 @@ pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut 
                 Ok(()) => {
                     let buffer = writer_ref.buffer.bytes();
                     let len = buffer.len();
-                    
+
                     if len == 0 {
                         // For zero-length output, return NULL without calling malloc
                         *data = std::ptr::null_mut();
                         *size = 0;
                         return 0;
                     }
-                    
+
                     let ptr = match safe_malloc(len) {
                         Some(p) => p as *mut u8,
                         None => return -1,
@@ -689,8 +735,8 @@ pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut 
                     *size = len;
                     return 0;
                 }
-                Err(e) => { 
-                    set_last_error(e.to_string()); 
+                Err(e) => {
+                    set_last_error(e.to_string());
                     return -1;
                 }
             }
@@ -845,7 +891,11 @@ pub extern "C" fn qrd_row_field_count_ffi(row: *const FFIRow) -> usize {
 
 /// FFI function to get the bytes for a field in a row.
 #[no_mangle]
-pub extern "C" fn qrd_row_get_bytes_ffi(row: *const FFIRow, index: usize, size: *mut usize) -> *const u8 {
+pub extern "C" fn qrd_row_get_bytes_ffi(
+    row: *const FFIRow,
+    index: usize,
+    size: *mut usize,
+) -> *const u8 {
     if row.is_null() || size.is_null() {
         return std::ptr::null();
     }
@@ -928,9 +978,7 @@ pub extern "C" fn qrd_schema_new_ffi() -> *mut FFISchema {
     // Create an empty schema using SchemaBuilder
     let builder = SchemaBuilder::new();
     match builder.build() {
-        Ok(schema) => {
-            Box::into_raw(Box::new(FFISchema { inner: schema }))
-        }
+        Ok(schema) => Box::into_raw(Box::new(FFISchema { inner: schema })),
         Err(_) => std::ptr::null_mut(),
     }
 }

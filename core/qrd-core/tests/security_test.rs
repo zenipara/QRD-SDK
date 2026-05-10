@@ -3,14 +3,14 @@
 //! Tests encryption, key derivation, error correction, and corruption recovery
 //! to ensure production-grade security and resilience.
 
-use qrd_core::encryption::{EncryptionConfig, encrypt, decrypt};
 use qrd_core::ecc::{EccCodec, EccConfig};
-use qrd_core::validation::{CorruptionDetector, CorruptionType};
-use qrd_core::utils::simd::SimdOps;
-use qrd_core::utils::bit_ops::*;
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use qrd_core::writer::FileWriter;
+use qrd_core::encryption::{decrypt, encrypt, EncryptionConfig};
 use qrd_core::reader::FileReader;
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::utils::bit_ops::*;
+use qrd_core::utils::simd::SimdOps;
+use qrd_core::validation::{CorruptionDetector, CorruptionType};
+use qrd_core::writer::FileWriter;
 use std::fs;
 use std::path::Path;
 
@@ -34,17 +34,24 @@ fn test_encryption_various_sizes() {
 
     for (name, data) in test_cases {
         println!("Testing encryption with {:?} payload", name);
-        
+
         let encrypted = encrypt(&data, &config).expect("Encryption failed");
-        
+
         // Encrypted data should differ from original
         if !data.is_empty() {
-            assert_ne!(encrypted, data, "Encrypted data should differ from plaintext");
+            assert_ne!(
+                encrypted, data,
+                "Encrypted data should differ from plaintext"
+            );
         }
-        
+
         // Should decrypt successfully
         let decrypted = decrypt(&encrypted, &config).expect("Decryption failed");
-        assert_eq!(decrypted, data, "Decrypted data should match original for {:?}", name);
+        assert_eq!(
+            decrypted, data,
+            "Decrypted data should match original for {:?}",
+            name
+        );
     }
 }
 
@@ -60,12 +67,18 @@ fn test_encryption_nonce_uniqueness() {
 
     // Same plaintext with same key should produce different ciphertexts
     // (due to random nonce generation)
-    assert_ne!(encrypted1, encrypted2, "Nonces should be random, producing different ciphertexts");
+    assert_ne!(
+        encrypted1, encrypted2,
+        "Nonces should be random, producing different ciphertexts"
+    );
 
     // But both should decrypt to the same plaintext
     let decrypted1 = decrypt(&encrypted1, &config).expect("First decryption failed");
     let decrypted2 = decrypt(&encrypted2, &config).expect("Second decryption failed");
-    assert_eq!(decrypted1, decrypted2, "Both should decrypt to original plaintext");
+    assert_eq!(
+        decrypted1, decrypted2,
+        "Both should decrypt to original plaintext"
+    );
 }
 
 /// Test password-based key derivation
@@ -73,21 +86,24 @@ fn test_encryption_nonce_uniqueness() {
 fn test_password_key_derivation() {
     let password = "secure_password_123!@#";
     let salt = EncryptionConfig::generate_salt();
-    
+
     // Derive key from password
-    let config1 = EncryptionConfig::derive_from_password(password, &salt)
-        .expect("Key derivation failed");
-    let config2 = EncryptionConfig::derive_from_password(password, &salt)
-        .expect("Key derivation failed");
-    
+    let config1 =
+        EncryptionConfig::derive_from_password(password, &salt).expect("Key derivation failed");
+    let config2 =
+        EncryptionConfig::derive_from_password(password, &salt).expect("Key derivation failed");
+
     // Same password + salt should produce same key
-    assert_eq!(config1.key, config2.key, "Same password/salt should produce identical keys");
-    
+    assert_eq!(
+        config1.key, config2.key,
+        "Same password/salt should produce identical keys"
+    );
+
     let data = b"test data";
-    
+
     // Encrypt with first config
     let encrypted = encrypt(data, &config1).expect("Encryption failed");
-    
+
     // Should decrypt with second config (same key)
     let decrypted = decrypt(&encrypted, &config2).expect("Decryption failed");
     assert_eq!(decrypted, data, "Should decrypt with same derived key");
@@ -99,14 +115,17 @@ fn test_password_derivation_different_salts() {
     let password = "test_password";
     let salt1 = EncryptionConfig::generate_salt();
     let salt2 = EncryptionConfig::generate_salt();
-    
-    let config1 = EncryptionConfig::derive_from_password(password, &salt1)
-        .expect("Key derivation failed");
-    let config2 = EncryptionConfig::derive_from_password(password, &salt2)
-        .expect("Key derivation failed");
-    
+
+    let config1 =
+        EncryptionConfig::derive_from_password(password, &salt1).expect("Key derivation failed");
+    let config2 =
+        EncryptionConfig::derive_from_password(password, &salt2).expect("Key derivation failed");
+
     // Different salts should produce different keys
-    assert_ne!(config1.key, config2.key, "Different salts should produce different keys");
+    assert_ne!(
+        config1.key, config2.key,
+        "Different salts should produce different keys"
+    );
 }
 
 /// Test that decryption fails with wrong key
@@ -121,7 +140,7 @@ fn test_decryption_with_wrong_key() {
     // Try to decrypt with wrong key
     let wrong_key = EncryptionConfig::generate_key();
     let wrong_config = EncryptionConfig::new(wrong_key).unwrap();
-    
+
     let result = decrypt(&encrypted, &wrong_config);
     // Should fail or produce garbage
     match result {
@@ -142,57 +161,55 @@ fn test_decryption_with_wrong_key() {
 /// Test ECC encoding and recovery with single parity chunk
 #[test]
 fn test_ecc_single_parity_recovery() {
-    let config = EccConfig::with_chunk_size(2, 1024)
-        .expect("ECC config creation failed");
-    let mut codec = EccCodec::new(config.clone())
-        .expect("ECC codec creation failed");
+    let config = EccConfig::with_chunk_size(2, 1024).expect("ECC config creation failed");
+    let mut codec = EccCodec::new(config.clone()).expect("ECC codec creation failed");
 
     let original_data = vec![42u8; 2048];
-    let encoded = codec.encode(&original_data)
-        .expect("ECC encoding failed");
+    let encoded = codec.encode(&original_data).expect("ECC encoding failed");
 
     // Lose one data chunk
     let mut shards = encoded.shards_as_options();
     assert!(shards.len() >= 3, "Should have at least 2 data + 1 parity");
-    
+
     shards[0] = None; // Lose first data chunk
 
     // Should be able to recover
     let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
         .expect("ECC recovery failed");
-    assert_eq!(recovered, original_data, "Recovered data should match original");
+    assert_eq!(
+        recovered, original_data,
+        "Recovered data should match original"
+    );
 }
 
 /// Test ECC with multiple losses
 #[test]
 fn test_ecc_multiple_losses_recovery() {
-    let config = EccConfig::with_chunk_size(4, 512)
-        .expect("ECC config creation failed");
-    let mut codec = EccCodec::new(config.clone())
-        .expect("ECC codec creation failed");
+    let config = EccConfig::with_chunk_size(4, 512).expect("ECC config creation failed");
+    let mut codec = EccCodec::new(config.clone()).expect("ECC codec creation failed");
 
     let original_data = vec![99u8; 2048];
-    let encoded = codec.encode(&original_data)
-        .expect("ECC encoding failed");
+    let encoded = codec.encode(&original_data).expect("ECC encoding failed");
 
     let mut shards = encoded.shards_as_options();
-    
+
     // Lose multiple chunks (up to parity count)
     shards[0] = None;
     shards[1] = None;
 
     let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
         .expect("ECC recovery failed");
-    assert_eq!(recovered, original_data, "Should recover from multiple losses");
+    assert_eq!(
+        recovered, original_data,
+        "Should recover from multiple losses"
+    );
 }
 
 /// Test ECC with edge case data patterns
 #[test]
 fn test_ecc_edge_cases() {
-    let config = EccConfig::with_chunk_size(2, 256)
-        .expect("ECC config creation failed");
-    let mut codec = EccCodec::new(config.clone())
-        .expect("ECC codec creation failed");
+    let config = EccConfig::with_chunk_size(2, 256).expect("ECC config creation failed");
+    let mut codec = EccCodec::new(config.clone()).expect("ECC codec creation failed");
 
     let test_cases = vec![
         ("all_zeros", vec![0u8; 512]),
@@ -215,16 +232,19 @@ fn test_ecc_edge_cases() {
 
     for (name, data) in test_cases {
         println!("Testing ECC with {:?} pattern", name);
-        
-        let encoded = codec.encode(&data)
-            .expect("ECC encoding failed");
-        
+
+        let encoded = codec.encode(&data).expect("ECC encoding failed");
+
         let mut shards = encoded.shards_as_options();
         shards[0] = None;
-        
+
         let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
             .expect("ECC recovery failed");
-        assert_eq!(recovered, data, "Should recover {:?} pattern correctly", name);
+        assert_eq!(
+            recovered, data,
+            "Should recover {:?} pattern correctly",
+            name
+        );
     }
 }
 
@@ -251,18 +271,21 @@ fn test_corruption_detection() {
 #[test]
 fn test_crc32_corruption_detection() {
     let data = b"test data for CRC validation";
-    
+
     // Calculate correct CRC
     use qrd_core::validation::Validator;
     let correct_crc = Validator::calculate_crc32(data);
-    
+
     // Corrupt a byte and recalculate
     let mut corrupted = data.to_vec();
     corrupted[0] ^= 0xFF; // Flip bits
     let corrupted_crc = Validator::calculate_crc32(&corrupted);
-    
+
     // CRCs should differ
-    assert_ne!(correct_crc, corrupted_crc, "CRC should change when data is corrupted");
+    assert_ne!(
+        correct_crc, corrupted_crc,
+        "CRC should change when data is corrupted"
+    );
 }
 
 // ============================================================================
@@ -274,21 +297,17 @@ fn test_crc32_corruption_detection() {
 fn test_encryption_with_ecc_integration() {
     let encryption_key = EncryptionConfig::generate_key();
     let encryption_config = EncryptionConfig::new(encryption_key).unwrap();
-    
-    let ecc_config = EccConfig::with_chunk_size(2, 512)
-        .expect("ECC config creation failed");
-    let mut ecc_codec = EccCodec::new(ecc_config.clone())
-        .expect("ECC codec creation failed");
+
+    let ecc_config = EccConfig::with_chunk_size(2, 512).expect("ECC config creation failed");
+    let mut ecc_codec = EccCodec::new(ecc_config.clone()).expect("ECC codec creation failed");
 
     let original_data = b"sensitive data protected by encryption and ECC".to_vec();
 
     // Step 1: Encrypt
-    let encrypted = encrypt(&original_data, &encryption_config)
-        .expect("Encryption failed");
+    let encrypted = encrypt(&original_data, &encryption_config).expect("Encryption failed");
 
     // Step 2: Apply ECC
-    let with_ecc = ecc_codec.encode(&encrypted)
-        .expect("ECC encoding failed");
+    let with_ecc = ecc_codec.encode(&encrypted).expect("ECC encoding failed");
 
     // Step 3: Simulate loss and recovery
     let mut shards = with_ecc.shards_as_options();
@@ -299,8 +318,7 @@ fn test_encryption_with_ecc_integration() {
         .expect("ECC recovery failed");
 
     // Step 5: Decrypt
-    let recovered = decrypt(&recovered_encrypted, &encryption_config)
-        .expect("Decryption failed");
+    let recovered = decrypt(&recovered_encrypted, &encryption_config).expect("Decryption failed");
 
     assert_eq!(recovered, original_data, "Should recover original data");
 }
@@ -361,13 +379,14 @@ fn test_encrypted_file_roundtrip() {
 
     // Write encrypted data
     {
-        let mut writer = FileWriter::new(&file_path, schema.clone())
-            .expect("Failed to create writer");
+        let mut writer =
+            FileWriter::new(&file_path, schema.clone()).expect("Failed to create writer");
 
         for i in 0..10 {
             let id_bytes = (i as i64).to_le_bytes().to_vec();
             let data_bytes = format!("encrypted_row_{}", i).into_bytes();
-            writer.write_row(vec![id_bytes, data_bytes])
+            writer
+                .write_row(vec![id_bytes, data_bytes])
                 .expect("Failed to write row");
         }
 
@@ -379,11 +398,9 @@ fn test_encrypted_file_roundtrip() {
     assert!(!file_data.is_empty(), "File should not be empty");
 
     // Verify file structure
-    let reader = FileReader::new(&file_path)
-        .expect("Failed to create reader");
-    let rows = reader.rows()
-        .expect("Failed to read file");
-    
+    let reader = FileReader::new(&file_path).expect("Failed to create reader");
+    let rows = reader.rows().expect("Failed to read file");
+
     assert_eq!(rows.len(), 10, "Should read all rows");
 }
 
@@ -396,7 +413,7 @@ fn test_encrypted_file_roundtrip() {
 fn test_encryption_determinism_with_fixed_nonce() {
     // Note: True deterministic encryption requires fixed nonce, which reduces security
     // This test documents the behavior but production should use random nonces
-    
+
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
     let data = b"test data for determinism check";
@@ -407,7 +424,7 @@ fn test_encryption_determinism_with_fixed_nonce() {
     // With random nonces, outputs should differ (this is correct behavior)
     if encrypted1 != encrypted2 {
         println!("Random nonce encryption produces different outputs - CORRECT");
-        
+
         // But they should decrypt to same plaintext
         let dec1 = decrypt(&encrypted1, &config).expect("Decryption failed");
         let dec2 = decrypt(&encrypted2, &config).expect("Decryption failed");
@@ -418,12 +435,9 @@ fn test_encryption_determinism_with_fixed_nonce() {
 /// Test ECC encoding determinism
 #[test]
 fn test_ecc_encoding_determinism() {
-    let config = EccConfig::with_chunk_size(2, 256)
-        .expect("ECC config creation failed");
-    let mut codec1 = EccCodec::new(config.clone())
-        .expect("ECC codec creation failed");
-    let mut codec2 = EccCodec::new(config)
-        .expect("ECC codec creation failed");
+    let config = EccConfig::with_chunk_size(2, 256).expect("ECC config creation failed");
+    let mut codec1 = EccCodec::new(config.clone()).expect("ECC codec creation failed");
+    let mut codec2 = EccCodec::new(config).expect("ECC codec creation failed");
 
     let data = vec![123u8; 512];
 
@@ -432,5 +446,9 @@ fn test_ecc_encoding_determinism() {
 
     // ECC encoding should be deterministic for same input
     // Compare serialized ECC bytes for determinism
-    assert_eq!(encoded1.to_bytes().unwrap(), encoded2.to_bytes().unwrap(), "ECC encoding should be deterministic");
+    assert_eq!(
+        encoded1.to_bytes().unwrap(),
+        encoded2.to_bytes().unwrap(),
+        "ECC encoding should be deterministic"
+    );
 }

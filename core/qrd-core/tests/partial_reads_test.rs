@@ -3,8 +3,8 @@
 //! Tests column statistics collection, query pushdown optimization,
 //! and metadata indexing functionality.
 
-use qrd_core::prelude::*;
 use qrd_core::metadata::{ColumnFilter, ColumnFilterSpec, QueryOptimizer};
+use qrd_core::prelude::*;
 use qrd_core::reader::PartialReader;
 use qrd_core::writer::{FileWriter, WriterConfig};
 use tempfile::NamedTempFile;
@@ -16,11 +16,16 @@ fn test_column_statistics_collection() {
 
     // Create schema
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
-        .add_field("score", FieldType::Float64, Nullability::Required).unwrap()
-        .add_field("category", FieldType::String, Nullability::Required).unwrap()
-        .add_field("optional_field", FieldType::Int32, Nullability::Optional).unwrap()
-        .build().unwrap();
+        .add_field("id", FieldType::Int64, Nullability::Required)
+        .unwrap()
+        .add_field("score", FieldType::Float64, Nullability::Required)
+        .unwrap()
+        .add_field("category", FieldType::String, Nullability::Required)
+        .unwrap()
+        .add_field("optional_field", FieldType::Int32, Nullability::Optional)
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Write test data
     {
@@ -30,7 +35,13 @@ fn test_column_statistics_collection() {
         for i in 0..100 {
             let id_bytes = (i as i64).to_le_bytes().to_vec();
             let score_bytes = ((i as f64) * 1.5).to_le_bytes().to_vec();
-            let category = if i % 3 == 0 { "A" } else if i % 3 == 1 { "B" } else { "C" };
+            let category = if i % 3 == 0 {
+                "A"
+            } else if i % 3 == 1 {
+                "B"
+            } else {
+                "C"
+            };
             let category_bytes = serialize_string(category);
 
             // Optional field: null for even i, value for odd i
@@ -40,14 +51,20 @@ fn test_column_statistics_collection() {
                 (i as i32).to_le_bytes().to_vec()
             };
 
-            writer.write_row(vec![id_bytes, score_bytes, category_bytes, optional_bytes]).unwrap();
+            writer
+                .write_row(vec![id_bytes, score_bytes, category_bytes, optional_bytes])
+                .unwrap();
         }
 
         writer.finish().unwrap();
     }
 
     // Read and verify statistics
-    let mut reader = PartialReader::new(std::fs::File::open(temp.path()).unwrap(), Default::default()).unwrap();
+    let mut reader = PartialReader::new(
+        std::fs::File::open(temp.path()).unwrap(),
+        Default::default(),
+    )
+    .unwrap();
 
     // Check that metadata index exists
     let metadata_index = reader.metadata_index().unwrap();
@@ -62,8 +79,16 @@ fn test_column_statistics_collection() {
     assert!(rg_stats.max_value.is_some());
 
     // Verify min/max values for id
-    let min_id = i64::from_le_bytes(rg_stats.min_value.as_ref().unwrap()[..8].try_into().unwrap());
-    let max_id = i64::from_le_bytes(rg_stats.max_value.as_ref().unwrap()[..8].try_into().unwrap());
+    let min_id = i64::from_le_bytes(
+        rg_stats.min_value.as_ref().unwrap()[..8]
+            .try_into()
+            .unwrap(),
+    );
+    let max_id = i64::from_le_bytes(
+        rg_stats.max_value.as_ref().unwrap()[..8]
+            .try_into()
+            .unwrap(),
+    );
     assert_eq!(min_id, 0);
     assert_eq!(max_id, 99);
 
@@ -81,21 +106,25 @@ fn test_query_pushdown_optimization() {
 
     // Create schema
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
-        .add_field("status", FieldType::Int32, Nullability::Required).unwrap()
-        .build().unwrap();
+        .add_field("id", FieldType::Int64, Nullability::Required)
+        .unwrap()
+        .add_field("status", FieldType::Int32, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Write test data with multiple row groups
     {
         let mut config = WriterConfig::default();
         config.row_group_size = 50;
         config.compression_level = 1;
-        
+
         let mut writer = FileWriter::with_config(
             std::fs::File::create(temp.path()).unwrap(),
             schema.clone(),
-            config
-        ).unwrap();
+            config,
+        )
+        .unwrap();
 
         for i in 0..200 {
             let id_bytes = (i as i64).to_le_bytes().to_vec();
@@ -109,15 +138,17 @@ fn test_query_pushdown_optimization() {
     }
 
     // Test query pushdown
-    let mut reader = PartialReader::new(std::fs::File::open(temp.path()).unwrap(), Default::default()).unwrap();
+    let mut reader = PartialReader::new(
+        std::fs::File::open(temp.path()).unwrap(),
+        Default::default(),
+    )
+    .unwrap();
 
     // Filter for status = 1 (should only match first row group)
-    let filters = vec![
-        ColumnFilterSpec {
-            column_index: 1, // status column
-            filter: ColumnFilter::Equal(1i32.to_le_bytes().to_vec()),
-        }
-    ];
+    let filters = vec![ColumnFilterSpec {
+        column_index: 1, // status column
+        filter: ColumnFilter::Equal(1i32.to_le_bytes().to_vec()),
+    }];
 
     // Estimate result count
     let estimated_count = reader.estimate_query_result_count(&filters);
@@ -129,7 +160,8 @@ fn test_query_pushdown_optimization() {
     // Should only return rows from first row group (ids 0-49)
     assert!(!result.is_empty());
     // Verify all returned rows have status = 1
-    for row in result.chunks(2) { // 2 columns per row
+    for row in result.chunks(2) {
+        // 2 columns per row
         if let Some(status_bytes) = row.get(1) {
             let status = i32::from_le_bytes(status_bytes[..4].try_into().unwrap());
             assert_eq!(status, 1);
@@ -144,11 +176,16 @@ fn test_column_selective_reads() {
 
     // Create schema
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
-        .add_field("name", FieldType::String, Nullability::Required).unwrap()
-        .add_field("score", FieldType::Float64, Nullability::Required).unwrap()
-        .add_field("active", FieldType::Boolean, Nullability::Required).unwrap()
-        .build().unwrap();
+        .add_field("id", FieldType::Int64, Nullability::Required)
+        .unwrap()
+        .add_field("name", FieldType::String, Nullability::Required)
+        .unwrap()
+        .add_field("score", FieldType::Float64, Nullability::Required)
+        .unwrap()
+        .add_field("active", FieldType::Boolean, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Write test data
     {
@@ -160,18 +197,26 @@ fn test_column_selective_reads() {
             let score_bytes = (i as f64 * 10.0).to_le_bytes().to_vec();
             let active_bytes = vec![(i % 2 == 0) as u8];
 
-            writer.write_row(vec![id_bytes, name_bytes, score_bytes, active_bytes]).unwrap();
+            writer
+                .write_row(vec![id_bytes, name_bytes, score_bytes, active_bytes])
+                .unwrap();
         }
 
         writer.finish().unwrap();
     }
 
     // Test column-selective reads
-    let mut reader = PartialReader::new(std::fs::File::open(temp.path()).unwrap(), Default::default()).unwrap();
+    let mut reader = PartialReader::new(
+        std::fs::File::open(temp.path()).unwrap(),
+        Default::default(),
+    )
+    .unwrap();
 
     // Read only id and score columns (indices 0 and 2)
     let column_indices = vec![0, 2];
-    let result = reader.read_columns_with_filters(&column_indices, &[]).unwrap();
+    let result = reader
+        .read_columns_with_filters(&column_indices, &[])
+        .unwrap();
 
     // Verify we got data
     assert!(!result.is_empty());
@@ -188,9 +233,12 @@ fn test_metadata_index_functionality() {
 
     // Create schema
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
-        .add_field("value", FieldType::Int32, Nullability::Required).unwrap()
-        .build().unwrap();
+        .add_field("id", FieldType::Int64, Nullability::Required)
+        .unwrap()
+        .add_field("value", FieldType::Int32, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
 
     // Write data
     {
@@ -204,7 +252,11 @@ fn test_metadata_index_functionality() {
     }
 
     // Test metadata index
-    let mut reader = PartialReader::new(std::fs::File::open(temp.path()).unwrap(), Default::default()).unwrap();
+    let mut reader = PartialReader::new(
+        std::fs::File::open(temp.path()).unwrap(),
+        Default::default(),
+    )
+    .unwrap();
     let metadata_index = reader.metadata_index().unwrap();
 
     // Test column index lookup
@@ -225,9 +277,12 @@ fn test_metadata_index_functionality() {
 #[test]
 fn test_query_optimizer() {
     let schema = SchemaBuilder::new()
-        .add_field("id", FieldType::Int64, Nullability::Required).unwrap()
-        .add_field("status", FieldType::Int32, Nullability::Required).unwrap()
-        .build().unwrap();
+        .add_field("id", FieldType::Int64, Nullability::Required)
+        .unwrap()
+        .add_field("status", FieldType::Int32, Nullability::Required)
+        .unwrap()
+        .build()
+        .unwrap();
 
     let optimizer = QueryOptimizer::new(schema.clone());
 
@@ -251,12 +306,10 @@ fn test_query_optimizer() {
     }
 
     // Test filter optimization
-    let filters = vec![
-        ColumnFilterSpec {
-            column_index: 1, // status column
-            filter: ColumnFilter::Equal(1i32.to_le_bytes().to_vec()),
-        }
-    ];
+    let filters = vec![ColumnFilterSpec {
+        column_index: 1, // status column
+        filter: ColumnFilter::Equal(1i32.to_le_bytes().to_vec()),
+    }];
 
     let accessible_groups = optimizer.optimize_access(&rg_stats, &filters);
     assert!(!accessible_groups.is_empty()); // Should find some groups
