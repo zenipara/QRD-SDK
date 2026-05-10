@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Docs
+# Documentation build validation
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  docs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,11 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps
 
-      - name: Upload benchmark results
+      - name: Upload docs
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: rust-docs
+          path: target/doc/

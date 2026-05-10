@@ -1,0 +1,47 @@
+name: SDK TypeScript
+# TypeScript SDK integration tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/typescript/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/typescript/**'
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Build TypeScript
+        run: |
+          cd sdk/typescript
+          npm run build
+
+      - name: Run tests
+        run: |
+          cd sdk/typescript
+          npm test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-dist
+          path: sdk/typescript/dist/

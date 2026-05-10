@@ -1,0 +1,52 @@
+name: SDK Java
+# Java SDK integration tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/java/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/java/**'
+
+jobs:
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Cache Maven
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2
+          key: ${{ runner.os }}-maven-${{ hashFiles('sdk/java/pom.xml') }}
+
+      - name: Build Java SDK
+        run: |
+          cd sdk/java
+          mvn clean compile
+
+      - name: Run Java tests
+        run: |
+          cd sdk/java
+          mvn test
+
+      - name: Package JAR
+        run: |
+          cd sdk/java
+          mvn package -DskipTests
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-jar
+          path: sdk/java/target/*.jar

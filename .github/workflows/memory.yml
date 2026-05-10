@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Memory
+# Bounded-memory validation
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  memory:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -16,6 +16,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -26,11 +29,13 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Run memory profiling tests
+        run: |
+          cargo test --workspace -- --ignored memory_profiling
+          valgrind --tool=massif --massif-out-file=massif.out.%p cargo test memory_profiling
 
-      - name: Upload benchmark results
+      - name: Upload memory reports
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: memory-reports
+          path: massif.out.*

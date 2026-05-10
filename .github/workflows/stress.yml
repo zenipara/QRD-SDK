@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Stress
+# Extreme workload stress tests
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  stress:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Build stress test binary
+        run: cargo build --bin stress_test --release
 
-      - name: Upload benchmark results
+      - name: Run stress tests
+        run: |
+          ./target/release/stress_test --huge-dataset
+          ./target/release/stress_test --parallel-readers 10
+          ./target/release/stress_test --repeated-flush 1000
+
+      - name: Upload stress logs
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: stress-logs
+          path: stress_output.log

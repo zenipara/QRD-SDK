@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Encryption
+# Encryption/ECC integration tests
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  encryption:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,19 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Run encryption tests
+        run: cargo test --workspace --features encryption -- --ignored encryption
 
-      - name: Upload benchmark results
+      - name: Run ECC tests
+        run: cargo test --workspace --features ecc -- --ignored ecc
+
+      - name: Validate encryption integration
+        run: |
+          # Test encryption/decryption roundtrip
+          cargo run --bin test_encryption
+
+      - name: Upload encryption test results
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: encryption-test-results
+          path: encryption_output.log

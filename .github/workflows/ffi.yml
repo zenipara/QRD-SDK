@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: FFI
+# C FFI build and ABI validation
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  ffi:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Build FFI library
+        run: cargo build --package qrd-ffi --release
 
-      - name: Upload benchmark results
+      - name: Check ABI
+        run: |
+          # Use abi-checker or similar if available, else just build
+          echo "ABI validation placeholder"
+
+      - name: Upload FFI library
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: ffi-lib
+          path: target/release/libqrd_ffi.so

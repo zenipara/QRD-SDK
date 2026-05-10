@@ -1,0 +1,42 @@
+name: Nightly
+# Heavy nightly validation suite
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # Daily at 2 AM
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-nightly-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run extended tests
+        run: cargo test --workspace --release -- --nocapture
+
+      - name: Run fuzzing longer
+        run: |
+          cargo install cargo-fuzz
+          cargo fuzz run footer_parser -- -runs=50000
+
+      - name: Run stress tests
+        run: cargo test --workspace -- --ignored stress
+
+      - name: Upload nightly report
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-report
+          path: nightly_output.log

@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Coverage
+# Code coverage generation
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  coverage:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -16,6 +16,9 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin
 
       - name: Cache Cargo
         uses: actions/cache@v4
@@ -26,11 +29,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Generate coverage
+        run: cargo tarpaulin --workspace --out Lcov --output-dir coverage
 
-      - name: Upload benchmark results
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: coverage/lcov.info
+
+      - name: Upload coverage report
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: coverage-report
+          path: coverage/

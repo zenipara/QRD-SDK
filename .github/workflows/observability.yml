@@ -1,0 +1,55 @@
+name: Observability
+# Metrics, logs, artifacts, diagnostics aggregation
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  observability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Collect metrics
+        run: |
+          # Collect various metrics
+          cargo build --workspace --release
+          du -sh target/ > build_size.txt
+          cargo tree > dependency_tree.txt
+
+      - name: Aggregate logs
+        run: |
+          # Aggregate logs from previous runs if available
+          echo "Log aggregation placeholder" > aggregated_logs.txt
+
+      - name: Run diagnostics
+        run: |
+          cargo clippy --workspace --message-format=json > clippy_diagnostics.json
+          cargo audit --json > audit_diagnostics.json
+
+      - name: Upload observability artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: observability-bundle
+          path: |
+            build_size.txt
+            dependency_tree.txt
+            aggregated_logs.txt
+            clippy_diagnostics.json
+            audit_diagnostics.json

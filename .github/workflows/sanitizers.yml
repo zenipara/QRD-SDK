@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Sanitizers
+# ASAN + TSAN + UBSAN runs
 
 on:
   push:
@@ -8,8 +8,11 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  sanitizers:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        sanitizer: [ address, thread, undefined ]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,11 +29,7 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
-
-      - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results
-          path: target/criterion/
+      - name: Run tests with ${{ matrix.sanitizer }} sanitizer
+        env:
+          RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+        run: cargo test --workspace --target x86_64-unknown-linux-gnu

@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Partial Read
+# Partial column read validation
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  partial-read:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,16 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Run partial read tests
+        run: cargo test --workspace -- --ignored partial_read
 
-      - name: Upload benchmark results
+      - name: Validate partial column reads
+        run: |
+          # Run specific partial read validation
+          cargo run --bin validate_partial_reads
+
+      - name: Upload partial read report
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
-          path: target/criterion/
+          name: partial-read-report
+          path: partial_read_output.log

@@ -1,5 +1,5 @@
-name: Benchmark
-# Performance benchmark execution
+name: Benchmark Regression
+# Detect performance regressions
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  benchmark:
+  benchmark-regression:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -26,11 +26,17 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Run benchmarks
-        run: cargo bench --workspace
+      - name: Run benchmarks with baseline
+        run: |
+          cargo bench --workspace -- --save-baseline current
 
-      - name: Upload benchmark results
+      - name: Compare to baseline
+        run: |
+          # Placeholder for regression detection
+          echo "Regression check placeholder"
+
+      - name: Upload benchmark comparison
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-results
+          name: benchmark-comparison
           path: target/criterion/

@@ -1,41 +1,68 @@
 name: CI
+# Core workspace compile + test + lint
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, develop ]
 
 permissions:
   contents: read
 
 jobs:
-  test:
-    name: Run tests and lint
+  ci:
+    name: Core CI Pipeline
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
     timeout-minutes: 60
 
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install stable Rust
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
 
-      - name: Cache Cargo dependencies
+      - name: Cache Cargo registry and target
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            cargo-${{ runner.os }}-
+            ${{ runner.os }}-cargo-
 
-      - name: Run cargo test
-        run: cargo test --all --workspace
+      - name: Build workspace
+        run: cargo build --workspace --release
 
-      - name: Run cargo clippy
-        run: cargo clippy --all --workspace
+      - name: Run tests
+        run: cargo test --workspace --verbose
+
+      - name: Run clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ github.run_id }}
+          path: |
+            target/debug/deps/*.xml
+            target/nextest/ci/junit.xml
+          retention-days: 30
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts-${{ github.run_id }}
+          path: target/release/
+          retention-days: 7

@@ -1,0 +1,63 @@
+name: Deterministic
+# Validate deterministic binary output
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  deterministic:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build test vector generator
+        run: cargo build --bin generate_test_vectors --release
+
+      - name: Generate test vectors run 1
+        run: ./target/release/generate_test_vectors --output test_vectors_run1
+
+      - name: Generate test vectors run 2
+        run: ./target/release/generate_test_vectors --output test_vectors_run2
+
+      - name: Generate test vectors run 3
+        run: ./target/release/generate_test_vectors --output test_vectors_run3
+
+      - name: Compute hashes
+        run: |
+          sha256sum test_vectors_run1/*.qrd > hashes1.txt
+          sha256sum test_vectors_run2/*.qrd > hashes2.txt
+          sha256sum test_vectors_run3/*.qrd > hashes3.txt
+
+      - name: Compare hashes
+        run: |
+          if ! diff hashes1.txt hashes2.txt; then
+            echo "Non-deterministic output between run 1 and 2"
+            exit 1
+          fi
+          if ! diff hashes1.txt hashes3.txt; then
+            echo "Non-deterministic output between run 1 and 3"
+            exit 1
+          fi
+          echo "All runs produced identical output"
+
+      - name: Upload test vectors
+        uses: actions/upload-artifact@v4
+        with:
+          name: deterministic-test-vectors
+          path: test_vectors_run1/

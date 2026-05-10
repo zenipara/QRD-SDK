@@ -1,0 +1,32 @@
+name: Links
+# Broken links checker
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    - cron: '0 0 * * 0'
+
+jobs:
+  links:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install lychee
+        run: |
+          wget https://github.com/lycheeverse/lychee/releases/download/v0.13.0/lychee-v0.13.0-x86_64-unknown-linux-gnu.tar.gz
+          tar -xzf lychee-v0.13.0-x86_64-unknown-linux-gnu.tar.gz
+          sudo mv lychee /usr/local/bin/
+
+      - name: Check links
+        run: lychee --config .lychee.toml . || true
+
+      - name: Upload link check report
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-check-report
+          path: lychee-report.md

@@ -1,0 +1,49 @@
+name: SDK Python
+# Python SDK integration tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/python/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/python/**'
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ '3.8', '3.9', '3.10', '3.11' ]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install maturin
+        run: pip install maturin
+
+      - name: Build Python wheel
+        run: |
+          cd sdk/python
+          maturin develop
+
+      - name: Run Python tests
+        run: |
+          cd sdk/python
+          python -m pytest tests/
+
+      - name: Upload Python wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-wheel-${{ matrix.python-version }}
+          path: sdk/python/target/wheels/*.whl
