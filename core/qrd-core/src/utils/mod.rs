@@ -5,6 +5,9 @@ use crate::schema::Schema;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
+pub mod bit_ops;
+pub mod simd;
+
 /// Write QRD file header to a writer
 pub(crate) fn write_header(writer: &mut dyn Write, schema: &Schema, row_group_size: u32) -> Result<()> {
     // Magic bytes
@@ -91,9 +94,6 @@ pub mod varint {
         }
     }
 }
-
-/// SIMD-accelerated operations
-pub mod simd;
 
 /// Bit packing utilities
 pub mod bits {

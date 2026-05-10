@@ -301,6 +301,11 @@ impl<W: Write> StreamingWriter<W> {
         self.is_finished = true;
         Ok(())
     }
+
+    /// Extract the inner writer after completion
+    pub fn into_inner(self) -> W {
+        self.writer
+    }
 }
 
 #[cfg(test)]

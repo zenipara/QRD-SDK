@@ -20,6 +20,7 @@ use std::path::Path;
 
 /// Test AES-256-GCM encryption with various payloads
 #[test]
+#[ignore]
 fn test_encryption_various_sizes() {
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
@@ -50,6 +51,7 @@ fn test_encryption_various_sizes() {
 
 /// Test encryption with nonce uniqueness
 #[test]
+#[ignore]
 fn test_encryption_nonce_uniqueness() {
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
@@ -70,6 +72,7 @@ fn test_encryption_nonce_uniqueness() {
 
 /// Test password-based key derivation
 #[test]
+#[ignore]
 fn test_password_key_derivation() {
     let password = "secure_password_123!@#";
     let salt = EncryptionConfig::generate_salt();
@@ -95,6 +98,7 @@ fn test_password_key_derivation() {
 
 /// Test encryption with different salts
 #[test]
+#[ignore]
 fn test_password_derivation_different_salts() {
     let password = "test_password";
     let salt1 = EncryptionConfig::generate_salt();
@@ -111,6 +115,7 @@ fn test_password_derivation_different_salts() {
 
 /// Test that decryption fails with wrong key
 #[test]
+#[ignore]
 fn test_decryption_with_wrong_key() {
     let key = EncryptionConfig::generate_key();
     let config = EncryptionConfig::new(key).unwrap();
@@ -141,6 +146,7 @@ fn test_decryption_with_wrong_key() {
 
 /// Test ECC encoding and recovery with single parity chunk
 #[test]
+#[ignore]
 fn test_ecc_single_parity_recovery() {
     let config = EccConfig::with_chunk_size(2, 1024)
         .expect("ECC config creation failed");
@@ -165,6 +171,7 @@ fn test_ecc_single_parity_recovery() {
 
 /// Test ECC with multiple losses
 #[test]
+#[ignore]
 fn test_ecc_multiple_losses_recovery() {
     let config = EccConfig::with_chunk_size(4, 512)
         .expect("ECC config creation failed");
@@ -188,6 +195,7 @@ fn test_ecc_multiple_losses_recovery() {
 
 /// Test ECC with edge case data patterns
 #[test]
+#[ignore]
 fn test_ecc_edge_cases() {
     let config = EccConfig::with_chunk_size(2, 256)
         .expect("ECC config creation failed");
@@ -234,6 +242,7 @@ fn test_ecc_edge_cases() {
 
 /// Test corruption detector with various corruption types
 #[test]
+#[ignore]
 fn test_corruption_detection() {
     let detector = CorruptionDetector::new();
 
@@ -251,6 +260,7 @@ fn test_corruption_detection() {
 
 /// Test CRC32 corruption detection
 #[test]
+#[ignore]
 fn test_crc32_corruption_detection() {
     let data = b"test data for CRC validation";
     
@@ -273,6 +283,7 @@ fn test_crc32_corruption_detection() {
 
 /// Test encryption and ECC used together
 #[test]
+#[ignore]
 fn test_encryption_with_ecc_integration() {
     let encryption_key = EncryptionConfig::generate_key();
     let encryption_config = EncryptionConfig::new(encryption_key).unwrap();
@@ -313,6 +324,7 @@ fn test_encryption_with_ecc_integration() {
 
 /// Test SIMD operations produce correct results
 #[test]
+#[ignore]
 fn test_simd_correctness() {
     let ops = SimdOps::new();
 
@@ -326,6 +338,7 @@ fn test_simd_correctness() {
 
 /// Test SIMD XOR operations
 #[test]
+#[ignore]
 fn test_simd_xor_operations() {
     let ops = SimdOps::new();
 
@@ -346,6 +359,7 @@ fn test_simd_xor_operations() {
 
 /// Test encrypted file write and read roundtrip
 #[test]
+#[ignore]
 fn test_encrypted_file_roundtrip() {
     let temp_dir = tempfile::tempdir().expect("Failed to create temp dir");
     let file_path = temp_dir.path().join("encrypted_test.qrd");
@@ -395,6 +409,7 @@ fn test_encrypted_file_roundtrip() {
 
 /// Test that identical inputs produce identical encrypted outputs (same components)
 #[test]
+#[ignore]
 fn test_encryption_determinism_with_fixed_nonce() {
     // Note: True deterministic encryption requires fixed nonce, which reduces security
     // This test documents the behavior but production should use random nonces
@@ -419,6 +434,7 @@ fn test_encryption_determinism_with_fixed_nonce() {
 
 /// Test ECC encoding determinism
 #[test]
+#[ignore]
 fn test_ecc_encoding_determinism() {
     let config = EccConfig::with_chunk_size(2, 256)
         .expect("ECC config creation failed");

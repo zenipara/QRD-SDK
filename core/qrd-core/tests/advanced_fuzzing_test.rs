@@ -365,7 +365,7 @@ fn test_concurrent_ecc() {
                 let mut shards = encoded.shards_as_options();
                 shards[0] = None;
                 
-                let recovered = qrd_core::ecc::decode_and_recover(&shards, &config)
+                let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
                     .expect("Recovery failed");
                 assert_eq!(recovered, data, "Concurrent ECC operation failed");
             })
@@ -408,7 +408,12 @@ fn test_encryption_various_lengths() {
     let config = EncryptionConfig::new(key).unwrap();
 
     for len in &[0, 1, 15, 16, 17, 31, 32, 33, 63, 64, 65, 127, 128, 256, 512, 1024] {
-        let data = vec![(*len as u8) % 256; *len];
+        let data = if *len > 0 {
+            let byte_value = (*len % 256) as u8;
+            vec![byte_value; *len]
+        } else {
+            Vec::new()
+        };
         
         let encrypted = encrypt(&data, &config).expect("Encryption failed");
         let decrypted = decrypt(&encrypted, &config).expect("Decryption failed");
