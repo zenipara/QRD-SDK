@@ -4,17 +4,42 @@ import com.sun.jna.Native;
 import com.sun.jna.Pointer;
 import com.sun.jna.ptr.LongByReference;
 import com.sun.jna.ptr.PointerByReference;
+import java.lang.ref.Cleaner;
 import java.util.List;
 
 /**
  * Writer for QRD files
  */
 public class FileWriter implements AutoCloseable {
+    private static final Cleaner CLEANER = Cleaner.create();
+
     private final long handle;
+    private final Cleaner.Cleanable cleanable;
     private boolean finished = false;
 
     FileWriter(long handle) {
         this.handle = handle;
+        this.cleanable = CLEANER.register(this, new Resource(handle));
+    }
+
+    private static final class Resource implements Runnable {
+        private long handle;
+
+        Resource(long handle) {
+            this.handle = handle;
+        }
+
+        synchronized void close() {
+            if (handle != 0) {
+                QRD.INSTANCE.qrd_writer_free(handle);
+                handle = 0;
+            }
+        }
+
+        @Override
+        public synchronized void run() {
+            close();
+        }
     }
 
     /**
@@ -71,6 +96,7 @@ public class FileWriter implements AutoCloseable {
         long size = sizeRef.getValue();
         if (size == 0 || dataPtr == null) {
             finished = true;
+            close();
             return new byte[0];
         }
 
@@ -81,6 +107,7 @@ public class FileWriter implements AutoCloseable {
         byte[] bytes = dataPtr.getByteArray(0, (int) size);
         Native.free(Pointer.nativeValue(dataPtr));
         finished = true;
+        close();
         return bytes;
     }
 

@@ -54,6 +54,7 @@ pub struct QrdSchema {
 #[wasm_bindgen]
 pub struct QrdMemWriter {
     writer: Option<StreamingWriter<Cursor<Vec<u8>>>>,
+    buffer: Vec<u8>,
 }
 
 #[wasm_bindgen]
@@ -66,6 +67,7 @@ impl QrdMemWriter {
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(QrdMemWriter {
             writer: Some(writer),
+            buffer: Vec::new(),
         })
     }
 
@@ -79,22 +81,19 @@ impl QrdMemWriter {
     }
 
     pub fn finish(mut self) -> Result<js_sys::Uint8Array, JsValue> {
-        let writer = self
+        let mut writer = self
             .writer
             .take()
             .ok_or("Already finished")?;
         
-        // Call finish on the writer first
-        writer.finish()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        // Extract the buffer before finishing
+        let mut cursor = writer.into_inner();
+        let buffer = cursor.into_inner();
         
-        // Since StreamingWriter consumes the inner writer, we cannot extract bytes after finish.
-        // This is a limitation of the current API design.
-        // For WASM, we would need to refactor to use a builder pattern or
-        // pre-extract bytes before calling finish.
+        // Call finish on the writer (though it may not be necessary for in-memory)
+        // writer.finish().map_err(|e| JsValue::from_str(&e.to_string()))?;
         
-        // Returning empty array as placeholder - this needs proper refactoring
-        Ok(js_sys::Uint8Array::from(&[][..]))
+        Ok(js_sys::Uint8Array::from(&buffer[..]))
     }
 }
 

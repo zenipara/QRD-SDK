@@ -2,6 +2,7 @@ package com.zenipara.qrd;
 
 import com.sun.jna.Pointer;
 import com.sun.jna.ptr.IntByReference;
+import java.lang.ref.Cleaner;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -12,12 +13,36 @@ import java.util.List;
  * Reader for QRD files
  */
 public class FileReader implements AutoCloseable {
+    private static final Cleaner CLEANER = Cleaner.create();
+
     private final long handle;
     private final Schema schema;
+    private final Cleaner.Cleanable cleanable;
 
     FileReader(long handle, Schema schema) {
         this.handle = handle;
         this.schema = schema;
+        this.cleanable = CLEANER.register(this, new Resource(handle));
+    }
+
+    private static final class Resource implements Runnable {
+        private long handle;
+
+        Resource(long handle) {
+            this.handle = handle;
+        }
+
+        synchronized void close() {
+            if (handle != 0) {
+                QRD.INSTANCE.qrd_reader_free(handle);
+                handle = 0;
+            }
+        }
+
+        @Override
+        public synchronized void run() {
+            close();
+        }
     }
 
     /**

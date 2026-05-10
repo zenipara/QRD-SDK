@@ -1,19 +1,44 @@
 package com.zenipara.qrd;
 
+import java.lang.ref.Cleaner;
 import java.util.List;
 
 /**
  * QRD schema definition
  */
 public class Schema implements AutoCloseable {
+    private static final Cleaner CLEANER = Cleaner.create();
+
     private final long handle;
     private final long id;
     private final List<Field> fields;
+    private final Cleaner.Cleanable cleanable;
 
     Schema(long handle, long id, List<Field> fields) {
         this.handle = handle;
         this.id = id;
         this.fields = fields;
+        this.cleanable = CLEANER.register(this, new Resource(handle));
+    }
+
+    private static final class Resource implements Runnable {
+        private long handle;
+
+        Resource(long handle) {
+            this.handle = handle;
+        }
+
+        synchronized void close() {
+            if (handle != 0) {
+                QRD.INSTANCE.schemaFree(handle);
+                handle = 0;
+            }
+        }
+
+        @Override
+        public synchronized void run() {
+            close();
+        }
     }
 
     /**

@@ -63,12 +63,12 @@ func newSchemaBuilder() *SchemaBuilder {
 	if ptr == nil {
 		return &SchemaBuilder{err: errors.New("failed to create schema")}
 	}
-	return &SchemaBuilder{ptr: unsafe.Pointer(ptr)}
-}
 
-// NewSchema creates a new schema builder.
-func NewSchema() *SchemaBuilder {
-	return newSchemaBuilder()
+	sb := &SchemaBuilder{ptr: unsafe.Pointer(ptr)}
+	runtime.SetFinalizer(sb, func(sb *SchemaBuilder) {
+		sb.Free()
+	})
+	return sb
 }
 
 // NewSchemaBuilder creates a new schema builder.
@@ -85,7 +85,11 @@ func (sb *SchemaBuilder) Free() {
 	sb.ptr = nil
 }
 
-// AddField adds a field to the schema.
+// Close is a semantic alias for Free and helps Go users manage lifetime.
+func (sb *SchemaBuilder) Close() {
+	sb.Free()
+}
+
 func (sb *SchemaBuilder) AddField(name string, fieldType FieldType, nullability Nullability, metadata string) *SchemaBuilder {
 	if sb == nil || sb.ptr == nil || sb.err != nil {
 		return sb
@@ -148,12 +152,9 @@ func (s *Schema) Free() {
 	s.ptr = nil
 }
 
-// ID returns the deterministic schema ID.
-func (s *Schema) ID() uint64 {
-	if s == nil || s.ptr == nil {
-		return 0
-	}
-	return uint64(C.qrd_schema_id((*C.QrdSchema)(s.ptr)))
+// Close is a semantic alias for Free and provides idiomatic cleanup.
+func (s *Schema) Close() {
+    s.Free()
 }
 
 // FieldCount returns the number of fields in the schema.
@@ -194,6 +195,80 @@ func (w *FileWriter) Free() {
 	}
 	C.qrd_writer_free((*C.QrdWriter)(w.ptr))
 	w.ptr = nil
+}
+
+// Close releases writer resources.
+func (w *FileWriter) Close() {
+    w.Free()
+}
+
+func encodeColumnValue(value interface{}) ([]byte, error) {
+    switch v := value.(type) {
+    case nil:
+        return []byte{}, nil
+    case bool:
+        if v {
+            return []byte{1}, nil
+        }
+        return []byte{0}, nil
+    case int:
+        var buf [8]byte
+        binary.LittleEndian.PutUint64(buf[:], uint64(int64(v)))
+        return buf[:], nil
+    case int8:
+        return []byte{byte(v)}, nil
+    case int16:
+        var buf [2]byte
+        binary.LittleEndian.PutUint16(buf[:], uint16(v))
+        return buf[:], nil
+    case int32:
+        var buf [4]byte
+        binary.LittleEndian.PutUint32(buf[:], uint32(v))
+        return buf[:], nil
+    case int64:
+        var buf [8]byte
+        binary.LittleEndian.PutUint64(buf[:], uint64(v))
+        return buf[:], nil
+    case uint:
+        var buf [8]byte
+        binary.LittleEndian.PutUint64(buf[:], uint64(v))
+        return buf[:], nil
+    case uint8:
+        return []byte{byte(v)}, nil
+    case uint16:
+        var buf [2]byte
+        binary.LittleEndian.PutUint16(buf[:], v)
+        return buf[:], nil
+    case uint32:
+        var buf [4]byte
+        binary.LittleEndian.PutUint32(buf[:], v)
+        return buf[:], nil
+    case uint64:
+        var buf [8]byte
+        binary.LittleEndian.PutUint64(buf[:], v)
+        return buf[:], nil
+    case float32:
+        var buf [4]byte
+        binary.LittleEndian.PutUint32(buf[:], math.Float32bits(v))
+        return buf[:], nil
+    case float64:
+        var buf [8]byte
+        binary.LittleEndian.PutUint64(buf[:], math.Float64bits(v))
+        return buf[:], nil
+    case string:
+        payload := []byte(v)
+        serialized := make([]byte, 4+len(payload))
+        binary.LittleEndian.PutUint32(serialized[:4], uint32(len(payload)))
+        copy(serialized[4:], payload)
+        return serialized, nil
+    case []byte:
+        serialized := make([]byte, 4+len(v))
+        binary.LittleEndian.PutUint32(serialized[:4], uint32(len(v)))
+        copy(serialized[4:], v)
+        return serialized, nil
+    default:
+        return nil, fmt.Errorf("unsupported column type %T", value)
+    }
 }
 
 func encodeColumnValue(value interface{}) ([]byte, error) {
@@ -311,18 +386,14 @@ func (w *FileWriter) Finish() ([]byte, error) {
 		return nil, errors.New("failed to finish writing")
 	}
 
+	defer w.Free()
+
 	if cData != nil && cSize > 0 {
 		defer C.free(unsafe.Pointer(cData))
 		return C.GoBytes(unsafe.Pointer(cData), C.int(cSize)), nil
 	}
 
 	return []byte{}, nil
-}
-
-// FileReader reads QRD files.
-type FileReader struct {
-	ptr    unsafe.Pointer
-	schema *Schema
 }
 
 // NewFileReader creates a new file reader from encoded bytes.
@@ -367,12 +438,9 @@ func (r *FileReader) Free() {
 	r.ptr = nil
 }
 
-// Schema returns the file schema.
-func (r *FileReader) Schema() *Schema {
-	if r == nil {
-		return nil
-	}
-	return r.schema
+// Close releases reader resources.
+func (r *FileReader) Close() {
+    r.Free()
 }
 
 // RowCount returns the number of rows in the file.

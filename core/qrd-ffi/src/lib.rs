@@ -25,6 +25,15 @@ extern "C" {
     fn malloc(size: usize) -> *mut c_void;
 }
 
+fn safe_malloc(size: usize) -> Option<*mut c_void> {
+    let ptr = unsafe { malloc(size) };
+    if ptr.is_null() {
+        None
+    } else {
+        Some(ptr)
+    }
+}
+
 static TEMP_FILE_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
@@ -669,10 +678,10 @@ pub extern "C" fn qrd_writer_finish_ffi(writer: *mut FFIWriter, data: *mut *mut 
                         return 0;
                     }
                     
-                    let ptr = malloc(len) as *mut u8;
-                    if ptr.is_null() {
-                        return -1;
-                    }
+                    let ptr = match safe_malloc(len) {
+                        Some(p) => p as *mut u8,
+                        None => return -1,
+                    };
 
                     std::ptr::copy_nonoverlapping(buffer.as_ptr(), ptr, len);
 
