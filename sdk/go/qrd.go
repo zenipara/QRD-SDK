@@ -164,7 +164,7 @@ func (s *Schema) Free() {
 
 // Close is a semantic alias for Free and provides idiomatic cleanup.
 func (s *Schema) Close() {
-    s.Free()
+	s.Free()
 }
 
 // FieldCount returns the number of fields in the schema.
@@ -209,76 +209,76 @@ func (w *FileWriter) Free() {
 
 // Close releases writer resources.
 func (w *FileWriter) Close() {
-    w.Free()
+	w.Free()
 }
 
 func encodeColumnValue(value interface{}) ([]byte, error) {
-    switch v := value.(type) {
-    case nil:
-        return []byte{}, nil
-    case bool:
-        if v {
-            return []byte{1}, nil
-        }
-        return []byte{0}, nil
-    case int:
-        var buf [8]byte
-        binary.LittleEndian.PutUint64(buf[:], uint64(int64(v)))
-        return buf[:], nil
-    case int8:
-        return []byte{byte(v)}, nil
-    case int16:
-        var buf [2]byte
-        binary.LittleEndian.PutUint16(buf[:], uint16(v))
-        return buf[:], nil
-    case int32:
-        var buf [4]byte
-        binary.LittleEndian.PutUint32(buf[:], uint32(v))
-        return buf[:], nil
-    case int64:
-        var buf [8]byte
-        binary.LittleEndian.PutUint64(buf[:], uint64(v))
-        return buf[:], nil
-    case uint:
-        var buf [8]byte
-        binary.LittleEndian.PutUint64(buf[:], uint64(v))
-        return buf[:], nil
-    case uint8:
-        return []byte{byte(v)}, nil
-    case uint16:
-        var buf [2]byte
-        binary.LittleEndian.PutUint16(buf[:], v)
-        return buf[:], nil
-    case uint32:
-        var buf [4]byte
-        binary.LittleEndian.PutUint32(buf[:], v)
-        return buf[:], nil
-    case uint64:
-        var buf [8]byte
-        binary.LittleEndian.PutUint64(buf[:], v)
-        return buf[:], nil
-    case float32:
-        var buf [4]byte
-        binary.LittleEndian.PutUint32(buf[:], math.Float32bits(v))
-        return buf[:], nil
-    case float64:
-        var buf [8]byte
-        binary.LittleEndian.PutUint64(buf[:], math.Float64bits(v))
-        return buf[:], nil
-    case string:
-        payload := []byte(v)
-        serialized := make([]byte, 4+len(payload))
-        binary.LittleEndian.PutUint32(serialized[:4], uint32(len(payload)))
-        copy(serialized[4:], payload)
-        return serialized, nil
-    case []byte:
-        serialized := make([]byte, 4+len(v))
-        binary.LittleEndian.PutUint32(serialized[:4], uint32(len(v)))
-        copy(serialized[4:], v)
-        return serialized, nil
-    default:
-        return nil, fmt.Errorf("unsupported column type %T", value)
-    }
+	switch v := value.(type) {
+	case nil:
+		return []byte{}, nil
+	case bool:
+		if v {
+			return []byte{1}, nil
+		}
+		return []byte{0}, nil
+	case int:
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], uint64(int64(v)))
+		return buf[:], nil
+	case int8:
+		return []byte{byte(v)}, nil
+	case int16:
+		var buf [2]byte
+		binary.LittleEndian.PutUint16(buf[:], uint16(v))
+		return buf[:], nil
+	case int32:
+		var buf [4]byte
+		binary.LittleEndian.PutUint32(buf[:], uint32(v))
+		return buf[:], nil
+	case int64:
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], uint64(v))
+		return buf[:], nil
+	case uint:
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], uint64(v))
+		return buf[:], nil
+	case uint8:
+		return []byte{byte(v)}, nil
+	case uint16:
+		var buf [2]byte
+		binary.LittleEndian.PutUint16(buf[:], v)
+		return buf[:], nil
+	case uint32:
+		var buf [4]byte
+		binary.LittleEndian.PutUint32(buf[:], v)
+		return buf[:], nil
+	case uint64:
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], v)
+		return buf[:], nil
+	case float32:
+		var buf [4]byte
+		binary.LittleEndian.PutUint32(buf[:], math.Float32bits(v))
+		return buf[:], nil
+	case float64:
+		var buf [8]byte
+		binary.LittleEndian.PutUint64(buf[:], math.Float64bits(v))
+		return buf[:], nil
+	case string:
+		payload := []byte(v)
+		serialized := make([]byte, 4+len(payload))
+		binary.LittleEndian.PutUint32(serialized[:4], uint32(len(payload)))
+		copy(serialized[4:], payload)
+		return serialized, nil
+	case []byte:
+		serialized := make([]byte, 4+len(v))
+		binary.LittleEndian.PutUint32(serialized[:4], uint32(len(v)))
+		copy(serialized[4:], v)
+		return serialized, nil
+	default:
+		return nil, fmt.Errorf("unsupported column type %T", value)
+	}
 }
 
 // WriteRow writes a row of column values.
@@ -381,7 +381,7 @@ func (r *FileReader) Free() {
 
 // Close releases reader resources.
 func (r *FileReader) Close() {
-    r.Free()
+	r.Free()
 }
 
 // RowCount returns the number of rows in the file.
