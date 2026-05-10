@@ -2,145 +2,184 @@
 
 ## Overview
 
-QRD is designed as a single authoritative core engine with language-agnostic bindings and a binary format that supports streaming, partial reads, and bounded-memory processing.
+QRD is built around one authoritative Rust core engine with language-specific bindings and a binary container format that supports streaming writes, partial reads, bounded-memory processing, and cross-platform determinism.
+
+The architecture separates responsibilities clearly:
+
+- `core/qrd-core/` implements the core format, schema, writer, reader, encoding, compression, encryption, and ECC logic.
+- `core/qrd-ffi/` exposes a stable C-compatible interface for downstream bindings.
+- `core/qrd-wasm/` compiles the Rust core to WebAssembly for browser and Node.js runtimes.
+- `sdk/*/` packages language-specific bindings that reuse the Rust core through FFI or WASM.
 
 ## Architecture Diagram
 
 ```
-+----------------------------+
-| Language SDK Layer         |
-|  Python  TypeScript  Go    |
-|  Java    C/C++            |
-+-------------+--------------+
-              |
-+-------------v--------------+
-| FFI / WASM Interface       |
-|  core/qrd-ffi/             |
-+-------------+--------------+
-              |
-+-------------v--------------+
-| Rust Core Engine           |
-|  core/qrd-core/            |
-|  - schema                  |
-|  - writer                  |
-|  - reader                  |
-|  - encoding                |
-|  - compression             |
-|  - encryption              |
-|  - ecc                     |
-+----------------------------+
++---------------------------------------------+
+| Application / Analytics / ML Layer          |
++----------------------+----------------------+
+                       |
++----------------------+----------------------+
+| Language SDK Layer (Python, TypeScript, Go, Java, C/C++) |
++----------------------+----------------------+
+                       |
++----------------------+----------------------+
+| FFI / WASM Interface Layer (`core/qrd-ffi/`, `core/qrd-wasm/`) |
++----------------------+----------------------+
+                       |
++----------------------+----------------------+
+| Rust Core Engine (`core/qrd-core/`)         |
+|  - schema                                   |
+|  - writer                                   |
+|  - reader                                   |
+|  - encoding                                 |
+|  - compression                              |
+|  - encryption                               |
+|  - ecc                                      |
+|  - metadata                                 |
++---------------------------------------------+
 ```
 
-## Streaming Pipeline
+## Streaming Write Pipeline
 
-QRD processes input as a stream of rows and emits row groups once the target row group size is reached.
+QRD writes data incrementally in row groups. Each row is buffered until the configured row group size is reached and then flushed as a columnar chunk set.
 
 ```
-Input rows → Row group buffer → Columnar transpose → Encoding → Compression → Optional encryption → Row group flush
+Input rows
+    ↓
+Row group buffer
+    ↓
+Columnar transpose
+    ↓
+Per-column encoding
+    ↓
+Per-column compression
+    ↓
+Optional encryption / ECC
+    ↓
+Row group flush to output stream
 ```
 
-### Writer
+### Writer Responsibilities
 
-The writer architecture is organized around row-group boundaries:
+The writer is responsible for:
 
-- ingest rows one at a time
-- buffer rows until a row group is complete
-- transpose rows into column chunks
-- select an encoding per column
-- compress chunk payloads
-- optionally encrypt and add ECC
-- append row group to file stream
+- validating schema and row shape
+- buffering rows until the row group threshold is met
+- transposing rows into columnar chunks
+- selecting encoding per column
+- compressing column chunks independently
+- optionally applying encryption and ECC
+- writing row group headers, payloads, and footer metadata
 
-This design keeps memory bounded by row group capacity rather than dataset size.
+This design keeps memory usage bounded by the active row group rather than the total dataset.
 
-### Reader
+## Reader Architecture
 
-The reader architecture supports several modes:
+QRD readers support multiple modes:
 
-- full file read
-- partial column read
+- full file scan
 - footer-only metadata inspection
-- streaming read via row group iteration
+- selective column reads
+- row-group streaming iteration
 
-Readers parse the footer first, then seek directly to row groups and column chunks. Selective column reads skip unrelated data and avoid unnecessary decompression.
+Readers always parse the footer first to discover schema, row group offsets, and metadata. They then seek directly to the required row groups and column chunks.
 
-## Compression Pipeline
+### Partial Column Reads
 
-The compression pipeline is separate from encoding:
+Partial reads are enabled by independent column chunk layout. Readers can:
 
-- Encode data into a representation that is more compressible
-- Select a codec based on data shape and workload
-- Compress each column chunk independently
-- Store codec metadata in the chunk header
+- skip unrelated column payloads
+- decrypt only selected chunks when encryption is enabled
+- decompress only the requested column chunk
 
-Independent chunk compression enables parallel decompression and partial reads.
+This reduces I/O and memory pressure for analytical queries.
 
-## Schema System
+## Schema and Metadata
 
-The schema system is embedded in the file footer and is deterministic by design.
+QRD embeds schema metadata inside the footer and stores a deterministic schema fingerprint in the file header.
 
-- field names and types are serialized in a fixed format
-- nullability is explicit
-- optional metadata is included per field
-- schema fingerprint is stored in the header
+Schema metadata includes:
 
-This schema system provides self-description without an external catalog.
+- field names
+- logical types
+- nullability
+- optional per-field metadata
+- schema fingerprint
 
-## SDK Architecture
+The schema format is deterministic across bindings and the schema ID is used for file validation and compatibility checks.
 
-The SDK architecture is layered:
+## Row Group and Column Storage
 
-- `core/qrd-core/`: authoritative engine and binary format implementation
-- `core/qrd-ffi/`: C-compatible API that exposes core features
-- `sdk/*/`: language bindings that call into the FFI or WASM runtime
+Each row group contains one chunk per column. Column chunks are self-contained and include:
 
-The bindings are thin wrappers; the Rust engine contains the actual implementation logic.
+- encoding ID
+- compression ID
+- uncompressed and compressed lengths
+- null counts and statistics
+- payload bytes
+- CRC32 checksum
 
-## FFI Architecture
+This chunk structure enables independent I/O, compression, and validation.
 
-The FFI layer exposes:
+## Compression and Encoding Layers
 
-- schema construction and serialization
-- writer creation and row ingestion
-- reader creation and row or column access
-- metadata inspection
-- ECC and encryption configuration
+QRD separates logical encoding from physical compression.
 
-Language bindings use the FFI to avoid duplicate format logic.
+- Encoding transforms data into a representation optimized for compressibility.
+- Compression reduces the encoded bytes for storage efficiency.
 
-## WASM Architecture
-
-WASM builds compile the Rust core into a portable module and expose a small runtime API.
-
-- `sdk/typescript/` contains the build and packaging layer
-- `qrd-wasm/` is the WebAssembly target in the workspace
-- browser and Node.js runtimes reuse the same core implementation
+Supported encodings include PLAIN, RLE, BIT_PACKED, DELTA_BINARY, DELTA_BYTE_ARRAY, BYTE_STREAM_SPLIT, and DICTIONARY_RLE. Supported compression codecs include NONE, ZSTD, and LZ4.
 
 ## Memory Flow
 
-Memory is bounded along the write and read paths:
+Memory is bounded on both read and write paths:
 
-- Write: row group buffer → column buffer → encoded chunk → compressed payload
-- Read: row group metadata → chunk payload → decoded row / selected columns
+- Write: row group buffer → column buffers → encoded chunks → compressed payloads
+- Read: footer metadata → selected row group → selected column chunk → decoded values
 
-Memory usage remains proportional to row group size and selected columns.
+This ensures peak memory is based on row group size and the number of active columns rather than total file size.
 
-## Zero-Copy Concepts
+## FFI and WASM Layers
 
-QRD is designed to minimize copies when possible:
+### FFI Layer
 
-- row group metadata is parsed from the footer without deserializing entire file
-- partial reads load only selected column chunks
-- readers may map or buffer compressed payloads directly when the runtime supports it
+The FFI layer exposes core functionality to external languages without duplicating format logic:
 
-## Future Extensibility
+- schema builder and schema serialization
+- writer creation and row ingestion
+- reader creation and row/column access
+- metadata inspection
+- optional ECC and encryption configuration
 
-The architecture reserves extension points for:
+This keeps bindings thin and aligned with the authoritative Rust core.
+
+### WASM Layer
+
+The WASM target compiles the Rust engine into a portable binary that can run in browsers and Node.js. The TypeScript SDK wraps this runtime and provides a JavaScript-friendly API.
+
+## Extension Points
+
+The architecture reserves explicit extension points for future features:
 
 - new compression codecs
 - new encodings
-- encryption metadata fields
+- optional encryption metadata fields
 - ECC parity schemes
-- additional schema metadata
+- schema metadata extensions
 
-The core engine, FFI, and docs are structured to allow incremental extension without format drift.
+The format is designed to keep extensions opt-in and preserve backward compatibility whenever possible.
+
+## Implementation Mapping
+
+Key repository mappings:
+
+- `core/qrd-core/src/schema/` — schema model, serialization, fingerprinting
+- `core/qrd-core/src/writer/` — streaming writer and row group flush logic
+- `core/qrd-core/src/reader/` — footer parsing, row group seeks, partial reads
+- `core/qrd-core/src/encoding/` — logical encoding implementations
+- `core/qrd-core/src/compression/` — codec wrappers and adaptive selection
+- `core/qrd-core/src/encryption/` — AES-GCM and key metadata handling
+- `core/qrd-core/src/ecc/` — Reed-Solomon parity and recovery support
+- `core/qrd-ffi/src/` — C-compatible bindings
+- `core/qrd-wasm/src/` — WebAssembly target glue
+- `sdk/typescript/`, `sdk/python/`, `sdk/go/`, `sdk/java/` — language packaging and examples

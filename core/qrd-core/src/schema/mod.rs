@@ -78,6 +78,32 @@ impl fmt::Display for FieldType {
 }
 
 impl FieldType {
+    /// Get the logical type ID for binary serialization
+    pub fn id(&self) -> u8 {
+        match self {
+            FieldType::Boolean => 1,
+            FieldType::Int8 => 2,
+            FieldType::Int16 => 3,
+            FieldType::Int32 => 4,
+            FieldType::Int64 => 5,
+            FieldType::UInt8 => 10,
+            FieldType::UInt16 => 11,
+            FieldType::UInt32 => 12,
+            FieldType::UInt64 => 13,
+            FieldType::Float32 => 18,
+            FieldType::Float64 => 19,
+            FieldType::Timestamp => 20,
+            FieldType::Date => 21,
+            FieldType::Time => 22,
+            FieldType::Duration => 23,
+            FieldType::String => 24,
+            FieldType::Enum => 25,
+            FieldType::Uuid => 26,
+            FieldType::Blob => 27,
+            FieldType::Decimal => 28,
+        }
+    }
+
     /// Get the size in bytes for fixed-size types
     pub fn fixed_size(&self) -> Option<usize> {
         match self {
@@ -170,6 +196,221 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Serialize schema to binary format according to spec
+    pub fn serialize_binary(&self) -> Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        
+        // Version (U16LE) = 1
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        
+        // Field count (U16LE)
+        buf.extend_from_slice(&(self.fields.len() as u16).to_le_bytes());
+        
+        for field in &self.fields {
+            // Name length (U16LE)
+            let name_bytes = field.name.as_bytes();
+            buf.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            
+            // Name bytes
+            buf.extend_from_slice(name_bytes);
+            
+            // Logical type ID (U8)
+            buf.push(field.field_type.id());
+            
+            // Nullability ID (U8)
+            buf.push(field.nullability as u8);
+            
+            // Metadata count (U16LE)
+            buf.extend_from_slice(&(field.metadata.len() as u16).to_le_bytes());
+            
+            // Metadata entries
+            for (key, value) in &field.metadata {
+                let key_bytes = key.as_bytes();
+                let value_bytes = value.as_bytes();
+                
+                // Key length (U16LE)
+                buf.extend_from_slice(&(key_bytes.len() as u16).to_le_bytes());
+                // Key bytes
+                buf.extend_from_slice(key_bytes);
+                
+                // Value length (U16LE)
+                buf.extend_from_slice(&(value_bytes.len() as u16).to_le_bytes());
+                // Value bytes
+                buf.extend_from_slice(value_bytes);
+            }
+        }
+        
+        Ok(buf)
+    }
+
+    /// Deserialize schema from binary format
+    pub fn deserialize_binary(data: &[u8]) -> Result<Self> {
+        if data.len() < 4 {
+            return Err(crate::error::Error::InvalidData(
+                "Schema data too short".to_string(),
+            ));
+        }
+        
+        let mut pos = 0;
+        
+        // Version (U16LE)
+        let version = u16::from_le_bytes([data[pos], data[pos + 1]]);
+        pos += 2;
+        if version != 1 {
+            return Err(crate::error::Error::InvalidData(
+                format!("Unsupported schema version: {}", version),
+            ));
+        }
+        
+        // Field count (U16LE)
+        let field_count = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+        pos += 2;
+        
+        let mut fields = Vec::with_capacity(field_count);
+        
+        for _ in 0..field_count {
+            if pos + 2 > data.len() {
+                return Err(crate::error::Error::InvalidData(
+                    "Unexpected end of schema data".to_string(),
+                ));
+            }
+            
+            // Name length (U16LE)
+            let name_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += 2;
+            
+            if pos + name_len + 2 > data.len() {
+                return Err(crate::error::Error::InvalidData(
+                    "Name data extends beyond buffer".to_string(),
+                ));
+            }
+            
+            // Name bytes
+            let name = std::str::from_utf8(&data[pos..pos + name_len])
+                .map_err(|_| crate::error::Error::InvalidData("Invalid UTF-8 in field name".to_string()))?
+                .to_string();
+            pos += name_len;
+            
+            // Logical type ID (U8)
+            let type_id = data[pos];
+            pos += 1;
+            
+            // Convert type ID to FieldType
+            let field_type = match type_id {
+                1 => FieldType::Boolean,
+                2 => FieldType::Int8,
+                3 => FieldType::Int16,
+                4 => FieldType::Int32,
+                5 => FieldType::Int64,
+                10 => FieldType::UInt8,
+                11 => FieldType::UInt16,
+                12 => FieldType::UInt32,
+                13 => FieldType::UInt64,
+                18 => FieldType::Float32,
+                19 => FieldType::Float64,
+                20 => FieldType::Timestamp,
+                21 => FieldType::Date,
+                22 => FieldType::Time,
+                23 => FieldType::Duration,
+                24 => FieldType::String,
+                25 => FieldType::Enum,
+                26 => FieldType::Uuid,
+                27 => FieldType::Blob,
+                28 => FieldType::Decimal,
+                _ => return Err(crate::error::Error::InvalidData(
+                    format!("Unknown field type ID: {}", type_id),
+                )),
+            };
+            
+            // Nullability ID (U8)
+            let nullability_id = data[pos];
+            pos += 1;
+            
+            let nullability = match nullability_id {
+                0 => Nullability::Required,
+                1 => Nullability::Optional,
+                2 => Nullability::Repeated,
+                _ => return Err(crate::error::Error::InvalidData(
+                    format!("Unknown nullability ID: {}", nullability_id),
+                )),
+            };
+            
+            if pos + 2 > data.len() {
+                return Err(crate::error::Error::InvalidData(
+                    "Unexpected end of schema data".to_string(),
+                ));
+            }
+            
+            // Metadata count (U16LE)
+            let metadata_count = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+            pos += 2;
+            
+            let mut metadata = HashMap::new();
+            
+            for _ in 0..metadata_count {
+                if pos + 2 > data.len() {
+                    return Err(crate::error::Error::InvalidData(
+                        "Unexpected end of schema data".to_string(),
+                    ));
+                }
+                
+                // Key length (U16LE)
+                let key_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+                pos += 2;
+                
+                if pos + key_len + 2 > data.len() {
+                    return Err(crate::error::Error::InvalidData(
+                        "Key data extends beyond buffer".to_string(),
+                    ));
+                }
+                
+                // Key bytes
+                let key = std::str::from_utf8(&data[pos..pos + key_len])
+                    .map_err(|_| crate::error::Error::InvalidData("Invalid UTF-8 in metadata key".to_string()))?
+                    .to_string();
+                pos += key_len;
+                
+                // Value length (U16LE)
+                let value_len = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
+                pos += 2;
+                
+                if pos + value_len > data.len() {
+                    return Err(crate::error::Error::InvalidData(
+                        "Value data extends beyond buffer".to_string(),
+                    ));
+                }
+                
+                // Value bytes
+                let value = std::str::from_utf8(&data[pos..pos + value_len])
+                    .map_err(|_| crate::error::Error::InvalidData("Invalid UTF-8 in metadata value".to_string()))?
+                    .to_string();
+                pos += value_len;
+                
+                metadata.insert(key, value);
+            }
+            
+            fields.push(FieldMetadata {
+                name,
+                field_type,
+                nullability,
+                metadata,
+            });
+        }
+        
+        if pos != data.len() {
+            return Err(crate::error::Error::InvalidData(
+                "Extra data at end of schema".to_string(),
+            ));
+        }
+        
+        let schema_id = Self::calculate_id(&fields);
+        
+        Ok(Schema {
+            fields,
+            schema_id,
+        })
+    }
+
     /// Get a field by name
     pub fn field_by_name(&self, name: &str) -> Option<(usize, &FieldMetadata)> {
         self.fields
@@ -293,10 +534,51 @@ mod tests {
     }
 
     #[test]
+    fn test_binary_serialization() {
+        let mut schema = SchemaBuilder::new()
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap()
+            .add_field("name", FieldType::String, Nullability::Optional)
+            .unwrap()
+            .add_field("tags", FieldType::String, Nullability::Repeated)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // Add some metadata
+        schema.fields[0].metadata.insert("description".to_string(), "Primary key".to_string());
+
+        // Serialize
+        let serialized = schema.serialize_binary().unwrap();
+
+        // Deserialize
+        let deserialized = Schema::deserialize_binary(&serialized).unwrap();
+
+        // Check equality
+        assert_eq!(schema.fields.len(), deserialized.fields.len());
+        assert_eq!(schema.schema_id, deserialized.schema_id);
+
+        for (orig, deser) in schema.fields.iter().zip(deserialized.fields.iter()) {
+            assert_eq!(orig.name, deser.name);
+            assert_eq!(orig.field_type, deser.field_type);
+            assert_eq!(orig.nullability, deser.nullability);
+            assert_eq!(orig.metadata, deser.metadata);
+        }
+    }
+
+    #[test]
     fn test_field_type_sizes() {
         assert_eq!(FieldType::Int64.fixed_size(), Some(8));
         assert_eq!(FieldType::Float32.fixed_size(), Some(4));
         assert_eq!(FieldType::String.fixed_size(), None);
+    }
+
+    #[test]
+    fn test_field_type_ids() {
+        assert_eq!(FieldType::Boolean.id(), 1);
+        assert_eq!(FieldType::Int64.id(), 5);
+        assert_eq!(FieldType::String.id(), 24);
+        assert_eq!(FieldType::Blob.id(), 27);
     }
 
     #[test]

@@ -8,6 +8,14 @@ repository = "https://github.com/zenipara/QRD-SDK"
 documentation = "https://docs.qrd.dev"
 description = "QRD Core Engine - High-performance columnar binary format"
 
+[[bin]]
+name = "generate_test_vectors"
+path = "src/bin/generate_test_vectors.rs"
+
+[[bin]]
+name = "validate_test_vectors"
+path = "src/bin/validate_test_vectors.rs"
+
 [dependencies]
 serde = { workspace = true }
 bincode = { workspace = true }

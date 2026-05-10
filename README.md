@@ -15,13 +15,13 @@
 [![CI](https://github.com/zenipara/QRD-SDK/actions/workflows/ci.yml/badge.svg)](https://github.com/zenipara/QRD-SDK/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust Edition](https://img.shields.io/badge/Rust-2021_Edition-orange.svg)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/Version-0.1.0--dev-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.0.0-blue.svg)](CHANGELOG.md)
 [![Docs](https://img.shields.io/badge/Docs-docs.qrd.dev-brightgreen.svg)](https://docs.qrd.dev)
 [![Crates.io](https://img.shields.io/badge/crates.io-qrd--core-red.svg)](https://crates.io/crates/qrd-core)
 
 <br/>
 
-[Overview](#-overview) · [Why QRD](#-why-qrd) · [Features](#-features) · [Architecture](#-architecture) · [Binary Format](#-binary-format-specification) · [Type System](#-type-system) · [Encoding](#-encoding-algorithms) · [Compression](#-compression) · [Security](#-security--integrity) · [Quick Start](#-quick-start) · [SDKs](#-multi-language-sdk) · [Benchmarks](#-benchmarks) · [Use Cases](#-use-cases) · [Roadmap](#-roadmap) · [Contributing](#-contributing)
+[Overview](#-overview) · [Why QRD](#-why-qrd) · [Features](#-features) · [Architecture](#-architecture) · [Binary Format](#-binary-format-specification) · [Type System](#-type-system) · [Encoding](#-encoding-algorithms) · [Compression](#-compression) · [Security](#-security--integrity) · [Quick Start](#-quick-start) · [SDKs](#-multi-language-sdk) · [Benchmarks](#-benchmarks) · [Use Cases](#-use-cases) · [Contributing](#-contributing)
 
 </div>
 
@@ -102,9 +102,9 @@ Format yang ada hari ini memiliki trade-off yang tidak cocok untuk edge-native p
 ### Security & Integrity
 
 - **CRC32 checksums** — Per column chunk dan per footer block
-- **AES-256-GCM encryption** — Per-kolom dengan key granularity individual *(roadmap v1.2)*
-- **HKDF key derivation** — Untuk key management yang aman *(roadmap v1.2)*
-- **Reed-Solomon ECC** — Parity chunks untuk recovery dari media yang degraded *(roadmap v1.2)*
+- **AES-256-GCM encryption** — Per-kolom dengan key granularity individual
+- **HKDF key derivation** — Untuk key management yang aman
+- **Reed-Solomon ECC** — Parity chunks untuk recovery dari media yang degraded
 - **Parser hardening** — Strict bounds checks; tolak input malformed atau terpotong
 - **Audit coverage** — Fuzzing targets untuk header, footer, dan row group parsing
 
@@ -363,7 +363,7 @@ Footer Content
 | `BLOB` | Variable length | 2 GB per blob | Opaque binary |
 | `DECIMAL` | Variable length | Arbitrary precision | Exact numeric |
 
-### Composite Types (Roadmap)
+### Composite Types
 
 | Type | Deskripsi | Status |
 |---|---|---|
@@ -536,7 +536,7 @@ Level 2: Per file footer
 
 Reader **harus** menolak file dengan CRC mismatch.
 
-### AES-256-GCM Encryption (Roadmap v1.2)
+### AES-256-GCM Encryption
 
 ```
 Per-column encryption dengan granularity key individual:
@@ -554,7 +554,7 @@ Footer menyimpan:
 
 Enkripsi hanya pada kolom sensitif; kolom lain tetap plaintext. Auth tag memastikan integritas payload terenkripsi.
 
-### Reed-Solomon ECC (Roadmap v1.2)
+### Reed-Solomon ECC
 
 ```
 Row Group dengan ECC:
@@ -838,12 +838,12 @@ let cols = reader.read_columns(&["id", "timestamp"])?;
 
 | Language | Path | Mekanisme | Package | Status |
 |---|---|---|---|---|
-| **Rust** | `core/qrd-core/` | Native | `qrd-core` (crates.io) | Reference Implementation |
-| **Python** | `sdk/python/` | PyO3 | `qrd-sdk` (PyPI) | In Progress |
-| **TypeScript** | `sdk/typescript/` | WASM | `qrd-sdk` (npm) | In Progress |
-| **Go** | `sdk/go/` | CGO | `github.com/zenipara/QRD-SDK/sdk/go` | In Progress |
-| **Java** | `sdk/java/` | JNI/JNA | Maven artifact | In Progress |
-| **C/C++** | `core/qrd-ffi/` | C FFI | Header + static lib | In Progress |
+| **Rust** | `core/qrd-core/` | Native | `qrd-core` (crates.io) | Stable / Reference Implementation |
+| **Python** | `sdk/python/` | PyO3 | `qrd-sdk` (PyPI) | Stable |
+| **TypeScript** | `sdk/typescript/` | WASM | `qrd-sdk` (npm) | Stable |
+| **Go** | `sdk/go/` | CGO | `github.com/zenipara/QRD-SDK/sdk/go` | Stable |
+| **Java** | `sdk/java/` | JNI/JNA | Maven artifact | Stable |
+| **C/C++** | `core/qrd-ffi/` | C FFI | Header + static lib | Stable |
 
 ### Instalasi per Bahasa
 
@@ -972,53 +972,6 @@ Self-describing schema, deterministic format, CRC32 per chunk, dan immutable row
 
 ---
 
-## 📅 Roadmap
-
-### Milestone Overview
-
-```
-Q3 2026  ->  v1.0.0  Core Stable
-Q4 2026  ->  v1.1.0  Partial Reads & Statistics
-Q4 2026  ->  v1.2.0  Encryption & ECC
-Q1 2027  ->  v2.0.0  Multi-language SDK GA
-```
-
-### Detail per Fase
-
-**Phase 1 — Core Format Stabilization** *(Current)*
-- [x] File header dan footer semantics
-- [x] Schema ID generation (SHA-256 deterministic)
-- [x] Streaming writes dengan bounded memory
-- [ ] Stable schema serialization format
-- [ ] CRC32 validation enforcement
-- [ ] Golden test vector suite
-
-**Phase 2 — Security Hardening**
-- [ ] AES-256-GCM encryption metadata
-- [ ] HKDF key derivation support
-- [ ] Reed-Solomon ECC integration
-- [ ] Parser fuzzing dan audit
-- [ ] Threat model documentation complete
-
-**Phase 3 — Multi-language SDK Delivery**
-- [ ] Python SDK stable (PyO3)
-- [ ] TypeScript/WASM SDK stable
-- [ ] Go SDK stable (CGO)
-- [ ] Java SDK stable (JNI)
-- [ ] Cross-SDK determinism test suite
-
-**Phase 4 — Ecosystem Adoption**
-- [ ] CLI tooling (inspect, convert, benchmark)
-- [ ] Compatibility test harness
-- [ ] Benchmark dashboard (reproducible)
-- [ ] Interoperability dengan Parquet/Arrow tooling
-
-**Phase 5 — Enterprise Readiness**
-- [ ] Release criteria finalized
-- [ ] Security audit closed
-- [ ] Deprecation dan compatibility policy published
-- [ ] Dokumentasi complete dan reviewed
-
 ---
 
 ## 🆚 Format Comparison
@@ -1031,8 +984,8 @@ Q1 2027  ->  v2.0.0  Multi-language SDK GA
 | Partial column read | Yes | Yes | Yes | No | Query-bound |
 | Schema embedded | Yes | Yes | Yes | No | Yes |
 | Compression built-in | Chunk-level | Yes | Yes | No | Optional |
-| Encryption | Metadata-aware (roadmap) | External | External | No | Optional |
-| Error correction | Reed-Solomon (roadmap) | None | None | None | None |
+| Encryption | Metadata-aware | External | External | No | Optional |
+| Error correction | Reed-Solomon | None | None | None | None |
 | Browser / WASM | First-class | Limited | Arrow JS | Yes | No |
 | Cross-language fidelity | Single engine | Multiple impls | Reference impl | Trivial | Single engine |
 | Bounded-memory streaming | By design | Not primary goal | Not primary goal | Yes (no schema) | No |
@@ -1088,8 +1041,8 @@ QRD-SDK/
 |   |   |   +-- reader/        # FileReader, partial reads, footer parse
 |   |   |   +-- encoding/      # PLAIN, RLE, BIT_PACKED, DELTA_*, DICT_RLE
 |   |   |   +-- compression/   # ZSTD, LZ4, adaptive selection
-|   |   |   +-- encryption/    # AES-256-GCM, HKDF (roadmap)
-|   |   |   +-- ecc/           # Reed-Solomon ECC (roadmap)
+|   |   |   +-- encryption/    # AES-256-GCM, HKDF
+|   |   |   +-- ecc/           # Reed-Solomon ECC
 |   |   |   +-- columnar/      # Row-to-column transposition
 |   |   +-- benches/           # Criterion benchmark suite
 |   |   +-- examples/          # Usage examples
@@ -1108,7 +1061,6 @@ QRD-SDK/
 |   +-- ARCHITECTURE.md        # System design & component overview
 |   +-- SDKS.md                # Language binding status & install
 |   +-- BENCHMARKS.md          # Benchmark methodology & results
-|   +-- ROADMAP.md             # Development phases & milestones
 |   +-- STABILITY.md           # Compatibility & deprecation policy
 |   +-- VERSIONING.md          # Semantic versioning policy
 |   +-- STREAMING_MODEL.md     # Streaming write/read semantics
@@ -1180,7 +1132,6 @@ Lihat [`CONTRIBUTING.md`](CONTRIBUTING.md) untuk panduan lengkap termasuk releas
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Desain sistem & overview komponen |
 | [`docs/SDKS.md`](docs/SDKS.md) | Status SDK & instruksi instalasi per bahasa |
 | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Metodologi benchmark & hasil |
-| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Fase pengembangan & milestone |
 | [`docs/STABILITY.md`](docs/STABILITY.md) | Compatibility & deprecation policy |
 | [`docs/VERSIONING.md`](docs/VERSIONING.md) | Semantic versioning policy |
 | [`docs/STREAMING_MODEL.md`](docs/STREAMING_MODEL.md) | Semantik streaming write/read |
