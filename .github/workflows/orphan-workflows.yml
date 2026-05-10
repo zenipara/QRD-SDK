@@ -1,0 +1,133 @@
+name: Orphan Workflows
+
+# Detect unused reusable workflows and invalid workflow references
+# Validates workflow_call chains and reusable workflow dependencies
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  orphan-workflows:
+    name: Detect Orphan Workflows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq yq
+
+      - name: Analyze workflow dependencies
+        id: analyze
+        run: |
+          echo "## Orphan Workflows Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Analyzing workflow references and dependencies..." >> $GITHUB_STEP_SUMMARY
+
+          # Find all workflow files
+          find .github/workflows -name "*.yml" -o -name "*.yaml" | sort > all_workflows.txt
+
+          # Extract reusable workflows (those with on: workflow_call)
+          > reusable_workflows.txt
+          while IFS= read -r wf; do
+            if yq '.on.workflow_call' "$wf" >/dev/null 2>&1; then
+              basename "$wf" .yml | basename -s .yaml >> reusable_workflows.txt
+            fi
+          done < all_workflows.txt
+
+          # Extract workflow references (uses: statements)
+          > workflow_references.txt
+          while IFS= read -r wf; do
+            yq -r '.jobs[]?.uses? // empty' "$wf" 2>/dev/null | grep -v '^null$' | sed 's|.*/||' | sed 's|\.yml$||' | sed 's|\.yaml$||' >> workflow_references.txt
+            # Also check for workflow_call references
+            yq -r '.jobs[]?.with? // empty' "$wf" 2>/dev/null | grep -v '^null$' | head -1 >/dev/null && echo "workflow_call detected in $wf" >> workflow_call_log.txt
+          done < all_workflows.txt
+
+          # Get unique references
+          sort workflow_references.txt | uniq > unique_references.txt
+
+          # Find orphan reusable workflows
+          > orphan_workflows.txt
+          while IFS= read -r reusable; do
+            if ! grep -q "^${reusable}$" unique_references.txt; then
+              echo "$reusable" >> orphan_workflows.txt
+            fi
+          done < reusable_workflows.txt
+
+          # Check for invalid references
+          > invalid_references.txt
+          while IFS= read -r ref; do
+            if ! grep -q "^${ref}$" reusable_workflows.txt; then
+              echo "$ref" >> invalid_references.txt
+            fi
+          done < unique_references.txt
+
+          # Generate dependency graph
+          echo "### Workflow Dependency Graph" >> $GITHUB_STEP_SUMMARY
+          echo "| Workflow | References |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------------|" >> $GITHUB_STEP_SUMMARY
+          while IFS= read -r wf; do
+            wf_name=$(basename "$wf" .yml | basename -s .yaml)
+            refs=$(yq -r '.jobs[]?.uses? // empty' "$wf" 2>/dev/null | grep -v '^null$' | sed 's|.*/||' | sed 's|\.yml$||' | sed 's|\.yaml$||' | tr '\n' ', ' | sed 's|, $||')
+            if [ -n "$refs" ]; then
+              echo "| $wf_name | $refs |" >> $GITHUB_STEP_SUMMARY
+            fi
+          done < all_workflows.txt
+
+          # Report orphans
+          ORPHAN_COUNT=$(wc -l < orphan_workflows.txt)
+          INVALID_COUNT=$(wc -l < invalid_references.txt)
+
+          echo "### Orphan Reusable Workflows: $ORPHAN_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "### Invalid References: $INVALID_COUNT" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$ORPHAN_COUNT" -gt 0 ]; then
+            echo "#### Orphan Workflows:" >> $GITHUB_STEP_SUMMARY
+            cat orphan_workflows.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$INVALID_COUNT" -gt 0 ]; then
+            echo "#### Invalid References:" >> $GITHUB_STEP_SUMMARY
+            cat invalid_references.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$ORPHAN_COUNT" -eq 0 ] && [ "$INVALID_COUNT" -eq 0 ]; then
+            echo "No orphan workflows or invalid references detected." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on workflow issues
+        run: |
+          ORPHAN_COUNT=$(wc -l < orphan_workflows.txt)
+          INVALID_COUNT=$(wc -l < invalid_references.txt)
+          if [ "$ORPHAN_COUNT" -gt 0 ] || [ "$INVALID_COUNT" -gt 0 ]; then
+            echo "Orphan workflows or invalid references detected. Please fix them."
+            exit 1
+          fi
+
+      - name: Upload workflows report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orphan-workflows-report
+          path: |
+            orphan_workflows.txt
+            invalid_references.txt
+            reusable_workflows.txt
+            workflow_references.txt
+            workflow_call_log.txt
+          if-no-files-found: warn
+          retention-days: 30

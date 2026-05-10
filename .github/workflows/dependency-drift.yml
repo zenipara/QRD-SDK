@@ -1,0 +1,166 @@
+name: Dependency Drift
+
+# Detect outdated dependencies and version skew across all language SDKs
+# Checks Rust, Python, TypeScript, Go, and Java dependencies for updates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  dependency-drift:
+    name: Check Dependency Drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Install required tools
+        run: |
+          cargo install cargo-outdated --locked
+          pip install pip-outdated
+          npm install -g npm-check-updates
+          go install golang.org/x/tools/cmd/goimports@latest
+
+      - name: Check Rust dependency drift
+        id: rust-drift
+        run: |
+          echo "## Dependency Drift Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Checking for outdated dependencies across all SDKs..." >> $GITHUB_STEP_SUMMARY
+
+          echo "### Rust Dependencies" >> $GITHUB_STEP_SUMMARY
+          cd core/qrd-core
+          cargo outdated --format json > ../../../rust-outdated.json 2>/dev/null || echo '{"error": "cargo outdated failed"}' > ../../../rust-outdated.json
+
+          OUTDATED_RUST=$(jq '.dependencies | length' ../../../rust-outdated.json 2>/dev/null || echo 0)
+          echo "- Outdated Rust crates: $OUTDATED_RUST" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$OUTDATED_RUST" -gt 0 ]; then
+            jq -r '.dependencies[] | "- \(.name): \(.current) -> \(.latest)"' ../../../rust-outdated.json >> $GITHUB_STEP_SUMMARY 2>/dev/null || true
+          fi
+
+      - name: Check Python dependency drift
+        run: |
+          echo "### Python Dependencies" >> $GITHUB_STEP_SUMMARY
+          cd sdk/python
+          if [ -f "requirements.txt" ] || [ -f "pyproject.toml" ]; then
+            pip list --outdated --format json > ../../../python-outdated.json 2>/dev/null || echo '[]' > ../../../python-outdated.json
+            OUTDATED_PYTHON=$(jq length ../../../python-outdated.json)
+            echo "- Outdated Python packages: $OUTDATED_PYTHON" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$OUTDATED_PYTHON" -gt 0 ]; then
+              jq -r '.[] | "- \(.name): \(.version) -> \(.latest_version)"' ../../../python-outdated.json >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- No Python dependencies found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check TypeScript/Node dependency drift
+        run: |
+          echo "### TypeScript/Node Dependencies" >> $GITHUB_STEP_SUMMARY
+          cd sdk/typescript
+          if [ -f "package.json" ]; then
+            ncu --json > ../../../typescript-outdated.json 2>/dev/null || echo '{}' > ../../../typescript-outdated.json
+            OUTDATED_TS=$(jq 'keys | length' ../../../typescript-outdated.json)
+            echo "- Outdated TypeScript packages: $OUTDATED_TS" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$OUTDATED_TS" -gt 0 ]; then
+              jq -r 'to_entries[] | "- \(.key): \(.value.current) -> \(.value.latest)"' ../../../typescript-outdated.json >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- No TypeScript dependencies found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check Go dependency drift
+        run: |
+          echo "### Go Dependencies" >> $GITHUB_STEP_SUMMARY
+          cd sdk/go
+          if [ -f "go.mod" ]; then
+            go list -u -m all > ../../../go-outdated.txt 2>/dev/null || echo "No outdated Go modules" > ../../../go-outdated.txt
+            OUTDATED_GO=$(grep -c "=>" ../../../go-outdated.txt || echo 0)
+            echo "- Outdated Go modules: $OUTDATED_GO" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$OUTDATED_GO" -gt 0 ]; then
+              grep "=>" ../../../go-outdated.txt | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- No Go dependencies found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Check Java dependency drift
+        run: |
+          echo "### Java Dependencies" >> $GITHUB_STEP_SUMMARY
+          cd sdk/java
+          if [ -f "pom.xml" ]; then
+            mvn versions:display-dependency-updates > ../../../java-outdated.txt 2>/dev/null || echo "No outdated Java dependencies" > ../../../java-outdated.txt
+            OUTDATED_JAVA=$(grep -c "->" ../../../java-outdated.txt || echo 0)
+            echo "- Outdated Java dependencies: $OUTDATED_JAVA" >> $GITHUB_STEP_SUMMARY
+
+            if [ "$OUTDATED_JAVA" -gt 0 ]; then
+              grep "->" ../../../java-outdated.txt | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "- No Java dependencies found" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Generate unified drift report
+        run: |
+          echo "### Dependency Drift Summary" >> $GITHUB_STEP_SUMMARY
+          TOTAL_OUTDATED=$(( $(jq '.dependencies | length' rust-outdated.json 2>/dev/null || echo 0) + $(jq length python-outdated.json 2>/dev/null || echo 0) + $(jq 'keys | length' typescript-outdated.json 2>/dev/null || echo 0) + $(grep -c "=>" go-outdated.txt 2>/dev/null || echo 0) + $(grep -c "->" java-outdated.txt 2>/dev/null || echo 0) ))
+          echo "- Total outdated dependencies: $TOTAL_OUTDATED" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail on critical dependency drift
+        run: |
+          # Only fail if there are security-critical outdated dependencies
+          # For now, just warn - actual policy would depend on project requirements
+          echo "Dependency drift detected. Review and update dependencies as needed."
+
+      - name: Upload dependency drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-drift-report
+          path: |
+            rust-outdated.json
+            python-outdated.json
+            typescript-outdated.json
+            go-outdated.txt
+            java-outdated.txt
+          if-no-files-found: warn
+          retention-days: 30

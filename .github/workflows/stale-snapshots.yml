@@ -1,0 +1,129 @@
+name: Stale Snapshots
+
+# Detect unused or outdated golden snapshots and test fixtures
+# Validates snapshots are referenced by tests and maintain version compatibility
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  stale-snapshots:
+    name: Detect Stale Snapshots
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq ripgrep
+
+      - name: Detect stale snapshots
+        id: detect
+        run: |
+          echo "## Stale Snapshots Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Scanning for unused or outdated snapshots..." >> $GITHUB_STEP_SUMMARY
+
+          # Define snapshot directories
+          SNAPSHOT_DIRS=("tests/golden" "tests/snapshots" "tests/fixtures")
+
+          # Collect all snapshot files
+          > all_snapshots.txt
+          for dir in "${SNAPSHOT_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+              find "$dir" -type f \( -name "*.snap" -o -name "*.json" -o -name "*.txt" -o -name "*.bin" -o -name "*.qrd" \) >> all_snapshots.txt
+            fi
+          done
+
+          # Collect test files that might reference snapshots
+          find . -name "*test*.rs" -o -name "*spec*.rs" -o -name "*bench*.rs" | sort > test_files.txt
+
+          # Extract snapshot references from test files
+          > snapshot_references.txt
+          while IFS= read -r test_file; do
+            # Look for snapshot file references in test code
+            rg -o '(?<=include_str!\(|fs::read\(|File::open\()["'"'"']([^"'"'"']*\.(?:snap|json|txt|bin|qrd))["'"'"']' "$test_file" | cut -d'"' -f2 >> snapshot_references.txt
+            # Also look for hardcoded paths
+            rg -o 'tests/(?:golden|snapshots|fixtures)/[^"'"'"'\s]*\.(?:snap|json|txt|bin|qrd)' "$test_file" >> snapshot_references.txt
+          done < test_files.txt
+
+          # Get unique referenced snapshots
+          sort snapshot_references.txt | uniq > unique_references.txt
+
+          # Find stale snapshots (not referenced)
+          > stale_snapshots.txt
+          while IFS= read -r snapshot; do
+            if [ -f "$snapshot" ]; then
+              basename_snap=$(basename "$snapshot")
+              if ! grep -q "$basename_snap" unique_references.txt && ! grep -q "$snapshot" unique_references.txt; then
+                echo "$snapshot" >> stale_snapshots.txt
+              fi
+            fi
+          done < all_snapshots.txt
+
+          # Check for binary snapshots (unsupported)
+          > binary_snapshots.txt
+          while IFS= read -r snapshot; do
+            if [ -f "$snapshot" ] && file "$snapshot" | grep -q "executable\|shared object\|archive"; then
+              echo "$snapshot" >> binary_snapshots.txt
+            fi
+          done < all_snapshots.txt
+
+          # Generate report
+          STALE_COUNT=$(wc -l < stale_snapshots.txt)
+          BINARY_COUNT=$(wc -l < binary_snapshots.txt)
+
+          echo "### Stale Snapshots: $STALE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "### Binary Snapshots: $BINARY_COUNT" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$STALE_COUNT" -gt 0 ]; then
+            echo "#### Stale Snapshot Files:" >> $GITHUB_STEP_SUMMARY
+            cat stale_snapshots.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$BINARY_COUNT" -gt 0 ]; then
+            echo "#### Binary Snapshot Files (Unsupported):" >> $GITHUB_STEP_SUMMARY
+            cat binary_snapshots.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$STALE_COUNT" -eq 0 ] && [ "$BINARY_COUNT" -eq 0 ]; then
+            echo "No stale or invalid snapshots detected." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on stale or binary snapshots
+        run: |
+          STALE_COUNT=$(wc -l < stale_snapshots.txt)
+          BINARY_COUNT=$(wc -l < binary_snapshots.txt)
+          if [ "$STALE_COUNT" -gt 0 ] || [ "$BINARY_COUNT" -gt 0 ]; then
+            echo "Stale or invalid snapshots detected. Please remove stale snapshots and avoid committing binary snapshots."
+            exit 1
+          fi
+
+      - name: Upload snapshots report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stale-snapshots-report
+          path: |
+            stale_snapshots.txt
+            binary_snapshots.txt
+            all_snapshots.txt
+            snapshot_references.txt
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,149 @@
+name: Zombie Tests
+
+# Detect tests never executed or unreachable test code
+# Compares test discovery with execution and identifies dead test artifacts
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zombie-tests:
+    name: Detect Zombie Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-zombie-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-zombie-
+
+      - name: Install cargo-tarpaulin for coverage
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Discover all test functions
+        id: discover
+        run: |
+          echo "## Zombie Tests Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Detecting unreachable or never-executed tests..." >> $GITHUB_STEP_SUMMARY
+
+          # Discover all test functions in Rust code
+          find . -name "*.rs" -not -path "./target/*" -exec grep -l "#\[test\]" {} \; | sort > test_files.txt
+
+          # Extract test function names
+          > all_tests.txt
+          while IFS= read -r file; do
+            grep -A1 "#\[test\]" "$file" | grep -E "^fn " | sed 's/fn //' | sed 's/(.*//' | sed "s/$/ ($file)/" >> all_tests.txt
+          done < test_files.txt
+
+          # Also find integration tests
+          find tests -name "*.rs" | sort > integration_test_files.txt
+
+          # Run tests with list to see discoverable tests
+          cargo test --workspace -- --list --format terse > discoverable_tests.txt 2>/dev/null || true
+
+          # Run tests with coverage to see executed tests
+          cargo tarpaulin --workspace --out Json --output-dir . > coverage.json 2>/dev/null || echo '{"files": []}' > coverage.json
+
+          # Extract executed test names from coverage
+          jq -r '.files[]?.functions[]? | select(.covered == true) | .name' coverage.json | grep -E "test_" | sort | uniq > executed_tests.txt
+
+      - name: Analyze test execution
+        run: |
+          # Find unreachable test files (have #[test] but no coverage)
+          > unreachable_test_files.txt
+          while IFS= read -r file; do
+            if ! jq -r '.files[]?.path' coverage.json | grep -q "^$file$"; then
+              echo "$file" >> unreachable_test_files.txt
+            fi
+          done < test_files.txt
+
+          # Find ignored tests
+          > ignored_tests.txt
+          find . -name "*.rs" -exec grep -l "#\[ignore\]" {} \; | while read -r file; do
+            grep -A1 "#\[ignore\]" "$file" | grep -E "^fn " | sed 's/fn //' | sed 's/(.*//' | sed "s/$/ ($file)/" >> ignored_tests.txt
+          done
+
+          # Find dead integration test files (not referenced)
+          > dead_integration_tests.txt
+          while IFS= read -r file; do
+            basename_file=$(basename "$file" .rs)
+            if ! grep -r "$basename_file" core/ sdk/ docs/ --include="*.rs" --include="*.toml" --include="*.md" | grep -v "$file"; then
+              echo "$file" >> dead_integration_tests.txt
+            fi
+          done < integration_test_files.txt
+
+          # Generate report
+          UNREACHABLE_COUNT=$(wc -l < unreachable_test_files.txt)
+          IGNORED_COUNT=$(wc -l < ignored_tests.txt)
+          DEAD_INTEGRATION_COUNT=$(wc -l < dead_integration_tests.txt)
+
+          echo "### Test Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "- Unreachable test files: $UNREACHABLE_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Ignored tests: $IGNORED_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Dead integration tests: $DEAD_INTEGRATION_COUNT" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$UNREACHABLE_COUNT" -gt 0 ]; then
+            echo "#### Unreachable Test Files:" >> $GITHUB_STEP_SUMMARY
+            cat unreachable_test_files.txt | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$IGNORED_COUNT" -gt 0 ]; then
+            echo "#### Ignored Tests:" >> $GITHUB_STEP_SUMMARY
+            cat ignored_tests.txt | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$DEAD_INTEGRATION_COUNT" -gt 0 ]; then
+            echo "#### Dead Integration Test Files:" >> $GITHUB_STEP_SUMMARY
+            cat dead_integration_tests.txt | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$UNREACHABLE_COUNT" -eq 0 ] && [ "$IGNORED_COUNT" -eq 0 ] && [ "$DEAD_INTEGRATION_COUNT" -eq 0 ]; then
+            echo "No zombie tests detected." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on zombie tests
+        run: |
+          UNREACHABLE_COUNT=$(wc -l < unreachable_test_files.txt)
+          DEAD_INTEGRATION_COUNT=$(wc -l < dead_integration_tests.txt)
+          if [ "$UNREACHABLE_COUNT" -gt 0 ] || [ "$DEAD_INTEGRATION_COUNT" -gt 0 ]; then
+            echo "Zombie tests detected. Please remove unreachable tests and dead integration tests."
+            exit 1
+          fi
+
+      - name: Upload zombie tests report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zombie-tests-report
+          path: |
+            unreachable_test_files.txt
+            ignored_tests.txt
+            dead_integration_tests.txt
+            all_tests.txt
+            executed_tests.txt
+            coverage.json
+          if-no-files-found: warn
+          retention-days: 30
