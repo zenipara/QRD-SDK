@@ -1,10 +1,8 @@
 //! Error Correction Code (Reed-Solomon)
 
 use crate::error::{Error, Result};
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use reed_solomon_erasure::galois_8::ReedSolomon;
 use std::cmp;
-use std::io::{Cursor, Write};
 
 /// ECC configuration
 #[derive(Debug, Clone)]
@@ -251,10 +249,20 @@ impl EccEncodedData {
         let chunk_size = cursor.read_u32::<LittleEndian>()? as usize;
         let total_shards = cursor.read_u32::<LittleEndian>()? as usize;
 
-        // Validate
+        // Validate basic header values
+        if data_shards == 0 {
+            return Err(Error::EccError("EccEncodedData: data_shards must be > 0".to_string()));
+        }
+
         if data_shards + parity_shards != total_shards {
             return Err(Error::EccError(
                 "EccEncodedData: shard count mismatch".to_string(),
+            ));
+        }
+
+        if chunk_size == 0 || chunk_size > 65536 {
+            return Err(Error::EccError(
+                "EccEncodedData: invalid chunk_size".to_string(),
             ));
         }
 
@@ -269,6 +277,13 @@ impl EccEncodedData {
 
             let shard_len = cursor.read_u32::<LittleEndian>()? as usize;
 
+            // Each shard length should not exceed declared chunk_size
+            if shard_len > chunk_size {
+                return Err(Error::EccError(
+                    "EccEncodedData: shard length larger than chunk_size".to_string(),
+                ));
+            }
+
             if cursor.position() as usize + shard_len > data.len() {
                 return Err(Error::EccError(
                     "EccEncodedData: truncated shard data".to_string(),
@@ -280,6 +295,14 @@ impl EccEncodedData {
             cursor.set_position((start + shard_len) as u64);
 
             shards.push(shard_data);
+        }
+
+        // Sanity check: original_size must not exceed total declared data capacity
+        let max_possible = data_shards.saturating_mul(chunk_size);
+        if original_size > max_possible {
+            return Err(Error::EccError(
+                "EccEncodedData: original_size larger than data capacity".to_string(),
+            ));
         }
 
         Ok(EccEncodedData {
@@ -310,7 +333,6 @@ pub fn decode_and_recover(encoded_data: &EccEncodedData, config: &EccConfig) -> 
 pub fn decode_and_recover_with_options(
     encoded: &EccEncodedData,
     shard_options: &[Option<Vec<u8>>],
-    config: &EccConfig,
 ) -> Result<Vec<u8>> {
     if shard_options.len() != encoded.total_shards() {
         return Err(Error::EccError("Shard count mismatch".to_string()));
@@ -392,7 +414,7 @@ mod tests {
         let missing_indices = vec![0, 2]; // Missing first and third data shards
         let damaged_shards = encoded.with_missing_shards(&missing_indices);
 
-        let recovered = decode_and_recover_with_options(&encoded, &damaged_shards, &config).unwrap();
+        let recovered = decode_and_recover_with_options(&encoded, &damaged_shards).unwrap();
         assert_eq!(&recovered[..original_data.len()], original_data);
     }
 

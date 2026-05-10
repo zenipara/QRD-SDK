@@ -31,7 +31,8 @@ fn main() -> Result<()> {
         // Perform a write workload
         let mut writer = qrd_core::writer::FileWriter::new(temp_file.path(), schema.clone()).unwrap();
         for i in 0..1000 {
-            let data = serialize_blob(&vec![(i % 256) as u8; 128]);
+            let blob = vec![(i % 256) as u8; 128];
+            let data = serialize_blob(&blob);
             writer.write_row(vec![data]).unwrap();
         }
         writer.finish().unwrap();
@@ -89,4 +90,13 @@ fn format_memory_size(bytes: usize) -> String {
     } else {
         format!("{:.2} {}", size, UNITS[unit_index])
     }
+}
+
+/// Serialize raw blob with length prefix (u32 little-endian)
+fn serialize_blob(b: &Vec<u8>) -> Vec<u8> {
+    let mut res = Vec::new();
+    let len = b.len() as u32;
+    res.extend_from_slice(&len.to_le_bytes());
+    res.extend_from_slice(b);
+    res
 }

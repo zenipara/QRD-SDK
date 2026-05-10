@@ -8,7 +8,7 @@ use aes_gcm::{
 use hkdf::Hkdf;
 use sha2::Sha256;
 use argon2::{Argon2, PasswordHasher};
-use argon2::password_hash::{SaltString, rand_core::OsRng as ArgonOsRng};
+use argon2::password_hash::SaltString;
 
 /// Encryption configuration
 #[derive(Debug, Clone)]
@@ -58,21 +58,11 @@ impl EncryptionConfig {
 
     /// Derive encryption key from password using HKDF
     pub fn derive_from_password(password: &str, salt: &[u8]) -> Result<Self> {
-        if salt.len() != 32 {
-            return Err(Error::ConfigError(
-                "Salt must be 32 bytes".to_string(),
-            ));
-        }
-
-        let hkdf = Hkdf::<Sha256>::new(Some(salt), password.as_bytes());
-        let mut key = vec![0u8; 32];
-        hkdf.expand(b"qrd-encryption-key", &mut key)
-            .map_err(|_| Error::ConfigError("Failed to derive key from password".to_string()))?;
-
-        Ok(EncryptionConfig {
-            key,
-            salt: Some(salt.to_vec()),
-        })
+        // Prefer stronger password hashing for user passwords. Delegate to
+        // the Argon2-backed helper which is the recommended flow.
+        // Keep a compatibility wrapper that enforces Argon2-based derivation.
+        Ok(EncryptionConfig::derive_from_user_password(password, Some(salt))?
+        )
     }
 
     /// Derive encryption key from user password using Argon2id + HKDF
@@ -88,11 +78,17 @@ impl EncryptionConfig {
     /// EncryptionConfig with derived key and Argon2 salt stored
     pub fn derive_from_user_password(password: &str, argon2_salt: Option<&[u8]>) -> Result<Self> {
         // Generate or use provided salt for Argon2
-        let salt_str = if let Some(salt_bytes) = argon2_salt {
-            SaltString::encode_b64(salt_bytes)
-                .map_err(|_| Error::ConfigError("Invalid Argon2 salt".to_string()))?
+        let (salt_str, argon2_salt_vec) = if let Some(salt_bytes) = argon2_salt {
+            // Use provided raw salt bytes for Argon2 and also store original bytes
+            let s = SaltString::encode_b64(salt_bytes)
+                .map_err(|_| Error::ConfigError("Invalid Argon2 salt".to_string()))?;
+            (s, salt_bytes.to_vec())
         } else {
-            SaltString::generate(ArgonOsRng)
+            // Generate a 32-byte raw salt and encode it for Argon2
+            let raw_salt = EncryptionConfig::generate_salt();
+            let s = SaltString::encode_b64(&raw_salt)
+                .map_err(|_| Error::ConfigError("Failed to encode generated salt".to_string()))?;
+            (s, raw_salt)
         };
 
         // Hash password using Argon2id
@@ -113,8 +109,8 @@ impl EncryptionConfig {
         hkdf.expand(b"qrd-encryption-key-from-password", &mut key)
             .map_err(|_| Error::ConfigError("Failed to derive key from password hash".to_string()))?;
 
-        // Store the Argon2 salt for key derivation consistency
-        let argon2_salt_vec = salt_str.as_str().as_bytes().to_vec();
+        // Store the Argon2 salt for key derivation consistency (raw bytes)
+        let argon2_salt_vec = argon2_salt_vec;
 
         Ok(EncryptionConfig {
             key,

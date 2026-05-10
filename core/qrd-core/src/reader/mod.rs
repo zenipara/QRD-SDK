@@ -135,6 +135,13 @@ impl FileReader {
             footer_len_bytes[3],
         ]) as usize;
 
+        // Validate footer_length against file length to avoid underflow and truncated reads
+        if footer_length > file_len - 4 {
+            return Err(crate::error::Error::InvalidData(
+                "Footer length larger than file size".to_string(),
+            ));
+        }
+
         let footer_start = file_len - 4 - footer_length;
         let footer_data = &file_slice[footer_start..footer_start + footer_length];
 

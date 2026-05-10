@@ -310,22 +310,22 @@ pub fn detect_simd_support() -> (bool, SimdInstructionSet) {
     (false, SimdInstructionSet::None)
 }
 
-/// Fallback implementations for when SIMD is not available
+// Fallback implementations for when SIMD is not available
 
 extern "C" {
-    /// SIMD-accelerated memcpy (placeholder for actual SIMD implementation)
+    // SIMD-accelerated memcpy (placeholder for actual SIMD implementation)
     fn memcpy_simd(dst: *mut u8, src: *const u8, len: usize);
 
-    /// SIMD-accelerated XOR (placeholder for actual SIMD implementation)
+    // SIMD-accelerated XOR (placeholder for actual SIMD implementation)
     fn xor_simd(dst: *mut u8, src: *const u8, len: usize);
 
-    /// SIMD-accelerated byte counting (placeholder for actual SIMD implementation)
+    // SIMD-accelerated byte counting (placeholder for actual SIMD implementation)
     fn count_bytes_simd(data: *const u8, len: usize, target: u8) -> usize;
 
-    /// SIMD-accelerated delta encoding for i32 (placeholder for actual SIMD implementation)
+    // SIMD-accelerated delta encoding for i32 (placeholder for actual SIMD implementation)
     fn delta_encode_i32_simd(data: *const i32, result: *mut i32, len: usize);
 
-    /// SIMD-accelerated delta decoding for i32 (placeholder for actual SIMD implementation)
+    // SIMD-accelerated delta decoding for i32 (placeholder for actual SIMD implementation)
     fn delta_decode_i32_simd(data: *const i32, result: *mut i32, len: usize);
 }
 

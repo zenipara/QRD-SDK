@@ -101,8 +101,9 @@ fn create_sample_dataset() -> Result<NamedTempFile> {
         ])?;
     }
 
+    let rg_count = writer.row_group_count();
     writer.finish()?;
-    println!("  Generated {} user records in {} row groups", 1000, writer.row_group_count());
+    println!("  Generated {} user records in {} row groups", 1000, rg_count);
 
     Ok(temp)
 }
@@ -111,7 +112,7 @@ fn demonstrate_column_selective_reads(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n📊 Column-Selective Reads");
     println!("-------------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file)?, Default::default())?;
+    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
 
     // Read only user_id and login_count columns (indices 0 and 5)
     let column_indices = vec![0, 5];
@@ -140,7 +141,7 @@ fn demonstrate_query_pushdown(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n🚀 Query Pushdown Optimization");
     println!("------------------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file)?, Default::default())?;
+    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
 
     // Query: Find active premium users with high login counts
     let filters = vec![
@@ -195,7 +196,7 @@ fn demonstrate_metadata_indexing(temp_file: &NamedTempFile) -> Result<()> {
     println!("\n📋 Metadata Indexing");
     println!("--------------------");
 
-    let mut reader = PartialReader::new(std::fs::File::open(temp_file)?, Default::default())?;
+    let mut reader = PartialReader::new(std::fs::File::open(temp_file.path())?, Default::default())?;
     let metadata_index = reader.metadata_index().unwrap();
 
     // Show column index mapping

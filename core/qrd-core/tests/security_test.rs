@@ -158,7 +158,7 @@ fn test_ecc_single_parity_recovery() {
     shards[0] = None; // Lose first data chunk
 
     // Should be able to recover
-    let recovered = qrd_core::ecc::decode_and_recover(&shards, &config)
+    let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
         .expect("ECC recovery failed");
     assert_eq!(recovered, original_data, "Recovered data should match original");
 }
@@ -181,7 +181,7 @@ fn test_ecc_multiple_losses_recovery() {
     shards[0] = None;
     shards[1] = None;
 
-    let recovered = qrd_core::ecc::decode_and_recover(&shards, &config)
+    let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
         .expect("ECC recovery failed");
     assert_eq!(recovered, original_data, "Should recover from multiple losses");
 }
@@ -222,7 +222,7 @@ fn test_ecc_edge_cases() {
         let mut shards = encoded.shards_as_options();
         shards[0] = None;
         
-        let recovered = qrd_core::ecc::decode_and_recover(&shards, &config)
+        let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards)
             .expect("ECC recovery failed");
         assert_eq!(recovered, data, "Should recover {:?} pattern correctly", name);
     }
@@ -297,7 +297,7 @@ fn test_encryption_with_ecc_integration() {
     shards[0] = None;
 
     // Step 4: Recover ECC
-    let recovered_encrypted = qrd_core::ecc::decode_and_recover(&shards, &ecc_config)
+    let recovered_encrypted = qrd_core::ecc::decode_and_recover_with_options(&with_ecc, &shards)
         .expect("ECC recovery failed");
 
     // Step 5: Decrypt

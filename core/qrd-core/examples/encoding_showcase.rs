@@ -5,6 +5,7 @@
 
 use qrd_core::prelude::*;
 use tempfile::NamedTempFile;
+use std::fs::File;
 
 fn main() -> Result<()> {
     println!("QRD Encoding Showcase Example");
@@ -82,48 +83,44 @@ fn main() -> Result<()> {
     }
 
     // Finish writing
+    let written = writer.row_count();
     writer.finish()?;
-    println!("Successfully wrote {} rows", writer.row_count());
+    println!("Successfully wrote {} rows", written);
 
-    // Now read back and verify
-    println!("\nReading back data to verify encodings...");
+    // Now read back and verify by inspecting the footer
+    println!("\nReading back data to verify encodings (via footer)...");
 
-    let mut reader = FileReader::new(&temp_file.path())?;
-    let read_schema = reader.schema();
+    let raw = std::fs::read(temp_file.path())?;
+    let len = raw.len();
+    let footer_len = u32::from_le_bytes([
+        raw[len - 4],
+        raw[len - 3],
+        raw[len - 2],
+        raw[len - 1],
+    ]) as usize;
+    let footer_start = len - 4 - footer_len;
+    let footer_bytes = &raw[footer_start..footer_start + footer_len];
+    let footer = qrd_core::footer::Footer::deserialize(footer_bytes)?;
 
-    println!("Read schema with {} columns", read_schema.column_count());
-
-    // Read all rows
-    let mut row_count = 0;
-    while let Some(row_result) = reader.read_row()? {
-        row_count += 1;
-
-        // Verify we can read the data back
-        if row_count <= 5 {
-            println!("  Row {}: {} columns", row_count, row_result.len());
-        }
-    }
-
-    println!("Successfully read {} rows", row_count);
+    println!("Footer reports {} rows", footer.row_count);
 
     // Demonstrate partial reading (read just one column)
     println!("\nDemonstrating partial column reading...");
 
+    let file = File::open(temp_file.path())?;
     let mut partial_reader = qrd_core::reader::PartialReader::new(
-        &temp_file.path(),
-        vec![0], // Read only the first column (id)
-        qrd_core::reader::PartialReadConfig::default()
+        file,
+        qrd_core::reader::PartialReadConfig::default(),
     )?;
 
-    let mut partial_count = 0;
-    while let Some(partial_row) = partial_reader.read_partial_row()? {
-        partial_count += 1;
-        if partial_count <= 3 {
-            println!("  Partial row {}: {} columns read", partial_count, partial_row.len());
-        }
+    // Read the first row group's first column
+    let cols = partial_reader.read_columns(0, &[0])?; // read column 0 of row group 0
+    let partial_count = cols.len();
+    for i in 0..partial_count.min(3) {
+        println!("  Partial column {}: {} bytes", i + 1, cols[i].len());
     }
 
-    println!("Successfully read {} partial rows (1 column each)", partial_count);
+    println!("Successfully read {} partial column chunks", partial_count);
 
     println!("\nEncoding showcase example completed successfully!");
     println!("This example demonstrated:");

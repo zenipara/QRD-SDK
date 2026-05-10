@@ -49,7 +49,6 @@
 #![warn(
     missing_docs,
     rust_2018_idioms,
-    unused_qualifications,
     rustdoc::missing_crate_level_docs
 )]
 
@@ -86,6 +85,7 @@ pub use error::{Error, Result};
 
 /// QRD Format Version
 pub const QRD_VERSION_MAJOR: u16 = 1;
+/// Minor version number for QRD format
 pub const QRD_VERSION_MINOR: u16 = 0;
 
 /// QRD Magic Bytes: "QRD\x01"
