@@ -203,30 +203,6 @@ cargo bench --package qrd-core
 
 ## Project Status
 
-```
-Phase 1: Core Engine           ████████████████████ COMPLETE
-Phase 2: Security & SIMD       ████████████████████ COMPLETE
-Phase 3: Language Bindings     ░░░░░░░░░░░░░░░░░░░░ Q1 2027
-Phase 4: Ecosystem & CLI       ░░░░░░░░░░░░░░░░░░░░ Q2 2027+
-```
-
-**Phase 2 is complete.** The following are implemented and tested in the Rust core:
-
-- ✅ Schema engine with 20 logical types and deterministic schema ID hashing
-- ✅ All 8 encoding algorithms with automatic selection
-- ✅ ZSTD and LZ4 compression with entropy-based codec selection
-- ✅ AES-256-GCM encryption with HKDF key derivation and per-column keys
-- ✅ Reed-Solomon ECC with configurable parity (1–32 chunks)
-- ✅ SIMD-accelerated memcpy, XOR, delta encoding, and byte operations
-- ✅ Footer parser and builder with CRC32 validation
-- ✅ Streaming writer and reader framework
-- ✅ Comprehensive benchmark suite
-- ✅ 21+ unit tests + integration tests
-
-**In progress:**
-- 🔄 Full end-to-end binary write → read roundtrip (golden test vectors)
-- 🔄 Complete streaming writer implementation
-- 🔄 Language binding layer (FFI → Python/TS/Go/Java)
 
 ---
 
@@ -430,45 +406,7 @@ QRD is the right choice when you need to **write structured data to a file, effi
 
 ## Roadmap
 
-### v1.0.0 — Q3 2026 (Core Stable)
 
-- [x] End-to-end streaming write → read roundtrip
-- [x] Golden test vector suite
-- [x] All encoding types fully integrated
-- [x] SIMD optimization validated in benchmarks
-- [x] Memory profiling and fuzz testing
-- [x] Documentation and example suite
-
-### v1.1.0 — Q4 2026 (Partial Reads)
-
-- [x] Footer-based column-selective reads
-- [x] Column statistics collection
-- [x] Query pushdown optimization
-- [x] Metadata indexing
-
-### v1.2.0 — Q4 2026 (Security)
-
-- [ ] AES-256-GCM encryption, end-to-end integrated
-- [ ] Per-column encryption keys
-- [ ] Reed-Solomon ECC, integrated with writer/reader
-- [ ] Encrypted test vectors
-
-### v2.0.0 — Q1 2027 (Language Bindings)
-
-- [ ] Python SDK (PyO3 + NumPy/Pandas integration)
-- [ ] TypeScript SDK (WASM + Browser + Node.js)
-- [ ] Go SDK (CGO + `io.Reader`/`io.Writer`)
-- [ ] Java SDK (JNI + Stream API)
-- [ ] Cross-SDK determinism test suite
-
-### v3.0.0 — Q2 2027+ (Ecosystem)
-
-- [ ] `qrd-write`: JSON/CSV → QRD CLI
-- [ ] `qrd-read`: QRD → JSON/CSV/Parquet CLI
-- [ ] `qrd-inspect`: Metadata and schema viewer
-- [ ] `qrd-convert`: Cross-format conversion
-- [ ] Fuzzer corpus and corruption test suite
-- [ ] Architecture deep-dives and performance tuning guide
 
 ---
 
