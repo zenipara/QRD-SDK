@@ -25,7 +25,7 @@ fn test_encryption_integration() {
 #[test]
 fn test_ecc_integration() {
     let config = EccConfig::with_chunk_size(2, 1024).unwrap();
-    let mut codec = EccCodec::new(config).unwrap();
+    let mut codec = EccCodec::new(config.clone()).unwrap();
 
     let original_data = vec![42u8; 2048];
 
@@ -36,8 +36,8 @@ fn test_ecc_integration() {
     let mut shards = encoded.shards_as_options();
     shards[0] = None; // Lose first data chunk
 
-    // Recover
-    let recovered = qrd_core::ecc::decode_and_recover(&shards, &config).unwrap();
+        // Recover
+        let recovered = qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards).unwrap();
     assert_eq!(recovered, original_data);
 }
 
@@ -130,7 +130,7 @@ fn test_combined_features() {
     shards[1] = None; // Lose a chunk
 
     // Recover with ECC
-    let ecc_recovered = qrd_core::ecc::decode_and_recover(&shards, &ecc_config).unwrap();
+        let ecc_recovered = qrd_core::ecc::decode_and_recover_with_options(&ecc_encoded, &shards).unwrap();
 
     // Decrypt
     let final_decrypted = decrypt(&ecc_recovered, &encrypt_config).unwrap();

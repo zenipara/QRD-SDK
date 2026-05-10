@@ -39,7 +39,7 @@ impl Default for PartialReadConfig {
 pub struct PartialReader<R: Read + Seek> {
     reader: R,
     footer: Footer,
-    config: PartialReadConfig,
+    _config: PartialReadConfig,
     file_size: u64,
 }
 
@@ -55,7 +55,7 @@ impl<R: Read + Seek> PartialReader<R> {
         Ok(PartialReader {
             reader,
             footer,
-            config,
+            _config: config,
             file_size,
         })
     }
@@ -307,7 +307,6 @@ impl<R: Read + Seek> PartialReader<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     #[test]
     fn test_partial_reader_config() {

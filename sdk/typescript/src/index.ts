@@ -233,16 +233,21 @@ function deserializeCellFromStorage(value: StoredCell): number | string | Uint8A
 }
 
 function encodePayload(payload: unknown): Uint8Array {
-  return new Uint8Array(Buffer.from(JSON.stringify(payload), 'utf8'));
+  // NOTE: The TypeScript SDK previously serialized QRD payloads using JSON.stringify,
+  // which is not compatible with the binary QRD format used by other SDKs.
+  // To avoid producing unreadable/corrupt files, the TypeScript implementation
+  // refuses to serialize to a QRD binary format until a proper implementation
+  // (for example via qrd-wasm) is provided.
+  throw new Error(
+    'QRD binary serialization is not implemented in the TypeScript SDK. Use official Rust/Go/Python SDKs or qrd-wasm.',
+  );
 }
 
 function decodePayload(data: Uint8Array): {
   schema: { fields: SchemaField[]; schemaId: number };
   rows: StoredCell[][];
 } {
-  const text = Buffer.from(data).toString('utf8');
-  return JSON.parse(text) as {
-    schema: { fields: SchemaField[]; schemaId: number };
-    rows: StoredCell[][];
-  };
+  throw new Error(
+    'QRD binary deserialization is not implemented in the TypeScript SDK. Use official Rust/Go/Python SDKs or qrd-wasm.',
+  );
 }

@@ -15,7 +15,7 @@ pub use streaming_writer::{StreamingWriter, StreamingWriterConfig};
 use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
 use crate::encryption::EncryptionConfig;
-use crate::ecc::{EccConfig, EccCodec};
+use crate::ecc::EccConfig;
 use crate::error::Result;
 use crate::footer::Footer;
 use crate::metadata::{RowGroupStats, MetadataIndex};
@@ -24,7 +24,7 @@ use crate::schema::Schema;
 use crate::validation::Validator;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::fs::File;
-use std::io::{Write, Seek, SeekFrom};
+use std::io::Write;
 use std::path::Path;
 
 const PER_COLUMN_ROW_GROUP_MARKER: u8 = 0xFF;
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn test_column_statistics_null_count_roundtrip() {
         use tempfile::NamedTempFile;
-        use crate::reader::FileReader;
+        
         let temp = NamedTempFile::new().unwrap();
 
         let schema = crate::schema::SchemaBuilder::new()
@@ -556,7 +556,7 @@ mod tests {
         }
 
         // Read file bytes and parse footer to inspect metadata index
-        let mut raw = std::fs::read(temp.path()).unwrap();
+        let raw = std::fs::read(temp.path()).unwrap();
         let len = raw.len();
         let footer_len = u32::from_le_bytes([raw[len - 4], raw[len - 3], raw[len - 2], raw[len - 1]]) as usize;
         let footer_start = len - 4 - footer_len;

@@ -45,6 +45,7 @@ fn test_encrypted_write_read_roundtrip() {
         encryption: Some(enc_config.clone()),
         ecc: None,
         encrypt_footer: true,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -57,7 +58,7 @@ fn test_encrypted_write_read_roundtrip() {
     // Write some test data
     for i in 0..10 {
         let row = vec![
-            i.to_le_bytes().to_vec(), // id: i64
+            (i as i64).to_le_bytes().to_vec(), // id: i64
             serialize_string(&format!("record_{}", i)), // name: string
             (i as f64 * 1.5).to_le_bytes().to_vec(), // value: f64
         ];
@@ -87,6 +88,7 @@ fn test_encrypted_wrong_key_fails() {
         encryption: Some(enc_config.clone()),
         ecc: None,
         encrypt_footer: true,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -98,7 +100,7 @@ fn test_encrypted_wrong_key_fails() {
 
     for i in 0..5 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("data_{}", i)),
             (i as f64).to_le_bytes().to_vec(),
         ];
@@ -134,6 +136,7 @@ fn test_ecc_corruption_recovery() {
         encryption: None,
         ecc: Some(ecc_config.clone()),
         encrypt_footer: false,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -146,7 +149,7 @@ fn test_ecc_corruption_recovery() {
     // Write test data
     for i in 0..50 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("ecc_test_{}", i)),
             (i as f64 * 2.5).to_le_bytes().to_vec(),
         ];
@@ -196,6 +199,7 @@ fn test_encrypted_ecc_combined() {
         encryption: Some(enc_config.clone()),
         ecc: Some(ecc_config.clone()),
         encrypt_footer: true,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -208,7 +212,7 @@ fn test_encrypted_ecc_combined() {
     // Write data
     for i in 0..30 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("combined_{}", i)),
             (i as f64 * 0.5).to_le_bytes().to_vec(),
         ];
@@ -248,6 +252,7 @@ fn test_encrypted_footer_schema_hidden() {
         encryption: Some(enc_config.clone()),
         ecc: None,
         encrypt_footer: true,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -259,7 +264,7 @@ fn test_encrypted_footer_schema_hidden() {
 
     for i in 0..10 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("secret_{}", i)),
             (i as f64).to_le_bytes().to_vec(),
         ];
@@ -295,7 +300,7 @@ fn test_unencrypted_still_works() {
 
     for i in 0..20 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("normal_{}", i)),
             (i as f64 * 1.5).to_le_bytes().to_vec(),
         ];
@@ -330,6 +335,7 @@ fn test_password_based_encryption_e2e() {
         encryption: Some(enc_config.clone()),
         ecc: Some(EccConfig::new(1).unwrap()),
         encrypt_footer: true,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -342,7 +348,7 @@ fn test_password_based_encryption_e2e() {
     // Write data
     for i in 0..100 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("password_protected_{:05}", i)),
             (i as f64 * 3.14).to_le_bytes().to_vec(),
         ];
@@ -377,6 +383,7 @@ fn test_ecc_partial_corruption_recovery() {
         encryption: None,
         ecc: Some(ecc_config.clone()),
         encrypt_footer: false,
+        per_column_encryption: false,
     };
 
     let mut writer = FileWriter::with_config(
@@ -389,7 +396,7 @@ fn test_ecc_partial_corruption_recovery() {
     // Write enough data to create multiple chunks
     for i in 0..200 {
         let row = vec![
-            i.to_le_bytes().to_vec(),
+            (i as i64).to_le_bytes().to_vec(),
             serialize_string(&format!("chunk_test_{:06}", i)),
             (i as f64 * 1.23).to_le_bytes().to_vec(),
         ];

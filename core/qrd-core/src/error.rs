@@ -11,7 +11,12 @@ pub enum Error {
     /// Invalid magic bytes
     InvalidMagic,
     /// Unsupported version
-    UnsupportedVersion { major: u16, minor: u16 },
+    UnsupportedVersion {
+        /// Major version encountered
+        major: u16,
+        /// Minor version encountered
+        minor: u16,
+    },
     /// Invalid schema
     InvalidSchema(String),
     /// Invalid data
@@ -35,11 +40,26 @@ pub enum Error {
     /// Validation failed
     ValidationFailed(String),
     /// CRC mismatch
-    CrcMismatch { expected: u32, actual: u32 },
+    CrcMismatch {
+        /// Expected CRC32 value
+        expected: u32,
+        /// Actual CRC32 value
+        actual: u32,
+    },
     /// Row count mismatch
-    RowCountMismatch { expected: u32, actual: u32 },
+    RowCountMismatch {
+        /// Expected number of rows
+        expected: u32,
+        /// Actual number of rows
+        actual: u32,
+    },
     /// Column count mismatch
-    ColumnCountMismatch { expected: u32, actual: u32 },
+    ColumnCountMismatch {
+        /// Expected number of columns
+        expected: u32,
+        /// Actual number of columns
+        actual: u32,
+    },
     /// Type mismatch
     TypeMismatch(String),
     /// Configuration error

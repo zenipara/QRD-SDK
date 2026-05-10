@@ -124,7 +124,7 @@ pub fn get_encoder(encoding: EncodingType) -> Result<Box<dyn Encoder>> {
         EncodingType::DictionaryRle => Ok(Box::new(dictionary_rle::DictionaryRleEncoder::new())),
         EncodingType::ByteStreamSplit => Ok(Box::new(byte_stream_split::ByteStreamSplitEncoder::new())),
         EncodingType::Passthrough => Ok(Box::new(PassthroughEncoder::new())),
-        _ => Err(Error::EncodingError(format!("Encoder not implemented: {:?}", encoding))),
+        // All variants handled above; no fallback required.
     }
 }
 
@@ -137,6 +137,7 @@ pub fn select_encoding(field_type: &crate::schema::FieldType, _data: &[u8]) -> E
 }
 
 /// Check if field type is an integer type
+#[allow(dead_code)]
 fn is_integer_type(field_type: &crate::schema::FieldType) -> bool {
     matches!(
         field_type,
@@ -156,6 +157,7 @@ fn is_integer_type(field_type: &crate::schema::FieldType) -> bool {
 }
 
 /// Read integer value at index
+#[allow(dead_code)]
 fn read_int_at(field_type: &crate::schema::FieldType, data: &[u8], index: usize) -> i64 {
     if let Some(size) = field_type.fixed_size() {
         let offset = index * size;
@@ -189,6 +191,7 @@ fn read_int_at(field_type: &crate::schema::FieldType, data: &[u8], index: usize)
 }
 
 /// Check if string data is sorted
+#[allow(dead_code)]
 fn is_sorted_strings(data: &[u8]) -> bool {
     let mut offset = 0;
     let mut last_string: Option<Vec<u8>> = None;
@@ -218,6 +221,7 @@ fn is_sorted_strings(data: &[u8]) -> bool {
 }
 
 /// Check if integer data is sorted
+#[allow(dead_code)]
 fn is_sorted_integers(field_type: &crate::schema::FieldType, data: &[u8]) -> bool {
     if let Some(size) = field_type.fixed_size() {
         if data.len() % size != 0 {
@@ -242,6 +246,7 @@ fn is_sorted_integers(field_type: &crate::schema::FieldType, data: &[u8]) -> boo
 }
 
 /// Check if string data has low cardinality
+#[allow(dead_code)]
 fn is_low_cardinality(data: &[u8], max_distinct: usize) -> bool {
     let mut seen = std::collections::HashSet::new();
     let mut offset = 0;
@@ -265,6 +270,7 @@ fn is_low_cardinality(data: &[u8], max_distinct: usize) -> bool {
 }
 
 /// Check if integer data has low cardinality
+#[allow(dead_code)]
 fn is_low_cardinality_integers(field_type: &crate::schema::FieldType, data: &[u8], max_distinct: usize) -> bool {
     if let Some(size) = field_type.fixed_size() {
         if data.len() % size != 0 {

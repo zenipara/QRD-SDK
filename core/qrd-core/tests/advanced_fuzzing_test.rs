@@ -58,10 +58,17 @@ fn fuzz_decryption_corrupted_ciphertexts() {
         ("truncate to 1 byte", Box::new(|ct: &mut Vec<u8>| ct.truncate(1))),
         ("truncate to half", Box::new(|ct: &mut Vec<u8>| ct.truncate(ct.len() / 2))),
         ("flip first byte", Box::new(|ct: &mut Vec<u8>| ct[0] ^= 0xFF)),
-        ("flip last byte", Box::new(|ct: &mut Vec<u8>| ct[ct.len() - 1] ^= 0xFF)),
+        ("flip last byte", Box::new(|ct: &mut Vec<u8>| {
+            if !ct.is_empty() {
+                let idx = ct.len() - 1;
+                ct[idx] ^= 0xFF;
+            }
+        })),
         ("flip middle", Box::new(|ct: &mut Vec<u8>| {
-            if ct.len() > 2 {
-                ct[ct.len() / 2] ^= 0xFF;
+            let len = ct.len();
+            if len > 2 {
+                let idx = len / 2;
+                ct[idx] ^= 0xFF;
             }
         })),
         ("zero all", Box::new(|ct: &mut Vec<u8>| {
@@ -161,7 +168,7 @@ fn fuzz_ecc_invalid_config() {
 #[test]
 fn fuzz_ecc_extreme_sizes() {
     let config = EccConfig::with_chunk_size(2, 256).expect("Config creation failed");
-    let mut codec = EccCodec::new(config).expect("Codec creation failed");
+    let mut codec = EccCodec::new(config.clone()).expect("Codec creation failed");
 
     let test_cases = vec![
         ("empty", vec![]),
@@ -183,7 +190,7 @@ fn fuzz_ecc_extreme_sizes() {
                 let mut shards = encoded.shards_as_options();
                 if shards.len() > 0 {
                     shards[0] = None;
-                    match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards, &config) {
+                    match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards) {
                         Ok(recovered) => {
                             assert_eq!(recovered, data, "Recovery should produce original");
                             println!("  ✓ Successfully recovered from loss");
@@ -227,7 +234,7 @@ fn fuzz_ecc_loss_patterns() {
             }
         }
 
-        match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards, &config) {
+        match qrd_core::ecc::decode_and_recover_with_options(&encoded, &shards) {
             Ok(recovered) => {
                 assert_eq!(recovered, data, "Recovery should produce original data");
                 println!("  ✓ Successfully recovered from {} losses", loss_count);

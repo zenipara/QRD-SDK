@@ -11,7 +11,7 @@ use crate::columnar::RowBuffer;
 use crate::compression::CompressionLevel;
 use crate::error::Result;
 use crate::encryption::EncryptionConfig;
-use crate::ecc::{EccConfig, EccCodec};
+use crate::ecc::EccConfig;
 use crate::schema::Schema;
 use crate::validation::Validator;
 use crate::writer::buffer_pool::{BufferPool, BufferPoolConfig};

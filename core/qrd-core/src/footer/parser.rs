@@ -46,9 +46,16 @@ impl FooterParser {
             ));
         }
 
-        // Seek to start of footer
-        let footer_start = total_size as usize - 8 - footer_length;
-        reader.seek(SeekFrom::Start(footer_start as u64))?;
+        // Ensure footer_length is consistent with total file size to avoid underflow
+        if (footer_length as u64) + 8 > total_size {
+            return Err(crate::error::Error::InvalidData(
+                "Footer length larger than file size".to_string(),
+            ));
+        }
+
+        // Seek to start of footer (safe subtraction after check)
+        let footer_start = (total_size - 8 - (footer_length as u64)) as u64;
+        reader.seek(SeekFrom::Start(footer_start))?;
 
         // Read footer data
         let mut footer_data = vec![0u8; footer_length];
@@ -137,7 +144,6 @@ impl FooterParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Cursor;
 
     fn make_schema(names: Vec<&str>) -> crate::schema::Schema {
         let mut builder = crate::schema::SchemaBuilder::new();
