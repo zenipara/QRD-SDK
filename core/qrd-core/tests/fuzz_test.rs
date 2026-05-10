@@ -244,7 +244,7 @@ fn fuzz_validation_edge_cases() {
 /// Fuzz test encoding/decoding with malformed data
 #[test]
 fn fuzz_encoding_malformed_data() {
-    use qrd_core::encoding::{PlainEncoder, PlainDecoder};
+    use qrd_core::encoding::{EncodingType, get_encoder};
 
     let malformed_inputs = vec![
         // Empty data
@@ -259,22 +259,19 @@ fn fuzz_encoding_malformed_data() {
         (0..1000).map(|i| if i % 2 == 0 { 0x00 } else { 0xFF }).collect(),
     ];
 
-    let mut encoder = PlainEncoder::new();
-    let mut decoder = PlainDecoder::new();
+    let encoder = get_encoder(EncodingType::Plain).expect("Failed to get encoder");
 
     for (i, input) in malformed_inputs.into_iter().enumerate() {
         println!("Testing encoding case {}", i);
 
-        let mut encoded = Vec::new();
-        let encode_result = encoder.encode(&input, &mut encoded);
+        let encode_result = encoder.encode(&input);
         match encode_result {
-            Ok(_) => {
+            Ok(encoded) => {
                 println!("  Encoded successfully");
                 // Try to decode
-                let mut decoded = Vec::new();
-                let decode_result = decoder.decode(&encoded, &mut decoded);
+                let decode_result = encoder.decode(&encoded, input.len());
                 match decode_result {
-                    Ok(_) => println!("  Decoded successfully"),
+                    Ok(_decoded) => println!("  Decoded successfully"),
                     Err(e) => println!("  Decode failed: {}", e),
                 }
             }

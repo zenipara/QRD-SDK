@@ -1,6 +1,8 @@
 //! QRD WASM — WebAssembly bindings for browser and Node.js
 
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsValue;
+use js_sys;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::writer::StreamingWriter;
 use std::io::Cursor;
@@ -21,7 +23,10 @@ impl QrdSchemaBuilder {
 
     pub fn add_field(&mut self, name: &str, field_type: &str) -> Result<(), JsValue> {
         let ft = parse_field_type(field_type).map_err(|e| JsValue::from_str(&e))?;
-        self.inner
+        
+        // Replace self.inner temporarily to handle ownership
+        let builder = std::mem::replace(&mut self.inner, SchemaBuilder::new());
+        self.inner = builder
             .add_field(name, ft, Nullability::Required)
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
         Ok(())
