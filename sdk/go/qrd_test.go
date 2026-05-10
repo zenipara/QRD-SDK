@@ -9,25 +9,25 @@ func TestSchemaBuilder(t *testing.T) {
 	builder := NewSchemaBuilder()
 	defer builder.Free()
 	
-	err := builder.AddField("id", int(FieldTypeInt64), false)
+	err := builder.AddField("id", FieldTypeInt64, NullabilityRequired, "").err
 	if err != nil {
 		t.Fatalf("Failed to add field: %v", err)
 	}
 	
-	err = builder.AddField("name", int(FieldTypeString), true)
+	err = builder.AddField("name", FieldTypeString, NullabilityOptional, "").err
 	if err != nil {
 		t.Fatalf("Failed to add field: %v", err)
 	}
 	
-	err = builder.AddField("score", int(FieldTypeFloat64), true)
+	err = builder.AddField("score", FieldTypeFloat64, NullabilityOptional, "").err
 	if err != nil {
 		t.Fatalf("Failed to add field: %v", err)
 	}
 	
 	// Build schema
-	schema, err := builder.Build()
-	if err != nil {
-		t.Fatalf("Failed to build schema: %v", err)
+	schema, buildErr := builder.Build()
+	if buildErr != nil {
+		t.Fatalf("Failed to build schema: %v", buildErr)
 	}
 	defer schema.Free()
 	
@@ -41,8 +41,8 @@ func TestBasicIO(t *testing.T) {
 	builder := NewSchemaBuilder()
 	defer builder.Free()
 	
-	builder.AddField("id", int(FieldTypeInt64), false)
-	builder.AddField("value", int(FieldTypeFloat64), true)
+	builder.AddField("id", FieldTypeInt64, NullabilityRequired, "")
+	builder.AddField("value", FieldTypeFloat64, NullabilityOptional, "")
 	
 	schema, err := builder.Build()
 	if err != nil {

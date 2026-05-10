@@ -59,7 +59,7 @@ type SchemaBuilder struct {
 }
 
 func newSchemaBuilder() *SchemaBuilder {
-	ptr := C.qrd_schema_new()
+	ptr := C.qrd_schema_builder_new()
 	if ptr == nil {
 		return &SchemaBuilder{err: errors.New("failed to create schema")}
 	}
@@ -81,7 +81,7 @@ func (sb *SchemaBuilder) Free() {
 	if sb == nil || sb.ptr == nil {
 		return
 	}
-	C.qrd_schema_free((*C.QrdSchema)(sb.ptr))
+	C.qrd_schema_builder_free((*C.QrdSchemaBuilder)(sb.ptr))
 	sb.ptr = nil
 }
 
@@ -97,12 +97,11 @@ func (sb *SchemaBuilder) AddField(name string, fieldType FieldType, nullability 
 	cMetadata := C.CString(metadata)
 	defer C.free(unsafe.Pointer(cMetadata))
 
-	result := C.qrd_schema_add_field(
-		(*C.QrdSchema)(sb.ptr),
+	result := C.qrd_schema_builder_add_field(
+		(*C.QrdSchemaBuilder)(sb.ptr),
 		cName,
 		C.int(fieldType),
 		C.int(nullability),
-		cMetadata,
 	)
 	if result != 0 {
 		sb.err = errors.New("failed to add field to schema")
@@ -122,7 +121,12 @@ func (sb *SchemaBuilder) Build() (*Schema, error) {
 		return nil, errors.New("schema builder is not initialized")
 	}
 
-	schema := &Schema{ptr: sb.ptr}
+	built := C.qrd_schema_builder_build((*C.QrdSchemaBuilder)(sb.ptr))
+	if built == nil {
+		return nil, errors.New("failed to build schema")
+	}
+
+	schema := &Schema{ptr: built}
 	sb.ptr = nil
 	runtime.SetFinalizer(schema, func(s *Schema) {
 		s.Free()
@@ -338,7 +342,7 @@ func NewFileReader(data []byte) (*FileReader, error) {
 		return nil, errors.New("failed to get schema")
 	}
 
-	schema := &Schema{ptr: unsafe.Pointer(cSchema)}
+	schema := &Schema{ptr: cSchema}
 	runtime.SetFinalizer(schema, func(s *Schema) {
 		s.Free()
 	})

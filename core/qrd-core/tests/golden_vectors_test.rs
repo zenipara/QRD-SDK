@@ -216,7 +216,7 @@ fn create_type_test_value(field_type: &FieldType) -> Vec<u8> {
         FieldType::Enum => serialize_string("VALUE_A"),
         FieldType::Uuid => vec![0u8; 16],
         FieldType::Decimal => serialize_decimal(42, 2),
-        FieldType::Struct | FieldType::Array | FieldType::Any => vec![],
+        _ => vec![],
     }
 }
 
@@ -239,7 +239,7 @@ fn test_schema_determinism() {
         .build()
         .expect("Failed");
 
-    assert_eq!(schema1.id, schema2.id, "Identical schemas should have identical IDs");
+    assert_eq!(schema1.schema_id, schema2.schema_id, "Identical schemas should have identical IDs");
     println!("✓ Schema determinism verified");
 }
 

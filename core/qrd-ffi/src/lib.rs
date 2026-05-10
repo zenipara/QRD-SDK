@@ -325,6 +325,26 @@ fn set_last_error(msg: String) {
     });
 }
 
+/// FFI function to get the last error message.
+#[no_mangle]
+pub extern "C" fn qrd_last_error_ffi() -> *const c_char {
+    thread_local! {
+        static ERROR_MSG_PTR: std::cell::RefCell<*const c_char> = std::cell::RefCell::new(std::ptr::null());
+    }
+
+    LAST_ERROR.with(|e| {
+        if let Ok(err) = e.lock() {
+            ERROR_MSG_PTR.with(|ptr| {
+                let c_str = std::ffi::CString::new(err.clone()).unwrap_or_else(|_| std::ffi::CString::new("Unknown error").unwrap());
+                *ptr.borrow_mut() = c_str.into_raw();
+                *ptr.borrow()
+            })
+        } else {
+            std::ptr::null()
+        }
+    })
+}
+
 fn field_type_from_int(value: i32) -> std::result::Result<FieldType, String> {
     match value {
         0 => Ok(FieldType::Boolean),
@@ -402,14 +422,32 @@ fn nullability_from_ffi(value: i32) -> Option<Nullability> {
 /// FFI function to create schema.
 #[no_mangle]
 pub extern "C" fn qrd_schema_builder_new() -> *mut QrdSchemaBuilder {
+    qrd_schema_builder_new_impl()
+}
+
+fn qrd_schema_builder_new_impl() -> *mut QrdSchemaBuilder {
     Box::into_raw(Box::new(QrdSchemaBuilder(Some(SchemaBuilder::new()))))
 }
 
 #[no_mangle]
 pub extern "C" fn qrd_schema_builder_free(ptr: *mut QrdSchemaBuilder) {
+    qrd_schema_builder_free_impl(ptr)
+}
+
+fn qrd_schema_builder_free_impl(ptr: *mut QrdSchemaBuilder) {
     if !ptr.is_null() { 
         unsafe { drop(Box::from_raw(ptr)); } 
     }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_new_ffi() -> *mut QrdSchemaBuilder {
+    qrd_schema_builder_new_impl()
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_free_ffi(ptr: *mut QrdSchemaBuilder) {
+    qrd_schema_builder_free_impl(ptr)
 }
 
 /// field_type values:
@@ -421,6 +459,15 @@ pub extern "C" fn qrd_schema_builder_free(ptr: *mut QrdSchemaBuilder) {
 /// nullability values: 0=Required, 1=Optional, 2=Repeated
 #[no_mangle]
 pub extern "C" fn qrd_schema_builder_add_field(
+    builder: *mut QrdSchemaBuilder,
+    name: *const c_char,
+    field_type: c_int,
+    nullability: c_int,
+) -> c_int {
+    qrd_schema_builder_add_field_impl(builder, name, field_type, nullability)
+}
+
+fn qrd_schema_builder_add_field_impl(
     builder: *mut QrdSchemaBuilder,
     name: *const c_char,
     field_type: c_int,
@@ -460,6 +507,57 @@ pub extern "C" fn qrd_schema_builder_add_field(
                 -1
             }
         }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_add_field_ffi(
+    builder: *mut QrdSchemaBuilder,
+    name: *const c_char,
+    field_type: c_int,
+    nullability: c_int,
+) -> c_int {
+    qrd_schema_builder_add_field_impl(builder, name, field_type, nullability)
+}
+
+/// FFI function to build a schema from the builder.
+#[no_mangle]
+pub extern "C" fn qrd_schema_builder_build_ffi(builder: *mut QrdSchemaBuilder) -> *mut FFISchema {
+    if builder.is_null() {
+        set_last_error("Builder pointer is null".to_string());
+        return std::ptr::null_mut();
+    }
+
+    unsafe {
+        let builder_ref = &mut *builder;
+        
+        // Extract the builder from Option
+        match builder_ref.0.take() {
+            Some(inner_builder) => {
+                // Build the schema
+                match inner_builder.build() {
+                    Ok(schema) => {
+                        Box::into_raw(Box::new(FFISchema { inner: schema }))
+                    }
+                    Err(e) => {
+                        set_last_error(format!("build failed: {}", e));
+                        std::ptr::null_mut()
+                    }
+                }
+            }
+            None => {
+                set_last_error("Builder has been consumed".to_string());
+                std::ptr::null_mut()
+            }
+        }
+    }
+}
+
+/// FFI function to free a schema.
+#[no_mangle]
+pub extern "C" fn qrd_schema_free_ffi(schema: *mut FFISchema) {
+    if !schema.is_null() {
+        unsafe { drop(Box::from_raw(schema)); }
     }
 }
 
@@ -791,5 +889,20 @@ pub extern "C" fn qrd_row_add_string_ffi(row: *mut FFIRow, value: *const c_char)
         serialized.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
         serialized.extend_from_slice(bytes);
         qrd_row_add_bytes_ffi(row, serialized.as_ptr(), serialized.len())
+    }
+}
+
+// Additional schema API functions to support qrd.c wrapper
+
+/// FFI function to create a new schema to build incrementally.
+#[no_mangle]
+pub extern "C" fn qrd_schema_new_ffi() -> *mut FFISchema {
+    // Create an empty schema using SchemaBuilder
+    let builder = SchemaBuilder::new();
+    match builder.build() {
+        Ok(schema) => {
+            Box::into_raw(Box::new(FFISchema { inner: schema }))
+        }
+        Err(_) => std::ptr::null_mut(),
     }
 }

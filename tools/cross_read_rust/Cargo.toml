@@ -1,0 +1,9 @@
+[package]
+name = "cross_read_rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+qrd-core = { path = "../../core/qrd-core" }
+
+[workspace]
