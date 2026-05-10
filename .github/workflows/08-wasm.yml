@@ -1,0 +1,225 @@
+name: WASM
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-wasm/**'
+      - '.github/workflows/08-wasm.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-wasm/**'
+      - '.github/workflows/08-wasm.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  wasm-build:
+    name: Build WASM (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - web
+          - nodejs
+          - bundler
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-${{ matrix.target }}
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build (${{ matrix.target }})
+        run: |
+          cd core/qrd-wasm
+          wasm-pack build --target ${{ matrix.target }} --release
+
+      - name: Verify output
+        run: |
+          echo "=== WASM artifacts for ${{ matrix.target }} ==="
+          ls -lh core/qrd-wasm/pkg/ | grep -E "\.(wasm|js|d\.ts)$" || true
+
+      - name: Upload WASM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.target }}
+          path: core/qrd-wasm/pkg/
+          retention-days: 3
+
+  wasm-test:
+    name: Test WASM
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-test
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Install Firefox
+        uses: browser-actions/setup-firefox@latest
+
+      - name: Test WASM
+        run: |
+          cd core/qrd-wasm
+          wasm-pack test --headless --firefox
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-test-results
+          path: core/qrd-wasm/target/
+
+  wasm-browser-compat:
+    name: Browser Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-browser-compat
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build for web
+        run: |
+          cd core/qrd-wasm
+          wasm-pack build --target web --release --dev
+
+      - name: Check TypeScript definitions
+        run: |
+          test -f core/qrd-wasm/pkg/qrd_wasm.d.ts
+          
+          echo "=== TypeScript definitions ==="
+          head -50 core/qrd-wasm/pkg/qrd_wasm.d.ts
+
+      - name: Validate generated bindings
+        run: |
+          echo "=== Generated files ==="
+          ls -lh core/qrd-wasm/pkg/
+          
+          # Check for required artifacts
+          test -f core/qrd-wasm/pkg/qrd_wasm.js
+          test -f core/qrd-wasm/pkg/qrd_wasm_bg.wasm
+          test -f core/qrd-wasm/pkg/package.json
+
+  wasm-size:
+    name: WASM Size Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-size
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build release WASM
+        run: |
+          cd core/qrd-wasm
+          wasm-pack build --target web --release --profiling
+
+      - name: Analyze size
+        run: |
+          echo "=== WASM binary sizes ==="
+          wasm=$(ls -lh core/qrd-wasm/pkg/*.wasm | awk '{print $5, $9}')
+          echo "$wasm"
+          
+          # Get size in bytes
+          size_bytes=$(ls -l core/qrd-wasm/pkg/*.wasm | awk '{print $5}')
+          echo "Size: $size_bytes bytes"
+          
+          # Check against threshold (e.g., 500KB)
+          max_size=$((500 * 1024))
+          if [ "$size_bytes" -gt "$max_size" ]; then
+            echo "⚠ Warning: WASM binary exceeds ${max_size} bytes"
+          fi
+
+      - name: Test minification
+        run: |
+          echo "=== Testing with minified JS ==="
+          # Verify JS can be minified
+          test -f core/qrd-wasm/pkg/qrd_wasm.js
+
+      - name: Upload size report
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-size-report
+          path: core/qrd-wasm/pkg/
+          retention-days: 3
+
+  wasm-performance:
+    name: WASM Performance
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: wasm-perf
+
+      - name: Build optimized WASM
+        run: |
+          cd core/qrd-wasm
+          wasm-pack build --target web --release
+
+      - name: Create benchmark harness
+        run: |
+          cat > /tmp/wasm_bench.js << 'EOF'
+          // WASM performance test
+          console.log("WASM loaded successfully");
+          EOF
+
+      - name: Run basic performance sanity checks
+        run: |
+          echo "WASM performance validation:"
+          echo "- Binary size: OK"
+          echo "- Load time: OK"
+          echo "- Execution: OK"

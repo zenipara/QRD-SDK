@@ -1,0 +1,132 @@
+name: Clippy
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '**/*.rs'
+      - '.github/workflows/03-clippy.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - '**/*.rs'
+      - '.github/workflows/03-clippy.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  clippy:
+    name: Lint (${{ matrix.category }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        category:
+          - core
+          - sdk
+          - tools
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-${{ matrix.category }}
+
+      - name: Lint core
+        if: matrix.category == 'core'
+        run: |
+          cargo clippy --manifest-path core/qrd-core/Cargo.toml \
+            --all-targets --all-features -- -D warnings
+
+      - name: Lint FFI
+        if: matrix.category == 'core'
+        run: |
+          cargo clippy --manifest-path core/qrd-ffi/Cargo.toml \
+            --all-targets --all-features -- -D warnings
+
+      - name: Lint WASM
+        if: matrix.category == 'core'
+        run: |
+          cargo clippy --manifest-path core/qrd-wasm/Cargo.toml \
+            --target wasm32-unknown-unknown \
+            --all-targets --all-features -- -D warnings
+
+      - name: Lint SDKs
+        if: matrix.category == 'sdk'
+        run: |
+          for sdk in sdk/python sdk/typescript sdk/go sdk/java; do
+            if [ -d "$sdk" ] && [ -f "$sdk/Cargo.toml" ]; then
+              cargo clippy --manifest-path "$sdk/Cargo.toml" \
+                --all-targets --all-features -- -D warnings
+            fi
+          done
+
+      - name: Lint tools
+        if: matrix.category == 'tools'
+        run: |
+          for tool in tools/*/; do
+            if [ -f "${tool}Cargo.toml" ]; then
+              cargo clippy --manifest-path "${tool}Cargo.toml" \
+                --all-targets --all-features -- -D warnings
+            fi
+          done
+
+  # Deny specific common clippy warnings for strictness
+  clippy-strict:
+    name: Strict Lint Checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy-strict
+
+      - name: Check for TODO/FIXME comments in critical paths
+        run: |
+          # TODO/FIXME allowed in examples and tests only
+          if grep -r "TODO\|FIXME" core/qrd-core/src/ core/qrd-ffi/src/ 2>/dev/null; then
+            echo "ERROR: TODO/FIXME found in production code"
+            exit 1
+          fi
+
+      - name: Check unsafe blocks justified
+        run: |
+          # Every unsafe block must have a comment explaining why
+          if grep -B2 "unsafe {" core/qrd-core/src/*.rs | grep -v "//"; then
+            echo "WARNING: Please ensure unsafe blocks have justification comments"
+          fi
+
+      - name: Extended linting
+        run: |
+          cargo clippy --all-targets --all-features \
+            -- \
+            -D clippy::correctness \
+            -D clippy::suspicious \
+            -D clippy::complexity \
+            -D clippy::perf \
+            -W clippy::style

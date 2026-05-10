@@ -1,0 +1,202 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'core/qrd-core/benches/**'
+      - '.github/workflows/14-benchmark.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'core/qrd-core/benches/**'
+      - '.github/workflows/14-benchmark.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  benchmark-baseline:
+    name: Benchmark (Stable)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-baseline
+
+      - name: Install perf tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y linux-tools-generic linux-tools-common
+
+      - name: Run benchmarks
+        run: |
+          cd core/qrd-core
+          cargo bench --benches -- --output-format bencher | tee benchmark_results.txt
+
+      - name: Parse results
+        run: |
+          echo "=== Benchmark Results ==="
+          cat core/qrd-core/benchmark_results.txt | grep -E "time:|throughput:" | head -20
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: core/qrd-core/benchmark_results.txt
+          retention-days: 30
+
+  benchmark-read:
+    name: Read Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-read
+
+      - name: Run read benchmarks
+        run: |
+          cd core/qrd-core
+          cargo bench --bench read_bench -- --output-format bencher
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-read-results
+          path: core/qrd-core/target/criterion/
+          retention-days: 30
+
+  benchmark-write:
+    name: Write Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-write
+
+      - name: Run write benchmarks
+        run: |
+          cd core/qrd-core
+          cargo bench --bench write_bench -- --output-format bencher
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-write-results
+          path: core/qrd-core/target/criterion/
+          retention-days: 30
+
+  benchmark-compression:
+    name: Compression Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-compression
+
+      - name: Run compression benchmarks
+        run: |
+          cd core/qrd-core
+          cargo bench --bench compression_benchmark -- --output-format bencher
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-compression-results
+          path: core/qrd-core/target/criterion/
+          retention-days: 30
+
+  benchmark-streaming:
+    name: Streaming Benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: benchmark-streaming
+
+      - name: Run streaming benchmarks
+        run: |
+          cd core/qrd-core
+          cargo bench --bench streaming_benchmark -- --output-format bencher
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-streaming-results
+          path: core/qrd-core/target/criterion/
+          retention-days: 30
+
+  benchmark-summary:
+    name: Benchmark Summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [benchmark-baseline, benchmark-read, benchmark-write, benchmark-compression, benchmark-streaming]
+    if: always()
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: benchmark_artifacts
+
+      - name: Generate summary
+        run: |
+          echo "# Benchmark Summary" > BENCHMARK_REPORT.md
+          echo "" >> BENCHMARK_REPORT.md
+          
+          echo "## Results" >> BENCHMARK_REPORT.md
+          echo "- Baseline: Available" >> BENCHMARK_REPORT.md
+          echo "- Read: Available" >> BENCHMARK_REPORT.md
+          echo "- Write: Available" >> BENCHMARK_REPORT.md
+          echo "- Compression: Available" >> BENCHMARK_REPORT.md
+          echo "- Streaming: Available" >> BENCHMARK_REPORT.md
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-summary
+          path: BENCHMARK_REPORT.md
+          retention-days: 30
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '## Benchmarks Completed\n\nResults available in artifacts.'
+            })

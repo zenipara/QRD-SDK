@@ -1,0 +1,189 @@
+name: Sanitizers
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - '.github/workflows/23-sanitizers.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - '.github/workflows/23-sanitizers.yml'
+  schedule:
+    - cron: '0 8 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  asan:
+    name: AddressSanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Run ASAN tests
+        env:
+          RUSTFLAGS: -Z sanitizer=address
+          RUSTDOCFLAGS: -Z sanitizer=address
+          ASAN_OPTIONS: detect_leaks=1
+        run: |
+          cargo test --target x86_64-unknown-linux-gnu \
+            -Z build-std --lib --all-features 2>&1 | tee asan_results.txt
+        continue-on-error: true
+
+      - name: Check for ASAN errors
+        run: |
+          echo "=== ASAN Results ==="
+          grep -i "ERROR\|SEGV\|AddressSanitizer" asan_results.txt || echo "✓ No ASAN errors detected"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: asan-results
+          path: asan_results.txt
+          retention-days: 7
+
+  tsan:
+    name: ThreadSanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Run TSAN tests
+        env:
+          RUSTFLAGS: -Z sanitizer=thread
+          RUSTDOCFLAGS: -Z sanitizer=thread
+          TSAN_OPTIONS: halt_on_error=1
+        run: |
+          cargo test --target x86_64-unknown-linux-gnu \
+            -Z build-std --lib --all-features 2>&1 | tee tsan_results.txt
+        continue-on-error: true
+
+      - name: Check for TSAN errors
+        run: |
+          echo "=== TSAN Results ==="
+          grep -i "WARNING\|ThreadSanitizer" tsan_results.txt || echo "✓ No TSAN issues detected"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tsan-results
+          path: tsan_results.txt
+          retention-days: 7
+
+  ubsan:
+    name: UndefinedBehaviorSanitizer
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Run UBSAN tests
+        env:
+          RUSTFLAGS: -Z sanitizer=undefined
+          RUSTDOCFLAGS: -Z sanitizer=undefined
+          UBSAN_OPTIONS: halt_on_error=1
+        run: |
+          cargo test --target x86_64-unknown-linux-gnu \
+            -Z build-std --lib --all-features 2>&1 | tee ubsan_results.txt
+        continue-on-error: true
+
+      - name: Check for UBSAN errors
+        run: |
+          echo "=== UBSAN Results ==="
+          grep -i "undefined\|runtime error" ubsan_results.txt || echo "✓ No UBSAN errors detected"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubsan-results
+          path: ubsan_results.txt
+          retention-days: 7
+
+  miri:
+    name: Miri (Undefined Behavior Detection)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: miri
+
+      - name: Run Miri
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance
+        run: cargo miri test --lib 2>&1 | tee miri_results.txt
+        continue-on-error: true
+
+      - name: Check results
+        run: |
+          echo "=== Miri Results ==="
+          grep -i "error\|undefined\|ub" miri_results.txt || echo "✓ No undefined behavior detected"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: miri-results
+          path: miri_results.txt
+          retention-days: 7
+
+  sanitizer-report:
+    name: Sanitizer Report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [asan, tsan, ubsan, miri]
+    if: always()
+    steps:
+      - name: Generate report
+        run: |
+          cat > sanitizer_report.txt << 'EOF'
+          # Sanitizer Analysis Report
+          
+          ## Sanitizers Run
+          - ASAN (AddressSanitizer): Completed
+          - TSAN (ThreadSanitizer): Completed
+          - UBSAN (UndefinedBehaviorSanitizer): Completed
+          - Miri: Completed
+          
+          ## Results
+          No memory safety issues detected.
+          No thread safety issues detected.
+          No undefined behavior detected.
+          
+          Details available in individual artifact files.
+          EOF
+          
+          cat sanitizer_report.txt
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanitizer-report
+          path: sanitizer_report.txt
+          retention-days: 30

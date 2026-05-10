@@ -1,0 +1,247 @@
+name: TypeScript SDK
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/typescript/**'
+      - 'core/qrd-wasm/**'
+      - '.github/workflows/10-sdk-typescript.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/typescript/**'
+      - 'core/qrd-wasm/**'
+      - '.github/workflows/10-sdk-typescript.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_ENV: ci
+
+jobs:
+  typescript-build:
+    name: Build TypeScript SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Build
+        run: |
+          cd sdk/typescript
+          npm run build
+
+      - name: Verify build output
+        run: |
+          test -d sdk/typescript/dist
+          ls -lah sdk/typescript/dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-build
+          path: sdk/typescript/dist/
+          retention-days: 3
+
+  typescript-test:
+    name: Test TypeScript SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Build
+        run: |
+          cd sdk/typescript
+          npm run build
+
+      - name: Run tests
+        run: |
+          cd sdk/typescript
+          npm run test
+
+      - name: Generate coverage
+        run: |
+          cd sdk/typescript
+          npm run test -- --coverage
+        continue-on-error: true
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./sdk/typescript/coverage/lcov.info
+          flags: typescript
+        continue-on-error: true
+
+  typescript-lint:
+    name: Lint TypeScript SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: ESLint
+        run: |
+          cd sdk/typescript
+          npm run lint
+
+      - name: TypeScript strict check
+        run: |
+          cd sdk/typescript
+          npx tsc --noEmit --strict
+
+      - name: Format check
+        run: |
+          cd sdk/typescript
+          npm run format -- --check
+
+  typescript-types:
+    name: Type Checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Build
+        run: |
+          cd sdk/typescript
+          npm run build
+
+      - name: Check generated types
+        run: |
+          test -f sdk/typescript/dist/index.d.ts
+          echo "TypeScript definitions generated successfully"
+
+      - name: Validate types
+        run: |
+          cd sdk/typescript
+          npx tsc --noEmit src/index.ts
+
+  typescript-webpack:
+    name: Webpack Bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Build bundle
+        run: |
+          cd sdk/typescript
+          npx webpack build --config webpack.config.js
+
+      - name: Analyze bundle
+        run: |
+          echo "=== Bundle analysis ==="
+          ls -lah sdk/typescript/dist/*.js 2>/dev/null || true
+          
+          # Check bundle size
+          if [ -f sdk/typescript/dist/qrd.min.js ]; then
+            size=$(wc -c < sdk/typescript/dist/qrd.min.js)
+            echo "Bundle size: $size bytes"
+          fi
+
+      - name: Upload bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-bundle
+          path: sdk/typescript/dist/
+          retention-days: 3
+
+  typescript-integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.org/wasm-pack/installer/init.sh -sSf | sh
+
+      - name: Build WASM
+        run: |
+          cd core/qrd-wasm
+          wasm-pack build --target web
+
+      - name: Install TypeScript dependencies
+        run: |
+          cd sdk/typescript
+          npm ci
+
+      - name: Run integration tests
+        run: |
+          cd sdk/typescript
+          npm run test:integration
+
+      - name: Cross-language validation
+        run: |
+          cd sdk/typescript
+          npm run test:cross-lang || echo "Cross-lang tests optional"

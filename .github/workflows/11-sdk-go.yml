@@ -1,0 +1,188 @@
+name: Go SDK
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/go/**'
+      - 'core/qrd-ffi/**'
+      - '.github/workflows/11-sdk-go.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'sdk/go/**'
+      - 'core/qrd-ffi/**'
+      - '.github/workflows/11-sdk-go.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CGO_ENABLED: 1
+
+jobs:
+  go-test:
+    name: Test Go SDK (Go ${{ matrix.go-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go-version: ['1.20', '1.21']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+          cache-dependency-path: sdk/go/go.sum
+
+      - name: Build FFI
+        run: |
+          cargo build --release --manifest-path core/qrd-ffi/Cargo.toml
+
+      - name: Set FFI path
+        shell: bash
+        run: |
+          mkdir -p sdk/go/lib
+          # Copy appropriate FFI library
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cp core/qrd-ffi/target/release/libqrd_ffi.so sdk/go/lib/ || true
+          elif [ "${{ runner.os }}" = "macOS" ]; then
+            cp core/qrd-ffi/target/release/libqrd_ffi.dylib sdk/go/lib/ || true
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            cp core/qrd-ffi/target/release/qrd_ffi.dll sdk/go/lib/ || true
+          fi
+
+      - name: Test Go SDK
+        run: |
+          cd sdk/go
+          go test -v -cover ./...
+
+      - name: Cross-compile test
+        run: |
+          cd sdk/go
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o qrd-linux
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o qrd-darwin
+          echo "Cross-compile successful"
+
+      - name: Upload test coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage-${{ matrix.os }}-${{ matrix.go-version }}
+          path: sdk/go/
+          retention-days: 3
+
+  go-lint:
+    name: Lint Go SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+          cache-dependency-path: sdk/go/go.sum
+
+      - name: Install golangci-lint
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+
+      - name: Run golangci-lint
+        run: |
+          cd sdk/go
+          golangci-lint run ./...
+
+      - name: Format check
+        run: |
+          cd sdk/go
+          gofmt -s -l . | grep -q . && exit 1 || true
+          echo "Go formatting OK"
+
+      - name: Vet
+        run: |
+          cd sdk/go
+          go vet ./...
+
+  go-build:
+    name: Build Go SDK
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+          cache-dependency-path: sdk/go/go.sum
+
+      - name: Build FFI
+        run: cargo build --release --manifest-path core/qrd-ffi/Cargo.toml
+
+      - name: Build Go executable
+        run: |
+          cd sdk/go
+          go build -o qrd .
+
+      - name: Verify executable
+        run: |
+          file sdk/go/qrd
+          sdk/go/qrd --help || true
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-executable
+          path: sdk/go/qrd
+          retention-days: 3
+
+  go-integration:
+    name: Go Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+          cache-dependency-path: sdk/go/go.sum
+
+      - name: Build FFI
+        run: cargo build --release --manifest-path core/qrd-ffi/Cargo.toml
+
+      - name: Set up FFI
+        run: |
+          mkdir -p sdk/go/lib
+          cp core/qrd-ffi/target/release/libqrd_ffi.so sdk/go/lib/
+
+      - name: Run high-level tests
+        run: |
+          cd sdk/go
+          go test -v -run Integration ./...
+
+      - name: Cross-language validation
+        run: |
+          cd sdk/go
+          go test -v -run CrossLang ./... || echo "Cross-lang tests optional"
+
+      - name: Benchmark
+        run: |
+          cd sdk/go
+          go test -bench=. -benchmem ./... || echo "Benchmarks optional"

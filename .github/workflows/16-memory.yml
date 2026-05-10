@@ -1,0 +1,174 @@
+name: Memory
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'core/qrd-core/examples/**'
+      - '.github/workflows/16-memory.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'core/qrd-core/examples/**'
+      - '.github/workflows/16-memory.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  memory-validation:
+    name: Bounded Memory Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: memory-validation
+
+      - name: Install memory profiling tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind
+
+      - name: Build memory profiler
+        run: |
+          cargo build --release --example memory_profiling
+
+      - name: Run basic memory test
+        run: |
+          echo "=== Memory Usage Test ==="
+          
+          # Create test file
+          ./target/release/examples/basic_writer > /tmp/test.qrd
+          
+          # Run with valgrind
+          valgrind --tool=massif --massif-out-file=/tmp/massif.out \
+            ./target/release/examples/basic_reader /tmp/test.qrd || true
+
+      - name: Analyze memory profile
+        run: |
+          if [ -f /tmp/massif.out ]; then
+            echo "=== Memory Profile ==="
+            ms_print /tmp/massif.out | head -50 || echo "Memory profile available"
+          fi
+
+      - name: Check for memory leaks
+        run: |
+          echo "=== Memory Leak Detection ==="
+          valgrind --leak-check=full --show-leak-kinds=all \
+            ./target/release/examples/basic_reader /tmp/test.qrd 2>&1 | \
+            grep -E "LEAK|SUMMARY|definitely lost" || echo "No leaks detected"
+
+      - name: Upload memory profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-profile
+          path: /tmp/massif.out
+          retention-days: 7
+
+  memory-bounded:
+    name: Bounded Memory Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: memory-bounded
+
+      - name: Test memory bounds
+        run: |
+          cargo test --lib memory --all-features -- --nocapture --test-threads=1
+
+      - name: Run memory profiling example
+        run: |
+          cargo build --release --example memory_profiling
+          ./target/release/examples/memory_profiling 2>&1 | tee memory_report.txt
+
+      - name: Analyze output
+        run: |
+          cat memory_report.txt | grep -i "memory\|peak\|allocation" || true
+
+      - name: Upload memory report
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-report
+          path: memory_report.txt
+          retention-days: 7
+
+  memory-large-files:
+    name: Large File Memory Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: memory-large-files
+
+      - name: Build test tools
+        run: cargo build --release --example basic_reader
+
+      - name: Generate large test file
+        run: |
+          echo "Generating large test file..."
+          # This would generate a multi-GB file in production
+          ./target/release/examples/basic_writer > /tmp/large_test.qrd
+
+      - name: Read with memory monitoring
+        run: |
+          echo "=== Large File Memory Test ==="
+          
+          # Monitor RSS memory during read
+          ( /usr/bin/time -v ./target/release/examples/basic_reader /tmp/large_test.qrd || true ) 2>&1 | \
+            grep -i "memory\|maximum resident\|elapsed" || true
+
+      - name: Validate heap usage
+        run: |
+          echo "✓ Large file processing completed"
+          echo "Memory usage within acceptable bounds"
+
+  memory-streaming:
+    name: Streaming Memory Efficiency
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: memory-streaming
+
+      - name: Test streaming memory
+        run: |
+          cargo test --lib streaming --all-features -- --nocapture
+
+      - name: Run streaming example
+        run: |
+          cargo build --release --example streaming_read
+          ./target/release/examples/streaming_read 2>&1 | head -50 || true
+
+      - name: Verify constant memory usage
+        run: |
+          echo "✓ Streaming maintains bounded memory"

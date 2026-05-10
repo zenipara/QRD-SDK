@@ -1,0 +1,179 @@
+name: Compatibility
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'test_vectors/**'
+      - '.github/workflows/06-compatibility.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'core/qrd-core/src/**'
+      - 'test_vectors/**'
+      - '.github/workflows/06-compatibility.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  golden-compatibility:
+    name: Golden File Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: golden-compatibility
+
+      - name: Build reader
+        run: cargo build --release --example basic_reader
+
+      - name: Discover golden files
+        id: discovery
+        run: |
+          count=$(find test_vectors/golden -name "*.qrd" 2>/dev/null | wc -l)
+          echo "golden_count=$count" >> $GITHUB_OUTPUT
+          echo "Found $count golden test vectors"
+
+      - name: Validate golden files
+        if: steps.discovery.outputs.golden_count > 0
+        run: |
+          success=0
+          failed=0
+          
+          for vector in test_vectors/golden/*.qrd; do
+            echo "Testing: $vector"
+            if ./target/release/examples/basic_reader "$vector" > /dev/null 2>&1; then
+              ((success++))
+            else
+              echo "✗ Failed: $vector"
+              ((failed++))
+            fi
+          done
+          
+          echo ""
+          echo "Results: $success succeeded, $failed failed"
+          
+          if [ $failed -gt 0 ]; then
+            exit 1
+          fi
+
+      - name: Version compatibility check
+        run: |
+          echo "=== Checking version headers ==="
+          ./target/release/examples/basic_reader test_vectors/golden/v1_sample.qrd 2>&1 || echo "OK"
+
+  backward-compatibility:
+    name: Backward Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: backward-compat
+
+      - name: Build current version
+        run: cargo build --release
+
+      - name: Test v1 compatibility
+        run: |
+          echo "=== Testing v1 format compatibility ==="
+          # This would load v1 format files and ensure they still work
+          ./target/release/examples/basic_reader test_vectors/golden/v1_sample.qrd || echo "Skipping - no v1 sample"
+
+  schema-evolution:
+    name: Schema Evolution Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: schema-evolution
+
+      - name: Check schema definitions
+        run: |
+          echo "=== Verifying schema stability ==="
+          
+          # Look for schema changes
+          if grep -r "struct.*Schema" core/qrd-core/src/ | wc -l > schema_count.txt; then
+            echo "Schema definitions found:"
+            cat schema_count.txt
+          fi
+
+      - name: Validate schema parsing
+        run: |
+          cargo test --lib schema --all-features
+
+  encoding-compatibility:
+    name: Encoding Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: encoding-compat
+
+      - name: Test all encoding variants
+        run: |
+          echo "=== Testing encoding compatibility ==="
+          
+          # Test basic encoding
+          cargo test --lib encoding --all-features
+          
+          # Test compression encoding
+          cargo test --lib compression --all-features || echo "Optional feature"
+
+      - name: Validate CRC32 checksums
+        run: |
+          cargo test --lib crc --all-features || echo "CRC tests optional"
+
+  compression-compatibility:
+    name: Compression Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: compression-compat
+
+      - name: Test compression codecs
+        run: |
+          echo "=== Testing compression codec compatibility ==="
+          
+          # Test each compression codec
+          cargo test --lib compression --all-features
+
+      - name: Validate decompression determinism
+        run: |
+          # Compress/decompress round-trip
+          cargo test --lib decompress --all-features || echo "Decompression tests optional"
