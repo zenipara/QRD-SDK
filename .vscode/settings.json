@@ -1,4 +1,0 @@
-{
-    "window.title": "${dirty}${activeEditorShort}${separator}${rootName}${separator}${profileName}${separator}${appName}${separator}${remoteName}${separator}[Branch: main]",
-    "gitlens.enabled": false
-}
