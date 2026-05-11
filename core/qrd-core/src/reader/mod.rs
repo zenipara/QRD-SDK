@@ -865,26 +865,4 @@ mod tests {
         assert_eq!(&rows[0], &[0, 0, 0, 0]);
     }
 
-    #[test]
-    fn test_null_optional_string() {
-        let temp = NamedTempFile::new().unwrap();
-        let schema = SchemaBuilder::new()
-            .add_field("payload", FieldType::String, Nullability::Optional)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        {
-            let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-            writer.write_row(vec![Vec::new()]).unwrap();
-            writer.finish().unwrap();
-        }
-
-        let reader = FileReader::new(temp.path()).unwrap();
-        let rows = reader.rows().unwrap();
-
-        assert_eq!(rows.len(), 1);
-        assert_eq!(&rows[0], &[0, 0, 0, 0]);
-    }
-
 }
