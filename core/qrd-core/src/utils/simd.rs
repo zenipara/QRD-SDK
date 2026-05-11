@@ -319,6 +319,7 @@ pub fn detect_simd_support() -> (bool, SimdInstructionSet) {
 
 // Fallback implementations for when SIMD is not available
 
+#[allow(dead_code)]
 extern "C" {
     // SIMD-accelerated memcpy (placeholder for actual SIMD implementation)
     fn memcpy_simd(dst: *mut u8, src: *const u8, len: usize);
@@ -338,6 +339,7 @@ extern "C" {
 
 // Provide fallback implementations
 #[cfg(not(target_arch = "x86_64"))]
+#[allow(dead_code)]
 mod fallback {
     use super::*;
 
@@ -409,67 +411,8 @@ mod fallback {
 #[cfg(target_arch = "x86_64")]
 /// SIMD implementations for performance-critical operations (fallback to scalar for now)
 mod avx2_impl {
-    /// Memcpy implementation
-    #[expect(dead_code)]
-    pub fn memcpy_simd(dst: &mut [u8], src: &[u8]) {
-        // For now, use standard copy
-        if dst.len() >= src.len() {
-            dst[..src.len()].copy_from_slice(src);
-        }
-    }
-
-    /// XOR implementation
-    #[expect(dead_code)]
-    pub fn xor_simd(dst: &mut [u8], src: &[u8]) {
-        // For now, fall back to scalar XOR
-        for i in 0..std::cmp::min(dst.len(), src.len()) {
-            dst[i] ^= src[i];
-        }
-    }
-
-    /// Count bytes implementation
-    #[expect(dead_code)]
-    pub fn count_bytes_simd(data: &[u8], target: u8) -> usize {
-        data.iter().filter(|&&b| b == target).count()
-    }
-
-    /// Fallback implementation for count_bytes
-    #[expect(dead_code)]
-    pub fn count_bytes_scalar(data: &[u8], target: u8) -> usize {
-        data.iter().filter(|&&b| b == target).count()
-    }
-
-    /// Delta encoding implementation
-    #[expect(dead_code)]
-    pub fn delta_encode_i32_simd(data: &[i32]) -> Vec<i32> {
-        // Scalar implementation for delta encoding
-        let mut result = Vec::with_capacity(data.len());
-
-        if !data.is_empty() {
-            result.push(data[0]);
-            for i in 1..data.len() {
-                result.push(data[i] - data[i - 1]);
-            }
-        }
-
-        result
-    }
-
-    /// Delta decoding implementation
-    #[expect(dead_code)]
-    pub fn delta_decode_i32_simd(data: &[i32]) -> Vec<i32> {
-        // Scalar implementation for delta decoding
-        let mut result = Vec::with_capacity(data.len());
-
-        if !data.is_empty() {
-            result.push(data[0]);
-            for i in 1..data.len() {
-                result.push(result[i - 1] + data[i]);
-            }
-        }
-
-        result
-    }
+    // This module contains x86_64-specific SIMD implementations
+    // Currently using scalar fallbacks, to be replaced with actual SIMD code in the future
 }
 
 #[cfg(test)]
