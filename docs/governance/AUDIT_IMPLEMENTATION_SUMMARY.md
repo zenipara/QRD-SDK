@@ -82,8 +82,7 @@ Comprehensive repository restructuring based on the enterprise audit recommendat
 ```
 .github/workflows/
 ├── ci/                  # Central CI gate
-│   ├── ci.yml          
-│   ├── coverage.yml    (scheduled)
+│   ├── ci.yml
 │   ├── fmt.yml         (manual)
 │   ├── clippy.yml      (manual)
 │   ├── test.yml        (manual)
@@ -91,15 +90,9 @@ Comprehensive repository restructuring based on the enterprise audit recommendat
 │   └── lint.yml        (manual)
 ├── security/           # Security checks
 │   ├── security.yml    (scheduled)
-│   ├── cargo-audit.yml (manual)
-│   ├── cargo-deny.yml  (scheduled)
 │   └── codeql.yml      (scheduled)
 ├── benchmark/          # Performance testing
-│   ├── benchmark.yml   (scheduled)
-│   ├── benchmark-regression.yml (manual)
-│   ├── sanitizers.yml  (manual)
-│   ├── stress.yml      (manual)
-│   └── fuzz.yml        (manual)
+│   └── benchmark.yml   (scheduled + manual jobs)
 ├── sdk/                # SDK-specific workflows
 │   ├── package-{go,python,typescript}.yml
 │   └── sdk-{go,java,python,typescript}.yml

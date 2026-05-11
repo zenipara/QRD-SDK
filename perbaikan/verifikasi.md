@@ -25,9 +25,8 @@ Membuat:
 6. contract-test
 7. fuzz-test
 8. security-audit
-9. benchmark-regression
-10. package-validation
-11. release-validation
+9. package-validation
+10. release-validation
 ```
 
 ---
@@ -93,16 +92,9 @@ Validation tersebar ke banyak shell script.
 #!/usr/bin/env bash
 set -euo pipefail
 
-./scripts/ci/bootstrap.sh
 ./scripts/ci/lint.sh
-./scripts/ci/test.sh
-./scripts/ci/security.sh
-./scripts/ci/benchmark.sh
-```
-
-Nama:
-```text
-scripts/ci/full_validation.sh
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
 ```
 
 ---

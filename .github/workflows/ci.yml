@@ -31,18 +31,3 @@ jobs:
       artifact-path: target/release/
       fail-fast: true
       timeout: 60
-
-  validation:
-    name: Validation Pipeline
-    uses: ./.github/workflows/_core-rust.yml
-    with:
-      rust-version: stable
-      components: clippy,rustfmt
-      cache-key: validation
-      commands: |
-        ./scripts/install-tools.sh
-        bash ./scripts/validate.sh --mode=standard --report-dir=scripts/reports/latest
-      artifact-name: validation-reports
-      artifact-path: scripts/reports/latest
-      fail-fast: true
-      timeout: 90

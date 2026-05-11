@@ -618,7 +618,8 @@ cargo bench --package qrd-core -- compression
 ### Validasi Build
 
 ```bash
-./scripts/validate.sh --mode=standard
+cargo test --workspace
+cargo clippy --workspace -- -D warnings
 ```
 
 ---

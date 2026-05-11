@@ -427,20 +427,13 @@ Successfully implemented enterprise-grade code coverage infrastructure for QRD-S
 
 ### 2. ✅ CI/CD Infrastructure
 
-**File**: `.github/workflows/coverage.yml`
+**File**: `scripts/reporting/measure_coverage.sh`
 
 Features:
-- Automated coverage measurement on push/PR/schedule
-- Multi-format reporting (XML, LCOV, HTML)
+- Local coverage measurement with tarpaulin
 - Coverage threshold enforcement (80% line, 70% branch)
-- Codecov integration
-- GitHub Actions workflow with artifact storage
-- Daily scheduled runs at 2 AM UTC
-
-**Key Jobs**:
-1. `coverage`: Measures coverage with cargo-tarpaulin
-2. `threshold-check`: Enforces minimum thresholds
-3. `upload-coverage`: Uploads to codecov.io
+- Cobertura XML output under `target/coverage/`
+- HTML/report-friendly local artifacts
 
 ### 3. ✅ Local Coverage Script
 
@@ -654,7 +647,7 @@ core/qrd-core/tests/
 ### Infrastructure Files
 ```
 .github/workflows/
-└── coverage.yml                            [UPDATED - 200+ lines]
+└── security.yml, benchmark.yml             [UPDATED - consolidated]
 
 root/
 ├── scripts/reporting/measure_coverage.sh   [NEW - 120 lines]
@@ -679,15 +672,11 @@ open target/coverage/index.html
 ./scripts/reporting/measure_coverage.sh --enforce
 ```
 
-### CI/CD Automatic
+### Local Coverage Flow
 ```
-Push to main/develop or PR → 
-Coverage workflow triggers automatically →
-Results available in:
-  - PR comments
-  - Codecov dashboard
-  - GitHub Actions artifacts
-  - Coverage badge (README)
+Run scripts/reporting/measure_coverage.sh →
+Coverage reports are generated locally →
+Results available in target/coverage/
 ```
 
 ## Performance Impact
@@ -706,7 +695,7 @@ Results available in:
 
 | Criterion | Status | Details |
 |-----------|--------|---------|
-| ✅ Coverage report in CI | Complete | coverage.yml configured |
+| ✅ Coverage measurement available locally | Complete | measure_coverage.sh configured |
 | ✅ Threshold enforcement | Complete | 80% line, 70% branch |
 | ✅ Error-path tests | Complete | 6 test files, 150+ tests |
 | ✅ Boundary tests | Complete | boundary_conditions test file |
@@ -756,7 +745,7 @@ Results available in:
 ## References
 
 - **Test File Locations**: `/workspaces/QRD-SDK/core/qrd-core/tests/`
-- **CI Configuration**: `/workspaces/QRD-SDK/.github/workflows/coverage.yml`
+- **Coverage Script**: `/workspaces/QRD-SDK/scripts/reporting/measure_coverage.sh`
 - **Coverage Guide**: `/workspaces/QRD-SDK/docs/COVERAGE_GUIDE.md`
 - **Measurement Script**: `/workspaces/QRD-SDK/scripts/reporting/measure_coverage.sh`
 

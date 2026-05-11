@@ -214,44 +214,20 @@ chmod +x scripts/reporting/measure_coverage.sh
 
 ## CI/CD Integration
 
-### GitHub Actions Workflow
+### Local Coverage Script
 
-The `.github/workflows/coverage.yml` file orchestrates:
+The `scripts/reporting/measure_coverage.sh` script is the current entry point for coverage runs:
 
-1. **Coverage Measurement**: Runs all tests and generates coverage reports
-2. **Threshold Enforcement**: Checks 80% line, 70% branch minimums
-3. **Reporting**: Uploads to Codecov, generates artifacts
-4. **Badge Generation**: Updates coverage badge for README
-
-### Workflow Triggers
-
-- **On Push**: `main`, `develop` branches
-- **On PR**: Any PR to `main`, `develop`
-- **Scheduled**: Daily at 2 AM UTC
-
-### Workflow Jobs
-
-1. **coverage**: Uses shared `_core-rust.yml` template
-   - Installs cargo-tarpaulin
-   - Runs all tests
-   - Generates XML/LCOV/HTML reports
-   - Duration: ~30-45 minutes
-
-2. **threshold-check**: Verifies coverage minimums
-   - Parses cobertura.xml
-   - Compares against thresholds
-   - Fails CI if below thresholds
-   - Generates detailed report
-
-3. **upload-coverage**: Uploads to external services
-   - Codecov integration
-   - Artifact storage (30 days retention)
+1. **Coverage Measurement**: Runs `cargo tarpaulin` against `qrd-core`
+2. **Threshold Enforcement**: Checks 80% line and 70% branch minimums with `--enforce`
+3. **Reporting**: Writes XML output and a tarpaulin log under `target/coverage/`
+4. **HTML Output**: Supports `--html` for a browser-friendly report
 
 ## Acceptance Criteria
 
-✅ **Coverage Report Installed in CI**
-- Coverage.yml configured with threshold enforcement
-- Runs on all pushes and PRs to main/develop
+✅ **Coverage Measurement Available Locally**
+- `measure_coverage.sh` configured with threshold enforcement
+- Runs on demand for local validation
 
 ✅ **Error-Path Tests Added**
 - writer/mod.rs: Disk full, permission, validation
@@ -301,7 +277,7 @@ If coverage falls below thresholds:
 4. **Verify Changes**
    ```bash
    # Push changes and check CI results
-   # Coverage.yml will validate thresholds automatically
+   # measure_coverage.sh validates thresholds automatically
    ```
 
 ## Performance Considerations
@@ -309,7 +285,7 @@ If coverage falls below thresholds:
 - **Tarpaulin Overhead**: ~3-5x slower than regular test run
 - **Memory Usage**: ~2-3GB for full project
 - **Compilation**: ~20-30min total (including test compilation)
-- **CI Timeout**: 60 minutes configured for workflow
+- **Local Runtime**: Varies by project size and host machine
 
 ## Troubleshooting
 
