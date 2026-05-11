@@ -1,0 +1,22 @@
+name: Benchmark
+# Performance benchmark execution
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: benchmark
+      commands: cargo bench --workspace
+      artifact-name: benchmark-results
+      artifact-path: target/criterion/
+      timeout: 60

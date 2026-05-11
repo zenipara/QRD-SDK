@@ -1,0 +1,19 @@
+name: Format
+# Rust formatting validation
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmt:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      components: rustfmt
+      cache-key: fmt
+      commands: cargo fmt --check --all
+      timeout: 10
