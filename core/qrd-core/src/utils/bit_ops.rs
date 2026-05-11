@@ -144,7 +144,7 @@ impl BitOps {
         if value == 0 {
             1
         } else {
-            (64 - value.leading_zeros() as u8)
+            64 - value.leading_zeros() as u8
         }
     }
 

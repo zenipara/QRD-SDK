@@ -407,8 +407,10 @@ mod fallback {
 }
 
 #[cfg(target_arch = "x86_64")]
+/// SIMD implementations for performance-critical operations (fallback to scalar for now)
 mod avx2_impl {
     /// Memcpy implementation
+    #[expect(dead_code)]
     pub fn memcpy_simd(dst: &mut [u8], src: &[u8]) {
         // For now, use standard copy
         if dst.len() >= src.len() {
@@ -417,6 +419,7 @@ mod avx2_impl {
     }
 
     /// XOR implementation
+    #[expect(dead_code)]
     pub fn xor_simd(dst: &mut [u8], src: &[u8]) {
         // For now, fall back to scalar XOR
         for i in 0..std::cmp::min(dst.len(), src.len()) {
@@ -425,16 +428,19 @@ mod avx2_impl {
     }
 
     /// Count bytes implementation
+    #[expect(dead_code)]
     pub fn count_bytes_simd(data: &[u8], target: u8) -> usize {
         data.iter().filter(|&&b| b == target).count()
     }
 
     /// Fallback implementation for count_bytes
+    #[expect(dead_code)]
     pub fn count_bytes_scalar(data: &[u8], target: u8) -> usize {
         data.iter().filter(|&&b| b == target).count()
     }
 
-    #[allow(non_snake_case)]
+    /// Delta encoding implementation
+    #[expect(dead_code)]
     pub fn delta_encode_i32_simd(data: &[i32]) -> Vec<i32> {
         // Scalar implementation for delta encoding
         let mut result = Vec::with_capacity(data.len());
@@ -449,7 +455,8 @@ mod avx2_impl {
         result
     }
 
-    #[allow(non_snake_case)]
+    /// Delta decoding implementation
+    #[expect(dead_code)]
     pub fn delta_decode_i32_simd(data: &[i32]) -> Vec<i32> {
         // Scalar implementation for delta decoding
         let mut result = Vec::with_capacity(data.len());

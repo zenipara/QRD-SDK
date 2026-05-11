@@ -6,6 +6,7 @@ use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::Write;
 
 pub mod bit_ops;
+/// SIMD and scalar implementations for performance-critical operations
 pub mod simd;
 
 /// Write QRD file header to a writer
