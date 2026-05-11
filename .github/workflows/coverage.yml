@@ -1,11 +1,18 @@
 name: Coverage
-# Code coverage generation
+# Code coverage generation with threshold enforcement
+# 
+# Enforces:
+# - Minimum 80% line coverage
+# - Minimum 70% branch coverage
 
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -18,8 +25,148 @@ jobs:
       rust-version: stable
       cache-key: coverage
       commands: |
-        cargo install cargo-tarpaulin
-        cargo tarpaulin --workspace --out Lcov --output-dir coverage
+        # Install cargo-tarpaulin for code coverage
+        cargo install cargo-tarpaulin --locked
+        
+        # Run comprehensive tests before coverage
+        cargo test -p qrd-core --lib --all-features
+        
+        # Generate coverage reports in multiple formats
+        cargo tarpaulin -p qrd-core \
+          --out Xml \
+          --out Lcov \
+          --output-dir coverage \
+          --timeout 300 \
+          --exclude-files tests/ \
+          --run-types Tests
       artifact-name: coverage-report
       artifact-path: coverage/
-      timeout: 30
+      timeout: 60
+
+  threshold-check:
+    name: Enforce Coverage Thresholds
+    runs-on: ubuntu-latest
+    needs: coverage
+    if: always()
+
+    steps:
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Check coverage thresholds
+        run: |
+          python3 << 'EOF'
+          import xml.etree.ElementTree as ET
+          import sys
+          
+          try:
+              tree = ET.parse('coverage/cobertura.xml')
+              root = tree.getroot()
+              
+              # Get line-rate and branch-rate from root packages element
+              line_rate = float(root.get('line-rate', '0'))
+              branch_rate = float(root.get('branch-rate', '0'))
+              
+              line_coverage = int(line_rate * 100)
+              branch_coverage = int(branch_rate * 100)
+              
+              MIN_LINE = 80
+              MIN_BRANCH = 70
+              
+              print("=" * 50)
+              print("📊 Code Coverage Report")
+              print("=" * 50)
+              print(f"Line Coverage:     {line_coverage}% (target: {MIN_LINE}%)")
+              print(f"Branch Coverage:   {branch_coverage}% (target: {MIN_BRANCH}%)")
+              print("=" * 50)
+              print()
+              
+              failed = False
+              
+              if line_coverage < MIN_LINE:
+                  print(f"❌ FAILED: Line coverage {line_coverage}% is below {MIN_LINE}%")
+                  print(f"   Need {MIN_LINE - line_coverage}% more line coverage")
+                  failed = True
+              else:
+                  print(f"✅ PASSED: Line coverage {line_coverage}% meets {MIN_LINE}% threshold")
+              
+              if branch_coverage < MIN_BRANCH:
+                  print(f"❌ FAILED: Branch coverage {branch_coverage}% is below {MIN_BRANCH}%")
+                  print(f"   Need {MIN_BRANCH - branch_coverage}% more branch coverage")
+                  failed = True
+              else:
+                  print(f"✅ PASSED: Branch coverage {branch_coverage}% meets {MIN_BRANCH}% threshold")
+              
+              print()
+              
+              if failed:
+                  print("❌ Coverage thresholds NOT MET")
+                  print()
+                  print("To improve coverage:")
+                  print("1. Review uncovered code paths in test reports")
+                  print("2. Add tests for error paths and edge cases")
+                  print("3. Run: cargo tarpaulin -p qrd-core --out Html")
+                  sys.exit(1)
+              else:
+                  print("✅ Coverage thresholds MET - All good!")
+                  
+          except FileNotFoundError:
+              print("ERROR: coverage/cobertura.xml not found")
+              sys.exit(1)
+          except Exception as e:
+              print(f"ERROR: {e}")
+              sys.exit(1)
+          EOF
+
+      - name: Generate coverage badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          python3 << 'EOF'
+          import xml.etree.ElementTree as ET
+          
+          tree = ET.parse('coverage/cobertura.xml')
+          root = tree.getroot()
+          
+          line_rate = float(root.get('line-rate', '0'))
+          line_coverage = int(line_rate * 100)
+          
+          # Determine badge color based on coverage
+          if line_coverage >= 90:
+              color = "brightgreen"
+          elif line_coverage >= 80:
+              color = "green"
+          elif line_coverage >= 70:
+              color = "yellowgreen"
+          elif line_coverage >= 60:
+              color = "yellow"
+          else:
+              color = "red"
+          
+          badge_url = f"https://img.shields.io/badge/coverage-{line_coverage}%25-{color}"
+          print(f"Badge: {badge_url}")
+          EOF
+
+  upload-coverage:
+    name: Upload to Codecov
+    runs-on: ubuntu-latest
+    needs: coverage
+    if: always()
+
+    steps:
+      - name: Download coverage artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: coverage-report
+          path: coverage/
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./coverage/cobertura.xml,./coverage/coverage.lcov
+          flags: rust,qrd-core
+          name: qrd-core-coverage
+          fail_ci_if_error: false
+          verbose: true
