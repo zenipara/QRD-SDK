@@ -44,10 +44,18 @@ register_check() {
 list_checks() {
   cat <<EOF
 Available checks:
-  fmt
-  clippy
-  check
+  bootstrap
+  lint
   test
+  security
+  benchmark
+  release
+  validate_core
+  validate_sdk
+  validate_contracts
+  validate_performance
+EOF
+}
   nextest
   coverage
   audit
