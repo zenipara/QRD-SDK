@@ -44,7 +44,7 @@ QRD-SDK is progressing through a sequence of engineering milestones that move th
 
 - package Python, TypeScript/WASM, Go, Java, and C/C++ bindings
 - provide example integrations and language-specific docs
-- publish language stability status in `docs/SDKS.md`
+- publish language stability status in `docs/sdk/SDKS.md`
 
 ### Phase 4: Ecosystem adoption
 
@@ -73,7 +73,7 @@ A release is eligible when:
 - reference `docs/STABILITY.md` for compatibility guarantees
 - reference `docs/VERSIONING.md` for versioning decisions
 - update this document when release or phase scope changes
-- use `docs/SDKS.md` for language binding status
+- use `docs/sdk/SDKS.md` for language binding status
 
 ## Notes
 

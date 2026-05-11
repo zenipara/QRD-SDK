@@ -1,0 +1,98 @@
+name: Orphan Files
+
+# Detect unused/orphan repository files across the codebase
+# Scans tests/, benches/, docs/, tools/, specs/ for unreferenced files
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  orphan-files:
+    name: Detect Orphan Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq ripgrep
+
+      - name: Detect orphan files
+        id: detect
+        run: |
+          echo "## Orphan Files Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Scanning for unreferenced files..." >> $GITHUB_STEP_SUMMARY
+
+          # Define directories to scan
+          SCAN_DIRS=("tests" "benches" "docs" "tools" "specs" "examples")
+
+          # Define reference sources
+          REF_SOURCES=("*.rs" "*.toml" "*.yml" "*.yaml" "*.md" "*.sh" "*.mk" "Makefile")
+
+          # Collect all files in scan directories
+          find "${SCAN_DIRS[@]}" -type f \( -name "*.rs" -o -name "*.toml" -o -name "*.md" -o -name "*.txt" -o -name "*.json" -o -name "*.sh" -o -name "*.py" -o -name "*.js" -o -name "*.ts" -o -name "*.go" -o -name "*.java" \) | sort > all_files.txt
+
+          # Collect potential references from source files
+          find . -type f \( -name "*.rs" -o -name "*.toml" -o -name "*.yml" -o -name "*.yaml" -o -name "*.md" -o -name "*.sh" -o -name "*.mk" -o -name "Makefile" \) -not -path "./target/*" -not -path "./.git/*" -not -path "./node_modules/*" | xargs cat 2>/dev/null | grep -oP '(?<=include!\(|mod |use |path = ")[^"]*' | sort | uniq > references.txt
+
+          # Also extract file references from Cargo.toml files
+          find . -name "Cargo.toml" -exec grep -oP '(?<=path = ")[^"]*' {} \; >> references.txt
+
+          # Process references to get base filenames
+          cat references.txt | xargs -n1 basename | sort | uniq > ref_basenames.txt
+
+          # Find orphan files
+          > orphan_files.txt
+          while IFS= read -r file; do
+            basename_file=$(basename "$file")
+            if ! grep -q "^${basename_file}$" ref_basenames.txt && ! grep -q "${basename_file}" references.txt; then
+              echo "$file" >> orphan_files.txt
+            fi
+          done < all_files.txt
+
+          # Generate report
+          ORPHAN_COUNT=$(wc -l < orphan_files.txt)
+          echo "### Orphan Files Detected: $ORPHAN_COUNT" >> $GITHUB_STEP_SUMMARY
+          if [ "$ORPHAN_COUNT" -gt 0 ]; then
+            echo "| File Path | Status |" >> $GITHUB_STEP_SUMMARY
+            echo "|-----------|--------|" >> $GITHUB_STEP_SUMMARY
+            while IFS= read -r orphan; do
+              echo "| \`$orphan\` | Orphan |" >> $GITHUB_STEP_SUMMARY
+            done < orphan_files.txt
+          else
+            echo "No orphan files detected." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on orphan files
+        run: |
+          ORPHAN_COUNT=$(wc -l < orphan_files.txt)
+          if [ "$ORPHAN_COUNT" -gt 0 ]; then
+            echo "Orphan files detected. Please remove or reference them."
+            exit 1
+          fi
+
+      - name: Upload orphan files report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: orphan-files-report
+          path: |
+            orphan_files.txt
+            all_files.txt
+            references.txt
+          if-no-files-found: warn
+          retention-days: 30

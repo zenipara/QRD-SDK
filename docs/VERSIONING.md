@@ -44,4 +44,4 @@ The QRD binary format uses a separate file version encoded in the file header.
 ## Binding Versioning
 
 - SDK bindings should reflect the Rust core behavior and be versioned independently when published.
-- binding stability statements should appear in `docs/SDKS.md`.
+- binding stability statements should appear in `docs/sdk/SDKS.md`.

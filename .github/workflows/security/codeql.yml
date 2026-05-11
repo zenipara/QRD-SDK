@@ -1,0 +1,20 @@
+name: CodeQL
+# Static security analysis
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * 0'
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: codeql
+      commands: |
+        echo "CodeQL analysis handled by shared workflow"

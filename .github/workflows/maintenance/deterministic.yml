@@ -1,0 +1,36 @@
+name: Deterministic
+# Validate deterministic binary output
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  deterministic:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: deterministic
+      commands: |
+        cargo build --bin generate_test_vectors --release
+        ./target/release/generate_test_vectors --output test_vectors_run1
+        ./target/release/generate_test_vectors --output test_vectors_run2
+        ./target/release/generate_test_vectors --output test_vectors_run3
+        sha256sum test_vectors_run1/*.qrd > hashes1.txt
+        sha256sum test_vectors_run2/*.qrd > hashes2.txt
+        sha256sum test_vectors_run3/*.qrd > hashes3.txt
+        if ! diff hashes1.txt hashes2.txt; then
+          echo "Non-deterministic output between run 1 and 2"
+          exit 1
+        fi
+        if ! diff hashes1.txt hashes3.txt; then
+          echo "Non-deterministic output between run 1 and 3"
+          exit 1
+        fi
+        echo "All runs produced identical output"
+      artifact-name: deterministic-test-vectors
+      artifact-path: test_vectors_run1/
+      timeout: 30

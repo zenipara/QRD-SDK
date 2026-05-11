@@ -942,6 +942,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrd-bench"
+version = "0.1.0"
+dependencies = [
+ "qrd-core",
+]
+
+[[package]]
+name = "qrd-cli"
+version = "0.1.0"
+dependencies = [
+ "qrd-core",
+]
+
+[[package]]
 name = "qrd-core"
 version = "0.1.0"
 dependencies = [
@@ -977,6 +991,13 @@ version = "0.1.0"
 dependencies = [
  "qrd-core",
  "tempfile",
+]
+
+[[package]]
+name = "qrd-tools"
+version = "0.1.0"
+dependencies = [
+ "qrd-core",
 ]
 
 [[package]]

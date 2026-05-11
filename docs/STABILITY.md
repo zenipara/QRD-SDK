@@ -40,7 +40,7 @@ QRD stability is defined along two axes: format compatibility and implementation
 
 A feature or API is considered stable when it has:
 
-- been documented in `docs/FORMAT_SPEC.md` or `docs/SDKS.md`
+- been documented in `docs/FORMAT_SPEC.md` or `docs/sdk/SDKS.md`
 - received regression test coverage
 - been validated in at least one benchmark or compatibility test scenario
 - been reviewed for security and parsing safety

@@ -1,5 +1,5 @@
 > ⚠️ **DOKUMEN ARSIP** — File ini tidak lagi dipertahankan.
-> Status proyek saat ini ada di [STATUS.md](../../STATUS.md).
+> Status proyek saat ini ada di [STATUS.md](../status/STATUS.md).
 > File ini disimpan untuk referensi historis.
 
 ---

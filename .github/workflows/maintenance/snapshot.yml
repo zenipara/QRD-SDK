@@ -1,0 +1,22 @@
+name: Snapshot
+# Snapshot testing for binary layout
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  snapshot:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: snapshot
+      commands: |
+        cargo test --workspace -- --ignored snapshot
+        cargo test --workspace -- --ignored snapshot -- --update-snapshots
+      artifact-name: snapshot-diffs
+      artifact-path: snapshot_diffs/
+      timeout: 30

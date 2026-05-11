@@ -1,0 +1,37 @@
+name: Test
+# Full Rust workspace tests
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-stable:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: test-stable
+      commands: cargo test --workspace
+      artifact-name: test-results-stable
+      artifact-path: target/debug/deps/*.xml
+
+  test-beta:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: beta
+      cache-key: test-beta
+      commands: cargo test --workspace
+      artifact-name: test-results-beta
+      artifact-path: target/debug/deps/*.xml
+
+  test-no-default-features:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: test-no-default
+      commands: cargo test --workspace --no-default-features
+      artifact-name: test-results-no-default
+      artifact-path: target/debug/deps/*.xml

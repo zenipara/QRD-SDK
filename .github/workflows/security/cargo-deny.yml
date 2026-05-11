@@ -1,0 +1,22 @@
+name: Cargo Deny
+# License and dependency validation
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deny:
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: deny
+      commands: |
+        cargo install cargo-deny
+        cargo deny check
+      artifact-name: cargo-deny-report
+      artifact-path: deny_report.txt

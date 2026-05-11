@@ -1,5 +1,5 @@
 name: CI
-# Core workspace compile + test + lint
+# Central CI gate for push/PR validation. Task-specific workflows are manual or scheduled only to avoid duplicate runs.
 
 on:
   push:

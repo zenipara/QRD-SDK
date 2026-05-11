@@ -1,0 +1,38 @@
+name: FFI
+# C FFI build and ABI validation
+
+on:
+  workflow_dispatch:
+jobs:
+  ffi:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build FFI library
+        run: cargo build --package qrd-ffi --release
+
+      - name: Check ABI
+        run: |
+          # Use abi-checker or similar if available, else just build
+          echo "ABI validation placeholder"
+
+      - name: Upload FFI library
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffi-lib
+          path: target/release/libqrd_ffi.so

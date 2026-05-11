@@ -1,0 +1,51 @@
+name: Package Go bindings
+
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+
+jobs:
+  build-go-package:
+    name: Build Go package artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Build Rust FFI library
+        run: cargo build --release --manifest-path core/qrd-ffi/Cargo.toml
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      - name: Run Go tests
+        env:
+          CGO_ENABLED: '1'
+        working-directory: sdk/go
+        run: go test ./...
+
+      - name: Create Go package artifact
+        run: |
+          mkdir -p /tmp/qrd-go-package
+          cp -r sdk/go /tmp/qrd-go-package/qrd-go-source
+          cp target/release/libqrd_ffi.so /tmp/qrd-go-package/ || true
+          tar czf qrd-go-package.tar.gz -C /tmp qrd-go-package
+
+      - name: Upload Go package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qrd-go-package
+          path: qrd-go-package.tar.gz
+          if-no-files-found: error
+          retention-days: 30

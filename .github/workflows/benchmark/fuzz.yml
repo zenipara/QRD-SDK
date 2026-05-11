@@ -1,0 +1,24 @@
+name: Fuzz
+# Parser fuzzing
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  fuzz:
+    uses: ./.github/workflows/_core-heavy.yml
+    with:
+      job-type: fuzz
+      rust-version: nightly
+      commands: |
+        cargo fuzz run footer_parser -- -runs=10000
+        cargo fuzz run schema_parser -- -runs=10000
+        cargo fuzz run rowgroup_parser -- -runs=10000
+        cargo fuzz run compression_decoder -- -runs=10000
+      artifact-name: fuzz-artifacts
+      artifact-path: fuzz/artifacts/
+      timeout: 60

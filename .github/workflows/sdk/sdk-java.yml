@@ -1,0 +1,22 @@
+name: SDK Java
+# Java SDK integration tests
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  java:
+    uses: ./.github/workflows/_core-sdk.yml
+    with:
+      sdk-type: java
+      java-version: '11'
+      commands: |
+        mvn clean compile
+        mvn test
+        mvn package -DskipTests
+      artifact-name: java-jar
+      artifact-path: sdk/java/target/*.jar

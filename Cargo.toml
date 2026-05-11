@@ -3,6 +3,9 @@ members = [
     "core/qrd-core",
     "core/qrd-ffi",
     "core/qrd-wasm",
+    "core/qrd-cli",
+    "core/qrd-bench",
+    "core/qrd-tools",
 ]
 
 resolver = "2"

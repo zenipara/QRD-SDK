@@ -1,0 +1,24 @@
+name: Cargo Audit
+# Rust crate CVE scanning
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    uses: ./.github/workflows/_core-security.yml
+    with:
+      scan-type: audit
+      commands: |
+        cargo install cargo-audit
+        cargo audit --format json | tee audit.json
+        if jq -e '.vulnerabilities.found == true' audit.json > /dev/null; then
+          echo "Vulnerabilities found!"
+          exit 1
+        fi
+      artifact-name: cargo-audit-results
+      artifact-path: audit.json

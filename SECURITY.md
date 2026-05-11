@@ -19,4 +19,4 @@ If you discover a security issue, please report it through the repository issue 
 
 ## Security Coverage
 
-This repository documents security and audit guidance in `docs/SECURITY_AUDIT.md`, `docs/FUZZING.md`, and `docs/THREAT_MODEL.md`.
+This repository documents security and audit guidance in `docs/security/SECURITY_AUDIT.md`, `docs/FUZZING.md`, and `docs/THREAT_MODEL.md`.

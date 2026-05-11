@@ -918,7 +918,7 @@ cargo bench --package qrd-core -- compression     # kompresi
 cargo bench --package qrd-core -- --nocapture     # dengan output verbose
 ```
 
-Setiap perubahan benchmark harus menyertakan spesifikasi hardware, versi toolchain, dan perbandingan before/after. Lihat [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) untuk panduan reproduksibilitas lengkap.
+Setiap perubahan benchmark harus menyertakan spesifikasi hardware, versi toolchain, dan perbandingan before/after. Lihat [`docs/benchmarks/BENCHMARKS.md`](docs/benchmarks/BENCHMARKS.md) untuk panduan reproduksibilitas lengkap.
 
 ---
 
@@ -1127,9 +1127,9 @@ Lihat [`CONTRIBUTING.md`](CONTRIBUTING.md) untuk panduan lengkap termasuk releas
 | Dokumen | Deskripsi |
 |---|---|
 | [`docs/FORMAT_SPEC.md`](docs/FORMAT_SPEC.md) | Spesifikasi binary format (canonical) |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Desain sistem & overview komponen |
-| [`docs/SDKS.md`](docs/SDKS.md) | Status SDK & instruksi instalasi per bahasa |
-| [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) | Metodologi benchmark & hasil |
+| [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md) | Desain sistem & overview komponen |
+| [`docs/sdk/SDKS.md`](docs/sdk/SDKS.md) | Status SDK & instruksi instalasi per bahasa |
+| [`docs/benchmarks/BENCHMARKS.md`](docs/benchmarks/BENCHMARKS.md) | Metodologi benchmark & hasil |
 | [`docs/STABILITY.md`](docs/STABILITY.md) | Compatibility & deprecation policy |
 | [`docs/VERSIONING.md`](docs/VERSIONING.md) | Semantic versioning policy |
 | [`docs/STREAMING_MODEL.md`](docs/STREAMING_MODEL.md) | Semantik streaming write/read |
@@ -1140,7 +1140,7 @@ Lihat [`CONTRIBUTING.md`](CONTRIBUTING.md) untuk panduan lengkap termasuk releas
 | [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) | Filosofi & metodologi performa |
 | [`docs/COMPATIBILITY.md`](docs/COMPATIBILITY.md) | Cross-version compatibility rules |
 | [`docs/COMPETITOR_COMPARISON.md`](docs/COMPETITOR_COMPARISON.md) | Perbandingan dengan format lain |
-| [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) | Audit goals & process |
+| [`docs/security/SECURITY_AUDIT.md`](docs/security/SECURITY_AUDIT.md) | Audit goals & process |
 | [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Threat analysis |
 | [`docs/FUZZING.md`](docs/FUZZING.md) | Fuzz coverage guidance |
 | [`CHANGELOG.md`](CHANGELOG.md) | Version history & release notes |

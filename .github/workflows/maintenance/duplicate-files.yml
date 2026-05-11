@@ -1,0 +1,97 @@
+name: Duplicate Files
+
+# Detect duplicate files and copy-paste artifacts across the repository
+# Scans for duplicate docs, fixtures, snapshots, and other content
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight UTC
+  workflow_dispatch:
+
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  duplicate-files:
+    name: Detect Duplicate Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jdupes for duplicate detection
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jdupes
+
+      - name: Detect duplicate files
+        id: detect
+        run: |
+          echo "## Duplicate Files Analysis" >> $GITHUB_STEP_SUMMARY
+          echo "Scanning for duplicate files across the repository..." >> $GITHUB_STEP_SUMMARY
+
+          # Define directories to scan for duplicates
+          SCAN_DIRS=("docs" "specs" "tests/golden" "tests/fixtures" "tests/snapshots" "examples")
+
+          > duplicate_report.txt
+          > duplicate_summary.txt
+
+          # Run jdupes on each directory
+          for dir in "${SCAN_DIRS[@]}"; do
+            if [ -d "$dir" ]; then
+              echo "Scanning $dir..." >> duplicate_summary.txt
+              jdupes -r -S "$dir" >> duplicate_report.txt 2>/dev/null || true
+              echo "" >> duplicate_report.txt
+            fi
+          done
+
+          # Also check for duplicates across all text files
+          echo "Scanning all text files..." >> duplicate_summary.txt
+          find . -type f \( -name "*.md" -o -name "*.txt" -o -name "*.rs" -o -name "*.toml" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" \) -not -path "./target/*" -not -path "./.git/*" -not -path "./node_modules/*" | jdupes -S - >> duplicate_report.txt 2>/dev/null || true
+
+          # Count duplicate groups
+          DUPLICATE_GROUPS=$(grep -c "^[[:space:]]*[0-9]* bytes each:" duplicate_report.txt || echo 0)
+
+          # Generate summary
+          echo "### Duplicate File Groups: $DUPLICATE_GROUPS" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$DUPLICATE_GROUPS" -gt 0 ]; then
+            echo "#### Duplicate Files Detected:" >> $GITHUB_STEP_SUMMARY
+            # Extract and format duplicate groups
+            awk '/^[0-9]+ bytes each:/ {print "Size: " $0; getline; print "Files:"; while (getline && $0 != "") print "- " $0; print ""}' duplicate_report.txt | head -50 >> $GITHUB_STEP_SUMMARY
+            if [ "$DUPLICATE_GROUPS" -gt 10 ]; then
+              echo "... and more duplicate groups" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "No duplicate files detected." >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Calculate space wasted
+          TOTAL_WASTED=$(grep "^[0-9]* bytes each:" duplicate_report.txt | awk '{split($1,a," "); sum += a[1] * (NF-4)} END {print sum}' || echo 0)
+          if [ "$TOTAL_WASTED" -gt 0 ]; then
+            echo "### Space Wasted: $((TOTAL_WASTED/1024)) KB" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Fail on duplicate files
+        run: |
+          DUPLICATE_GROUPS=$(grep -c "^[[:space:]]*[0-9]* bytes each:" duplicate_report.txt || echo 0)
+          if [ "$DUPLICATE_GROUPS" -gt 0 ]; then
+            echo "Duplicate files detected. Please remove duplicates to reduce repository bloat."
+            exit 1
+          fi
+
+      - name: Upload duplicate files report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: duplicate-files-report
+          path: |
+            duplicate_report.txt
+            duplicate_summary.txt
+          if-no-files-found: warn
+          retention-days: 30

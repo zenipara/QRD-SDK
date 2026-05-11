@@ -203,13 +203,13 @@ open target/coverage/index.html
 
 ```bash
 # Make executable
-chmod +x measure_coverage.sh
+chmod +x scripts/reporting/measure_coverage.sh
 
 # Run with threshold checking
-./measure_coverage.sh --enforce
+./scripts/reporting/measure_coverage.sh --enforce
 
 # Run and generate HTML
-./measure_coverage.sh --html
+./scripts/reporting/measure_coverage.sh --html
 ```
 
 ## CI/CD Integration

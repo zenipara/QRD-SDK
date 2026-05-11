@@ -1,0 +1,22 @@
+name: Compatibility
+# Golden file compatibility testing
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  compatibility:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: compatibility
+      commands: |
+        cargo build --bin validate_test_vectors --release
+        ./target/release/validate_test_vectors --golden-dir core/qrd-core/test_vectors/golden
+      artifact-name: compatibility-report
+      artifact-path: validation_report.txt
+      timeout: 20

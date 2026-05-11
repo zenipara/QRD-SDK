@@ -1,0 +1,23 @@
+name: Benchmark Regression
+# Detect performance regressions
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  benchmark-regression:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: benchmark-regression
+      commands: |
+        cargo bench --workspace -- --save-baseline current
+        # Placeholder for regression detection
+        echo "Regression check placeholder"
+      artifact-name: benchmark-comparison
+      artifact-path: target/criterion/
+      timeout: 60

@@ -1,6 +1,6 @@
 # Deprecated Quick Start Guide
 
-This file has been superseded by the new documentation structure. Please use `README.md` and `docs/SDKS.md` for installation and quick start information.
+This file has been superseded by the new documentation structure. Please use `README.md` and `docs/sdk/SDKS.md` for installation and quick start information.
 
 ## Installation
 

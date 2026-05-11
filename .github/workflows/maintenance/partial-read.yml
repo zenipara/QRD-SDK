@@ -1,0 +1,23 @@
+name: Partial Read
+# Partial column read validation
+
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+
+jobs:
+  partial-read:
+    uses: ./.github/workflows/_core-rust.yml
+    with:
+      rust-version: stable
+      cache-key: partial-read
+      commands: |
+        cargo test --workspace -- --ignored partial_read
+        # Run specific partial read validation
+        cargo run --bin validate_partial_reads
+      artifact-name: partial-read-report
+      artifact-path: partial_read_output.log
+      timeout: 30
