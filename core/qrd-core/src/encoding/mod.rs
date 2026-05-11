@@ -99,7 +99,7 @@ impl EncodingType {
             5 => Ok(EncodingType::ByteStreamSplit),
             6 => Ok(EncodingType::DictionaryRle),
             7 => Ok(EncodingType::Passthrough),
-            _ => Err(Error::DecodingError(format!("Unknown encoding ID: {}", id))),
+            _ => Err(Error::EncodingError(format!("Unknown encoding ID: {}", id))),
         }
     }
 }
@@ -134,9 +134,13 @@ pub fn get_encoder(encoding: EncodingType) -> Result<Box<dyn Encoder>> {
 
 /// Select appropriate encoding for a field type
 pub fn select_encoding(field_type: &crate::schema::FieldType, _data: &[u8]) -> EncodingType {
-    match field_type.fixed_size() {
-        Some(_) => EncodingType::Plain,
-        None => EncodingType::Passthrough,
+    match field_type {
+        crate::schema::FieldType::Enum => EncodingType::DictionaryRle,
+        crate::schema::FieldType::String => EncodingType::Plain,
+        _ => match field_type.fixed_size() {
+            Some(_) => EncodingType::Plain,
+            None => EncodingType::Passthrough,
+        },
     }
 }
 

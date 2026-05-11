@@ -99,12 +99,13 @@ impl ColumnStats {
                 }
             }
             ColumnFilter::NotEqual(value) => {
-                // If all values are the same and equal to the filter value, must not pass
-                if self.distinct_count == 1 && self.min_value.as_ref() == Some(value) {
-                    FilterResult::MustNotPass
-                } else {
-                    FilterResult::MayPass
+                // If all observed values are the same and equal to the filter value, must not pass
+                if let (Some(min), Some(max)) = (&self.min_value, &self.max_value) {
+                    if min == max && min == value {
+                        return FilterResult::MustNotPass;
+                    }
                 }
+                FilterResult::MayPass
             }
             ColumnFilter::GreaterThan(value) => {
                 if let Some(max) = &self.max_value {

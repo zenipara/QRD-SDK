@@ -56,7 +56,9 @@ impl<R: Read + Seek> BufferedReader<R> {
 
     /// Get current position
     pub fn position(&mut self) -> Result<u64> {
-        Ok(self.inner.seek(std::io::SeekFrom::Current(0))?)
+        let inner_pos = self.inner.seek(std::io::SeekFrom::Current(0))?;
+        let buffered_unread = (self.buffer_len - self.buffer_pos) as u64;
+        Ok(inner_pos.saturating_sub(buffered_unread))
     }
 }
 
