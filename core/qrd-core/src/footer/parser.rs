@@ -2,7 +2,6 @@
 
 use crate::error::Result;
 use crate::footer::Footer;
-use crate::validation::Validator;
 use std::io::{Read, Seek, SeekFrom};
 
 /// Parser for QRD file footers

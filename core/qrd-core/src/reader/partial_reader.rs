@@ -12,7 +12,6 @@ use crate::footer::{Footer, FooterParser};
 use crate::metadata::{ColumnFilterSpec, MetadataIndex};
 use crate::rowgroup::RowGroup;
 use crate::schema::Schema;
-use crate::prelude::{SchemaBuilder, FieldType, Nullability, FileWriter};
 use std::io::{Read, Seek, SeekFrom};
 
 /// Configuration for partial reads
