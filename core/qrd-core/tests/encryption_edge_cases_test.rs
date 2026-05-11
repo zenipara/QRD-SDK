@@ -28,7 +28,7 @@ fn test_encryption_basic_roundtrip() {
 
     // Create encryption config with specific key
     let key = [42u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -63,7 +63,7 @@ fn test_encryption_zero_key() {
         .unwrap();
 
     let key = [0u8; 32];  // All zeros key
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -92,7 +92,7 @@ fn test_encryption_ones_key() {
         .unwrap();
 
     let key = [0xFFu8; 32];  // All ones key
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -127,7 +127,7 @@ fn test_per_column_encryption_different_columns() {
         .unwrap();
 
     let key = [123u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -175,7 +175,7 @@ fn test_per_column_encryption_many_columns() {
     let schema = builder.build().unwrap();
 
     let key = [77u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -213,7 +213,7 @@ fn test_encryption_no_footer_encryption() {
         .unwrap();
 
     let key = [88u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -246,7 +246,7 @@ fn test_encryption_with_nulls() {
         .unwrap();
 
     let key = [55u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -289,7 +289,7 @@ fn test_encryption_empty_strings() {
         .unwrap();
 
     let key = [99u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -327,7 +327,7 @@ fn test_encryption_large_fields() {
         .unwrap();
 
     let key = [11u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -364,7 +364,7 @@ fn test_encryption_key_derivation() {
         .unwrap();
 
     let key = [22u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     // Test that different column names derive different keys
     if let Some(enc) = encryption {
@@ -401,7 +401,7 @@ fn test_encryption_special_column_names() {
         .unwrap();
 
     let key = [33u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -435,7 +435,7 @@ fn test_encryption_multiple_rows() {
         .unwrap();
 
     let key = [44u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -469,13 +469,13 @@ fn test_encryption_mixed_types() {
         .unwrap()
         .add_field("blob_col", FieldType::Blob, Nullability::Optional)
         .unwrap()
-        .add_field("bool_col", FieldType::Bool, Nullability::Optional)
+        .add_field("bool_col", FieldType::Boolean, Nullability::Optional)
         .unwrap()
         .build()
         .unwrap();
 
     let key = [66u8; 32];
-    let encryption = EncryptionConfig::new(key).ok();
+    let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
         encryption,

@@ -9,10 +9,9 @@
 use qrd_core::prelude::*;
 use qrd_core::writer::FileWriter;
 use qrd_core::reader::FileReader;
-use qrd_core::footer::Footer;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use tempfile::NamedTempFile;
-use std::io::{Seek, SeekFrom, Read, Write};
+use std::io::{Seek, SeekFrom, Write};
 use std::fs::File;
 
 /// Helper function to create a valid QRD file

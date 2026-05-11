@@ -6,7 +6,6 @@
 //! - Extreme field values
 //! - Schema validation boundaries
 
-use qrd_core::prelude::*;
 use qrd_core::writer::FileWriter;
 use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
@@ -73,7 +72,7 @@ fn test_boundary_many_columns() {
                     1 => FieldType::Int64,
                     2 => FieldType::Float32,
                     3 => FieldType::Float64,
-                    4 => FieldType::Bool,
+                    4 => FieldType::Boolean,
                     5 => FieldType::String,
                     _ => FieldType::Blob,
                 },
@@ -430,7 +429,7 @@ fn test_boundary_all_types_single_row() {
         .unwrap()
         .add_field("float64", FieldType::Float64, Nullability::Required)
         .unwrap()
-        .add_field("bool", FieldType::Bool, Nullability::Required)
+        .add_field("bool", FieldType::Boolean, Nullability::Required)
         .unwrap()
         .add_field("string", FieldType::String, Nullability::Optional)
         .unwrap()
