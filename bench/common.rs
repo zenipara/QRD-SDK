@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use criterion::{black_box, Criterion};
 use qrd_core::{
     error::Result,
