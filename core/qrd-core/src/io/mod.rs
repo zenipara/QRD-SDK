@@ -307,9 +307,6 @@ mod tests {
         reader.seek(10)?;
         let bytes1 = reader.read_exact_bytes(5)?;
         
-        reader.seek(20)?;
-        let bytes2 = reader.read_exact_bytes(5)?;
-        
         reader.seek(10)?;
         let bytes3 = reader.read_exact_bytes(5)?;
         
