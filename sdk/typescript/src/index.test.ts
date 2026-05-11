@@ -67,6 +67,25 @@ describe('QRD TypeScript Bindings', () => {
     expect(reader.getSchema().fields.length).toBe(5);
   });
 
+  test('Optional null values roundtrip', () => {
+    const builder = new SchemaBuilder();
+    builder.addField('id', FieldType.INT64, Nullability.REQUIRED);
+    builder.addField('name', FieldType.STRING, Nullability.OPTIONAL);
+    const schema = builder.build();
+
+    const writer = new FileWriter(schema);
+    writer.writeRow([1, null]);
+    writer.writeRow([2, 'value']);
+    const buffer = writer.finish();
+
+    const reader = new FileReader(buffer);
+    const rows = reader.readAllRows();
+
+    expect(rows[0][0]).toBe(1);
+    expect(rows[0][1]).toBeNull();
+    expect(rows[1][1]).toBe('value');
+  });
+
   test('Deterministic browser reads', () => {
     const builder = new SchemaBuilder();
     builder.addField('id', FieldType.INT64, Nullability.REQUIRED);
