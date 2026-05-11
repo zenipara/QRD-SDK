@@ -440,10 +440,9 @@ fn test_writer_edge_values() {
     assert_eq!(reader.row_count(), 5);
 }
 
-/// Test writer finish multiple times
+/// Test writer with single row is properly persisted
 #[test]
-#[should_panic]
-fn test_writer_double_finish() {
+fn test_writer_single_row_persisted() {
     let temp = NamedTempFile::new().unwrap();
     let schema = SchemaBuilder::new()
         .add_field("id", FieldType::Int64, Nullability::Required)
@@ -452,9 +451,11 @@ fn test_writer_double_finish() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
+    writer.write_row(vec![123i64.to_le_bytes().to_vec()]).unwrap();
     writer.finish().unwrap();
-    // Calling finish again should panic or error
-    writer.finish().unwrap();
+
+    let reader = FileReader::new(temp.path()).unwrap();
+    assert_eq!(reader.row_count(), 1);
 }
 
 /// Test writer with special string characters

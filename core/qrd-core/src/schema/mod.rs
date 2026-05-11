@@ -104,6 +104,33 @@ impl FieldType {
         }
     }
 
+    /// Create FieldType from logical type ID
+    pub fn from_id(id: u8) -> Result<Self> {
+        match id {
+            1 => Ok(FieldType::Boolean),
+            2 => Ok(FieldType::Int8),
+            3 => Ok(FieldType::Int16),
+            4 => Ok(FieldType::Int32),
+            5 => Ok(FieldType::Int64),
+            10 => Ok(FieldType::UInt8),
+            11 => Ok(FieldType::UInt16),
+            12 => Ok(FieldType::UInt32),
+            13 => Ok(FieldType::UInt64),
+            18 => Ok(FieldType::Float32),
+            19 => Ok(FieldType::Float64),
+            20 => Ok(FieldType::Timestamp),
+            21 => Ok(FieldType::Date),
+            22 => Ok(FieldType::Time),
+            23 => Ok(FieldType::Duration),
+            24 => Ok(FieldType::String),
+            25 => Ok(FieldType::Enum),
+            26 => Ok(FieldType::Uuid),
+            27 => Ok(FieldType::Blob),
+            28 => Ok(FieldType::Decimal),
+            _ => Err(Error::InvalidData(format!("Unknown field type ID: {}", id))),
+        }
+    }
+
     /// Get the size in bytes for fixed-size types
     pub fn fixed_size(&self) -> Option<usize> {
         match self {
@@ -196,6 +223,11 @@ pub struct Schema {
 }
 
 impl Schema {
+    /// Create a new schema from field metadata
+    pub fn new(fields: Vec<FieldMetadata>) -> Self {
+        let schema_id = Self::calculate_id(&fields);
+        Schema { fields, schema_id }
+    }
     /// Serialize schema to binary format according to spec
     pub fn serialize_binary(&self) -> Result<Vec<u8>> {
         let mut buf = Vec::new();

@@ -9,6 +9,7 @@ use qrd_core::prelude::*;
 use qrd_core::writer::{FileWriter, WriterConfig};
 use qrd_core::reader::FileReader;
 use qrd_core::ecc::EccConfig;
+use qrd_core::encryption::EncryptionConfig;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use tempfile::NamedTempFile;
 use std::fs::File;
@@ -466,6 +467,3 @@ fn test_ecc_all_field_types() {
     let reader = FileReader::new(temp.path()).unwrap();
     assert_eq!(reader.row_count(), 1);
 }
-
-/// Use the EncryptionConfig import
-use qrd_core::encryption::EncryptionConfig;

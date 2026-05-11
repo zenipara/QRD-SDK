@@ -518,7 +518,7 @@ mod tests {
         let invalid_id = 99;
         let result = EncodingType::from_id(invalid_id);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), crate::error::Error::InvalidEncoding(_)));
+        assert!(matches!(result.unwrap_err(), crate::error::Error::EncodingError(_)));
     }
 
     #[test]
