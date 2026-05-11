@@ -30,16 +30,23 @@
 //! // Create writer
 //! let mut writer = FileWriter::new("output.qrd", schema)?;
 //!
-//! // Write rows
-//! writer.write_row(vec![Value::Int64(1), Value::String("Alice".to_string())])?;
-//! writer.write_row(vec![Value::Int64(2), Value::String("Bob".to_string())])?;
+//! // Write rows - each field as raw bytes
+//! writer.write_row(vec![
+//!     1i64.to_le_bytes().to_vec(),
+//!     b"Alice".to_vec()
+//! ])?;
+//! writer.write_row(vec![
+//!     2i64.to_le_bytes().to_vec(),
+//!     b"Bob".to_vec()
+//! ])?;
 //!
 //! // Finalize
 //! writer.finish()?;
 //!
 //! // Read back
 //! let reader = FileReader::new("output.qrd")?;
-//! for row in reader.rows()? {
+//! let rows = reader.rows()?;
+//! for row in rows {
 //!     println!("{:?}", row);
 //! }
 //! # Ok(())
