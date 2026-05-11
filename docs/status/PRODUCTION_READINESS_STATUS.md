@@ -37,7 +37,7 @@ QRD-SDK is a production-grade, columnar binary format for streaming analytics at
 
 | Metric | Status | Target |
 |---|---|---|
-| Unit Tests Passing | 134 ✅ | 150+ |
+| Unit Tests Passing | 134 ✅ | 450+ |
 | Code Coverage | ~60% | 80%+ |
 | Disabled Tests | 3 groups | 0 |
 | Lint Warnings | ~15 | 0 |
