@@ -213,9 +213,9 @@ Binary Format
 ## Performance Notes
 
 Target throughput (on modern x86_64):
-- **Write**: 1-5 GB/s per column
+- **Write**: 2-5 GB/s per column
 - **Read**: 2-10 GB/s  
-- **Compression**: 500MB-2GB/s (ZSTD)
+- **Compression**: 700MB-3GB/s (ZSTD)
 
 Memory usage:
 - O(row\_group\_size) not O(dataset\_size)
@@ -235,11 +235,11 @@ Optimization opportunities:
 - [x] Binary format specification
 - [x] Encoding framework
 - [x] Compression framework
-- [ ] Full writer implementation
-- [ ] Full reader implementation
-- [ ] Golden test vectors
-- [ ] Benchmarks
-- [ ] Documentation
+- [x] Full writer implementation
+- [x] Full reader implementation
+- [x] Golden test vectors
+- [x] Benchmarks
+- [x] Documentation
 
 ---
 
