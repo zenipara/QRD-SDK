@@ -618,9 +618,7 @@ cargo bench --package qrd-core -- compression
 ### Validasi Build
 
 ```bash
-./validate_core_stable.sh
-./validate_partial_reads.sh
-./validate_security_integration.sh
+./scripts/validate.sh --mode=standard
 ```
 
 ---
