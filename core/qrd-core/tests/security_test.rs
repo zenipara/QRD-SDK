@@ -392,14 +392,9 @@ fn test_encrypted_file_roundtrip() {
         for i in 0..10 {
             let id_bytes = (i as i64).to_le_bytes().to_vec();
             let data_bytes = format!("encrypted_row_{}", i).into_bytes();
-<<<<<<< HEAD
-            writer
-                .write_row(vec![id_bytes, data_bytes])
-=======
             // Properly serialize blob with length prefix
             let serialized_data = serialize_blob(&data_bytes);
             writer.write_row(vec![id_bytes, serialized_data])
->>>>>>> 77a9a7d (tests: add ~50 unit tests and fix related test issues (encoding, security integration, doctest))
                 .expect("Failed to write row");
         }
 

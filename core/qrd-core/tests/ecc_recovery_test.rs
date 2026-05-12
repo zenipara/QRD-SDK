@@ -26,7 +26,7 @@ fn test_ecc_basic_config_4_2() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -55,7 +55,7 @@ fn test_ecc_minimum_config_2_1() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(2, 1).ok();
+    let ecc = EccConfig::new(2).ok();
 
     let config = WriterConfig {
         ecc,
@@ -85,7 +85,7 @@ fn test_ecc_high_redundancy_8_8() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(8, 8).ok();
+    let ecc = EccConfig::new(8).ok();
 
     let config = WriterConfig {
         ecc,
@@ -109,7 +109,7 @@ fn test_ecc_high_redundancy_8_8() {
 /// Test ECC with zero parity blocks (invalid)
 #[test]
 fn test_ecc_zero_parity() {
-    let ecc = EccConfig::new(4, 0);
+    let ecc = EccConfig::new(4);
     // EccConfig::new should handle or reject zero parity
     // Behavior depends on implementation
     let _ = ecc;
@@ -125,7 +125,7 @@ fn test_ecc_balanced_data_parity_5_5() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(5, 5).ok();
+    let ecc = EccConfig::new(5).ok();
 
     let config = WriterConfig {
         ecc,
@@ -155,7 +155,7 @@ fn test_ecc_large_config_32_16() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(32, 16).ok();
+    let ecc = EccConfig::new(32).ok();
 
     let config = WriterConfig {
         ecc,
@@ -186,8 +186,8 @@ fn test_ecc_with_encryption() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
-    let encryption = EncryptionConfig::new([77u8; 32]).ok();
+    let ecc = EccConfig::new(4).ok();
+    let encryption = EncryptionConfig::new([77u8; 32].to_vec()).ok();
 
     let config = WriterConfig {
         ecc,
@@ -219,7 +219,7 @@ fn test_ecc_with_compression() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(6, 3).ok();
+    let ecc = EccConfig::new(6).ok();
 
     let config = WriterConfig {
         ecc,
@@ -252,7 +252,7 @@ fn test_ecc_empty_file() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -277,7 +277,7 @@ fn test_ecc_single_row() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -307,7 +307,7 @@ fn test_ecc_multiple_row_groups() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -343,7 +343,7 @@ fn test_ecc_variable_length_data() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -388,7 +388,7 @@ fn test_ecc_with_nulls() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,
@@ -433,7 +433,7 @@ fn test_ecc_all_field_types() {
         .unwrap()
         .add_field("float64_col", FieldType::Float64, Nullability::Optional)
         .unwrap()
-        .add_field("bool_col", FieldType::Bool, Nullability::Optional)
+        .add_field("bool_col", FieldType::Boolean, Nullability::Optional)
         .unwrap()
         .add_field("string_col", FieldType::String, Nullability::Optional)
         .unwrap()
@@ -442,7 +442,7 @@ fn test_ecc_all_field_types() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();
+    let ecc = EccConfig::new(4).ok();
 
     let config = WriterConfig {
         ecc,

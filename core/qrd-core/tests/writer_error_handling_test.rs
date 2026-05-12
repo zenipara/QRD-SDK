@@ -273,7 +273,7 @@ fn test_writer_all_field_types() {
         .unwrap()
         .add_field("float64", FieldType::Float64, Nullability::Required)
         .unwrap()
-        .add_field("bool", FieldType::Bool, Nullability::Required)
+        .add_field("bool", FieldType::Boolean, Nullability::Required)
         .unwrap()
         .add_field("string", FieldType::String, Nullability::Optional)
         .unwrap()
@@ -313,7 +313,7 @@ fn test_writer_with_encryption() {
         .build()
         .unwrap();
 
-    let encryption = EncryptionConfig::new([0u8; 32]).ok();
+    let encryption = EncryptionConfig::new([0u8; 32].to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -349,7 +349,7 @@ fn test_writer_with_per_column_encryption() {
         .build()
         .unwrap();
 
-    let encryption = EncryptionConfig::new([1u8; 32]).ok();
+    let encryption = EncryptionConfig::new([1u8; 32].to_vec()).ok();
 
     let config = WriterConfig {
         encryption,
@@ -384,7 +384,7 @@ fn test_writer_with_ecc() {
         .build()
         .unwrap();
 
-    let ecc = EccConfig::new(4, 2).ok();  // 4 data blocks, 2 parity blocks
+    let ecc = EccConfig::new(2).ok();
 
     let config = WriterConfig {
         ecc,
@@ -473,6 +473,7 @@ fn test_writer_special_strings() {
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
     
     // Test various special strings
+    let very_long = "very long string".repeat(1000);
     let test_strings = vec![
         "simple",
         "with spaces",
@@ -481,7 +482,7 @@ fn test_writer_special_strings() {
         "with\"quotes\"",
         "UTF-8: 你好世界 🌍",
         "\0null bytes",
-        "very long string".repeat(1000).as_str(),
+        very_long.as_str(),
     ];
     
     for (i, s) in test_strings.iter().enumerate() {

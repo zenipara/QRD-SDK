@@ -345,18 +345,27 @@ mod tests {
     #[test]
     fn test_ffi_schema_builder_validation() {
         // Test FFI schema builder validation
-        let mut builder = SchemaBuilder::new();
-        
         // Test empty field name rejection
-        assert!(builder.add_field("", FieldType::Int32, Nullability::Required).is_err());
-        
+        let empty_name_builder = SchemaBuilder::new();
+        assert!(empty_name_builder
+            .add_field("", FieldType::Int32, Nullability::Required)
+            .is_err());
+
         // Test duplicate field names
-        builder = builder.add_field("test", FieldType::Int32, Nullability::Required).unwrap();
-        assert!(builder.add_field("test", FieldType::String, Nullability::Required).is_err());
-        
+        let duplicate_builder = SchemaBuilder::new()
+            .add_field("test", FieldType::Int32, Nullability::Required)
+            .unwrap();
+        assert!(duplicate_builder
+            .add_field("test", FieldType::String, Nullability::Required)
+            .is_err());
+
         // Test valid schema building
-        let schema = builder.build().unwrap();
-        assert_eq!(schema.field_count(), 1);
+        let schema = SchemaBuilder::new()
+            .add_field("test", FieldType::Int32, Nullability::Required)
+            .unwrap()
+            .build()
+            .unwrap();
+        assert_eq!(schema.column_count(), 1);
     }
 
     #[test]
@@ -367,7 +376,7 @@ mod tests {
         let schema = builder.build().unwrap();
         
         let buffer = SharedVecWriter::new();
-        let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
+        let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
         
         // Write some data
         let row_data = vec![b"test data".to_vec()];
@@ -428,7 +437,7 @@ mod tests {
         let schema = builder.build().unwrap();
         
         let buffer = SharedVecWriter::new();
-        let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
+        let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
         
         // Test with large data to check buffer handling
         let large_data = vec![0u8; 1024 * 1024]; // 1MB
@@ -448,7 +457,7 @@ mod tests {
         let schema = builder.build().unwrap();
         
         let buffer = SharedVecWriter::new();
-        let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
+        let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
         
         // Test that writer handles concurrent access safely
         // (This is more of a structural test since FFI is single-threaded)
@@ -466,7 +475,7 @@ mod tests {
         let schema = builder.build().unwrap();
         
         let buffer = SharedVecWriter::new();
-        let writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
+        let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
         
         // Write and finish to test cleanup
         let row = vec![b"cleanup test".to_vec()];

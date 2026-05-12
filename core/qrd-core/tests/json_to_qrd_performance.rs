@@ -85,10 +85,12 @@ fn test_large_json_conversion_validation() {
             writer.write_row(vec![
                 (i as i64).to_le_bytes().to_vec(),
                 timestamp,
-                if i % 7 == 0 { vec![0,0,0,0] } else { 
-                    let mut v = vec![(data_str.len() as u32).to_le_bytes().to_vec()];
-                    v.extend(data_str);
-                    v.concat()
+                if i % 7 == 0 {
+                    vec![0, 0, 0, 0]
+                } else {
+                    let mut v = (data_str.len() as u32).to_le_bytes().to_vec();
+                    v.extend_from_slice(&data_str);
+                    v
                 },
                 metrics,
             ]).unwrap();
@@ -237,32 +239,32 @@ fn test_json_nested_object_serialization() {
 
 #[test]
 fn test_json_conversion_determinism() {
+    use std::fs;
+
     let schema = SchemaBuilder::new()
         .add_field("value", FieldType::Float64, Nullability::Required)
         .unwrap()
         .build()
         .unwrap();
 
-    let mut buffer1 = Vec::new();
+    let temp1 = NamedTempFile::new().unwrap();
     {
-        use std::io::Cursor;
-        let cursor = Cursor::new(&mut buffer1);
-        let mut writer = FileWriter::new(cursor, schema.clone()).unwrap();
-        let value = 3.14159265358979;
+        let mut writer = FileWriter::new(temp1.path(), schema.clone()).unwrap();
+        let value: f64 = 3.14159265358979;
         writer.write_row(vec![value.to_le_bytes().to_vec()]).unwrap();
         writer.finish().unwrap();
     }
 
-    let mut buffer2 = Vec::new();
+    let temp2 = NamedTempFile::new().unwrap();
     {
-        use std::io::Cursor;
-        let cursor = Cursor::new(&mut buffer2);
-        let mut writer = FileWriter::new(cursor, schema.clone()).unwrap();
-        let value = 3.14159265358979;
+        let mut writer = FileWriter::new(temp2.path(), schema.clone()).unwrap();
+        let value: f64 = 3.14159265358979;
         writer.write_row(vec![value.to_le_bytes().to_vec()]).unwrap();
         writer.finish().unwrap();
     }
 
+    let buffer1 = fs::read(temp1.path()).unwrap();
+    let buffer2 = fs::read(temp2.path()).unwrap();
     assert_eq!(buffer1, buffer2);
 }
 
@@ -300,7 +302,7 @@ fn test_json_unicode_string_handling() {
 }
 
 #[test]
-fn test_json_ingestion_smoke_test() {
+fn test_json_ingestion_smoke_test_blob_payload() {
     // Additional test for JSON ingestion validation
     let temp = NamedTempFile::new().unwrap();
     let schema = SchemaBuilder::new()
@@ -322,7 +324,7 @@ fn test_json_ingestion_smoke_test() {
 }
 
 #[test]
-fn test_large_json_conversion_validation() {
+fn test_large_json_conversion_validation_blob_payload() {
     // Test conversion of large JSON-like data
     let temp = NamedTempFile::new().unwrap();
     let schema = SchemaBuilder::new()
