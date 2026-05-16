@@ -19,6 +19,8 @@ pub enum Error {
     },
     /// Invalid schema
     InvalidSchema(String),
+    /// Schema evolution error
+    SchemaError(String),
     /// Invalid data
     InvalidData(String),
     /// Invalid input
@@ -81,6 +83,7 @@ impl fmt::Display for Error {
                 write!(f, "Unsupported QRD version {}.{}", major, minor)
             }
             Error::InvalidSchema(msg) => write!(f, "Invalid schema: {}", msg),
+            Error::SchemaError(msg) => write!(f, "Schema error: {}", msg),
             Error::InvalidData(msg) => write!(f, "Invalid data: {}", msg),
             Error::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
             Error::EncodingError(msg) => write!(f, "Encoding error: {}", msg),
@@ -136,7 +139,7 @@ mod tests {
     fn test_error_io_conversion() {
         let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "file not found");
         let qrd_error: Error = io_error.into();
-        
+
         assert!(matches!(qrd_error, Error::Io(_)));
     }
 
@@ -149,7 +152,10 @@ mod tests {
 
     #[test]
     fn test_error_display_unsupported_version() {
-        let error = Error::UnsupportedVersion { major: 99, minor: 1 };
+        let error = Error::UnsupportedVersion {
+            major: 99,
+            minor: 1,
+        };
         let message = format!("{}", error);
         assert!(message.contains("99.1"));
     }
@@ -348,10 +354,10 @@ mod tests {
     fn test_error_deterministic_display() {
         let error1 = Error::InvalidData("test".to_string());
         let error2 = Error::InvalidData("test".to_string());
-        
+
         let msg1 = format!("{}", error1);
         let msg2 = format!("{}", error2);
-        
+
         assert_eq!(msg1, msg2);
     }
 
@@ -360,10 +366,10 @@ mod tests {
         // Verify that different error variants are distinct
         let e1 = Error::InvalidMagic;
         let e2 = Error::AlreadyClosed;
-        
+
         let s1 = format!("{:?}", e1);
         let s2 = format!("{:?}", e2);
-        
+
         assert_ne!(s1, s2);
     }
 
@@ -373,7 +379,7 @@ mod tests {
             expected: 0xFFFFFFFF,
             actual: 0x00000000,
         };
-        
+
         let message = format!("{}", error);
         assert!(message.contains("CRC mismatch"));
     }
@@ -381,7 +387,7 @@ mod tests {
     #[test]
     fn test_error_chain_compatibility() {
         let result: Result<()> = Err(Error::ValidationFailed("chain test".to_string()));
-        
+
         match result {
             Err(Error::ValidationFailed(msg)) => {
                 assert_eq!(msg, "chain test");
@@ -406,10 +412,10 @@ mod tests {
         fn failing_function() -> Result<i32> {
             Err(Error::InvalidData("test error".to_string()))
         }
-        
+
         let result = failing_function();
         assert!(result.is_err());
-        
+
         if let Err(Error::InvalidData(msg)) = result {
             assert_eq!(msg, "test error");
         } else {
@@ -429,9 +435,11 @@ mod tests {
     #[test]
     fn test_nested_errors() {
         // Test handling of nested error conditions
-        let result: Result<()> = Err(Error::CompressionError("nested compression error".to_string()));
+        let result: Result<()> = Err(Error::CompressionError(
+            "nested compression error".to_string(),
+        ));
         assert!(result.is_err());
-        
+
         let error = result.unwrap_err();
         let message = format!("{}", error);
         assert!(message.contains("Compression error"));

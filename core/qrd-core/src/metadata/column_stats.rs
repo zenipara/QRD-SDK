@@ -364,7 +364,7 @@ impl MetadataIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::{SchemaBuilder, Nullability};
+    use crate::schema::{Nullability, SchemaBuilder};
 
     // ====== ColumnStats Tests ======
 
@@ -383,16 +383,16 @@ mod tests {
     #[test]
     fn test_column_stats_update_with_values() {
         let mut stats = ColumnStats::new("numbers".to_string(), FieldType::Int64);
-        
+
         // Add values
         let value1 = 10i64.to_le_bytes().to_vec();
         let value2 = 20i64.to_le_bytes().to_vec();
         let value3 = 15i64.to_le_bytes().to_vec();
-        
+
         stats.update(Some(&value1));
         stats.update(Some(&value2));
         stats.update(Some(&value3));
-        
+
         assert_eq!(stats.total_count, 3);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.distinct_count, 3);
@@ -403,14 +403,14 @@ mod tests {
     #[test]
     fn test_column_stats_update_with_nulls() {
         let mut stats = ColumnStats::new("nullable_col".to_string(), FieldType::String);
-        
+
         let val1 = b"hello".to_vec();
         stats.update(Some(&val1));
         stats.update(None);
         stats.update(None);
         let val2 = b"world".to_vec();
         stats.update(Some(&val2));
-        
+
         assert_eq!(stats.total_count, 4);
         assert_eq!(stats.null_count, 2);
         assert_eq!(stats.distinct_count, 2);
@@ -419,14 +419,14 @@ mod tests {
     #[test]
     fn test_column_stats_min_max_ordering() {
         let mut stats = ColumnStats::new("ordered".to_string(), FieldType::Int32);
-        
+
         // Insert in reverse order
         stats.update(Some(&[5, 0, 0, 0]));
         stats.update(Some(&[1, 0, 0, 0]));
         stats.update(Some(&[3, 0, 0, 0]));
         stats.update(Some(&[2, 0, 0, 0]));
         stats.update(Some(&[4, 0, 0, 0]));
-        
+
         assert_eq!(stats.min_value, Some(vec![1, 0, 0, 0]));
         assert_eq!(stats.max_value, Some(vec![5, 0, 0, 0]));
     }
@@ -434,11 +434,11 @@ mod tests {
     #[test]
     fn test_column_stats_all_nulls() {
         let mut stats = ColumnStats::new("all_nulls".to_string(), FieldType::Float64);
-        
+
         stats.update(None);
         stats.update(None);
         stats.update(None);
-        
+
         assert_eq!(stats.total_count, 3);
         assert_eq!(stats.null_count, 3);
         assert_eq!(stats.distinct_count, 0);
@@ -450,10 +450,10 @@ mod tests {
     fn test_filter_result_combine() {
         let result1 = FilterResult::MayPass.combine(FilterResult::MayPass);
         assert_eq!(result1, FilterResult::MayPass);
-        
+
         let result2 = FilterResult::MayPass.combine(FilterResult::MustNotPass);
         assert_eq!(result2, FilterResult::MustNotPass);
-        
+
         let result3 = FilterResult::MustNotPass.combine(FilterResult::MustNotPass);
         assert_eq!(result3, FilterResult::MustNotPass);
     }
@@ -463,13 +463,16 @@ mod tests {
         let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
         stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
         stats.update(None);
-        
+
         let filter = ColumnFilter::IsNull;
         assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
-        
+
         let mut stats_no_nulls = ColumnStats::new("col2".to_string(), FieldType::Int64);
         stats_no_nulls.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
-        assert_eq!(stats_no_nulls.can_pass_filter(&filter), FilterResult::MustNotPass);
+        assert_eq!(
+            stats_no_nulls.can_pass_filter(&filter),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -477,13 +480,16 @@ mod tests {
         let mut stats = ColumnStats::new("col".to_string(), FieldType::Int64);
         stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
         stats.update(None);
-        
+
         let filter = ColumnFilter::IsNotNull;
         assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
-        
+
         let mut stats_all_null = ColumnStats::new("col2".to_string(), FieldType::Int64);
         stats_all_null.update(None);
-        assert_eq!(stats_all_null.can_pass_filter(&filter), FilterResult::MustNotPass);
+        assert_eq!(
+            stats_all_null.can_pass_filter(&filter),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -492,14 +498,17 @@ mod tests {
         let val = 50i64.to_le_bytes().to_vec();
         stats.update(Some(&val));
         stats.update(Some(&(100i64.to_le_bytes().to_vec())));
-        
+
         // Value within range
         let filter = ColumnFilter::Equal(val.clone());
         assert_eq!(stats.can_pass_filter(&filter), FilterResult::MayPass);
-        
+
         // Value outside range
         let filter_out = ColumnFilter::Equal(vec![255, 255, 255, 255, 255, 255, 255, 255]);
-        assert_eq!(stats.can_pass_filter(&filter_out), FilterResult::MustNotPass);
+        assert_eq!(
+            stats.can_pass_filter(&filter_out),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -507,12 +516,15 @@ mod tests {
         let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
         stats.update(Some(&[10, 0, 0, 0]));
         stats.update(Some(&[50, 0, 0, 0]));
-        
+
         let filter_pass = ColumnFilter::GreaterThan(vec![30, 0, 0, 0]);
         assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
-        
+
         let filter_fail = ColumnFilter::GreaterThan(vec![100, 0, 0, 0]);
-        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+        assert_eq!(
+            stats.can_pass_filter(&filter_fail),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -520,12 +532,15 @@ mod tests {
         let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
         stats.update(Some(&[10, 0, 0, 0]));
         stats.update(Some(&[50, 0, 0, 0]));
-        
+
         let filter_pass = ColumnFilter::LessThan(vec![30, 0, 0, 0]);
         assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
-        
+
         let filter_fail = ColumnFilter::LessThan(vec![5, 0, 0, 0]);
-        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+        assert_eq!(
+            stats.can_pass_filter(&filter_fail),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -533,12 +548,15 @@ mod tests {
         let mut stats = ColumnStats::new("col".to_string(), FieldType::Int32);
         stats.update(Some(&[10, 0, 0, 0]));
         stats.update(Some(&[50, 0, 0, 0]));
-        
+
         let filter_pass = ColumnFilter::Between(vec![20, 0, 0, 0], vec![40, 0, 0, 0]);
         assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
-        
+
         let filter_fail = ColumnFilter::Between(vec![60, 0, 0, 0], vec![100, 0, 0, 0]);
-        assert_eq!(stats.can_pass_filter(&filter_fail), FilterResult::MustNotPass);
+        assert_eq!(
+            stats.can_pass_filter(&filter_fail),
+            FilterResult::MustNotPass
+        );
     }
 
     #[test]
@@ -547,10 +565,10 @@ mod tests {
         let val = 42i64.to_le_bytes().to_vec();
         stats.update(Some(&val.clone()));
         stats.update(Some(&val.clone()));
-        
+
         let filter = ColumnFilter::NotEqual(val.clone());
         assert_eq!(stats.can_pass_filter(&filter), FilterResult::MustNotPass);
-        
+
         let filter_pass = ColumnFilter::NotEqual(vec![99, 0, 0, 0, 0, 0, 0, 0]);
         assert_eq!(stats.can_pass_filter(&filter_pass), FilterResult::MayPass);
     }
@@ -566,7 +584,7 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let rg_stats = RowGroupStats::new(&schema);
         assert_eq!(rg_stats.column_stats.len(), 2);
         assert_eq!(rg_stats.row_count, 0);
@@ -583,14 +601,14 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
-        
+
         let row = vec![
             Some(10i64.to_le_bytes().to_vec()),
             Some(20i32.to_le_bytes().to_vec()),
         ];
-        
+
         rg_stats.update_row(&row);
         assert_eq!(rg_stats.row_count, 1);
         assert_eq!(rg_stats.column_stats[0].total_count, 1);
@@ -604,13 +622,13 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
-        
+
         rg_stats.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
         rg_stats.update_row(&vec![None]);
         rg_stats.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
-        
+
         assert_eq!(rg_stats.row_count, 3);
         assert_eq!(rg_stats.column_stats[0].null_count, 1);
         assert_eq!(rg_stats.column_stats[0].total_count, 3);
@@ -623,16 +641,16 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
         rg_stats.update_row(&vec![Some(b"active".to_vec())]);
         rg_stats.update_row(&vec![Some(b"inactive".to_vec())]);
-        
+
         let filters = vec![ColumnFilterSpec {
             column_index: 0,
             filter: ColumnFilter::IsNotNull,
         }];
-        
+
         assert_eq!(rg_stats.can_pass_filters(&filters), FilterResult::MayPass);
     }
 
@@ -643,17 +661,20 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
         rg_stats.update_row(&vec![Some(100i64.to_le_bytes().to_vec())]);
         rg_stats.update_row(&vec![Some(200i64.to_le_bytes().to_vec())]);
-        
+
         let filters = vec![ColumnFilterSpec {
             column_index: 0,
             filter: ColumnFilter::LessThan(vec![50, 0, 0, 0, 0, 0, 0, 0]),
         }];
-        
-        assert_eq!(rg_stats.can_pass_filters(&filters), FilterResult::MustNotPass);
+
+        assert_eq!(
+            rg_stats.can_pass_filters(&filters),
+            FilterResult::MustNotPass
+        );
     }
 
     // ====== QueryOptimizer Tests ======
@@ -665,7 +686,7 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let optimizer = QueryOptimizer::new(schema.clone());
         assert_eq!(optimizer.schema.fields.len(), 1);
     }
@@ -677,19 +698,19 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats1 = RowGroupStats::new(&schema);
         rg_stats1.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
-        
+
         let mut rg_stats2 = RowGroupStats::new(&schema);
         rg_stats2.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
-        
+
         let row_group_stats = vec![rg_stats1, rg_stats2];
         let filters = vec![ColumnFilterSpec {
             column_index: 0,
             filter: ColumnFilter::IsNotNull,
         }];
-        
+
         let optimizer = QueryOptimizer::new(schema);
         let accessible = optimizer.optimize_access(&row_group_stats, &filters);
         assert_eq!(accessible.len(), 2);
@@ -702,19 +723,19 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats1 = RowGroupStats::new(&schema);
         rg_stats1.update_row(&vec![Some(vec![25, 0, 0, 0])]);
-        
+
         let mut rg_stats2 = RowGroupStats::new(&schema);
         rg_stats2.update_row(&vec![Some(vec![100, 0, 0, 0])]);
-        
+
         let row_group_stats = vec![rg_stats1, rg_stats2];
         let filters = vec![ColumnFilterSpec {
             column_index: 0,
             filter: ColumnFilter::GreaterThan(vec![50, 0, 0, 0]),
         }];
-        
+
         let optimizer = QueryOptimizer::new(schema);
         let accessible = optimizer.optimize_access(&row_group_stats, &filters);
         assert_eq!(accessible.len(), 1);
@@ -734,10 +755,10 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let rg_stats = vec![RowGroupStats::new(&schema)];
         let offsets = vec![32];
-        
+
         let index = MetadataIndex::new(&schema, offsets, rg_stats);
         assert_eq!(index.column_indices.len(), 3);
         assert_eq!(index.row_group_offsets.len(), 1);
@@ -752,10 +773,10 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let rg_stats = vec![RowGroupStats::new(&schema)];
         let index = MetadataIndex::new(&schema, vec![32], rg_stats);
-        
+
         assert_eq!(index.get_column_index("user_id"), Some(0));
         assert_eq!(index.get_column_index("email"), Some(1));
         assert_eq!(index.get_column_index("nonexistent"), None);
@@ -768,20 +789,20 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats1 = RowGroupStats::new(&schema);
         rg_stats1.update_row(&vec![Some(b"active".to_vec())]);
-        
+
         let mut rg_stats2 = RowGroupStats::new(&schema);
         rg_stats2.update_row(&vec![Some(b"archived".to_vec())]);
-        
+
         let index = MetadataIndex::new(&schema, vec![32, 256], vec![rg_stats1, rg_stats2]);
-        
+
         let filters = vec![ColumnFilterSpec {
             column_index: 0,
             filter: ColumnFilter::IsNotNull,
         }];
-        
+
         let accessible = index.get_accessible_row_groups(&filters);
         assert_eq!(accessible.len(), 2);
     }
@@ -793,15 +814,15 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
         rg_stats.update_row(&vec![Some(10i64.to_le_bytes().to_vec())]);
         rg_stats.update_row(&vec![None]);
         rg_stats.update_row(&vec![Some(20i64.to_le_bytes().to_vec())]);
-        
+
         let index = MetadataIndex::new(&schema, vec![32], vec![rg_stats]);
         let col_stats = index.get_column_stats(0);
-        
+
         assert_eq!(col_stats.len(), 1);
         assert_eq!(col_stats[0].total_count, 3);
         assert_eq!(col_stats[0].null_count, 1);
@@ -814,15 +835,18 @@ mod tests {
             .unwrap()
             .build()
             .unwrap();
-        
+
         let mut rg_stats = RowGroupStats::new(&schema);
         rg_stats.update_row(&vec![Some(3.14f64.to_le_bytes().to_vec())]);
-        
+
         let index = MetadataIndex::new(&schema, vec![32], vec![rg_stats.clone()]);
         let json = serde_json::to_string(&index).unwrap();
         let deserialized: MetadataIndex = serde_json::from_str(&json).unwrap();
-        
-        assert_eq!(deserialized.column_indices.len(), index.column_indices.len());
+
+        assert_eq!(
+            deserialized.column_indices.len(),
+            index.column_indices.len()
+        );
         assert_eq!(deserialized.row_group_offsets, index.row_group_offsets);
     }
 
@@ -831,11 +855,11 @@ mod tests {
         let mut stats = ColumnStats::new("test".to_string(), FieldType::Int64);
         stats.update(Some(&[1, 2, 3, 4, 5, 6, 7, 8]));
         stats.update(Some(&[9, 10, 11, 12, 13, 14, 15, 16]));
-        
+
         let json1 = serde_json::to_string(&stats).unwrap();
         let deserialized: ColumnStats = serde_json::from_str(&json1).unwrap();
         let json2 = serde_json::to_string(&deserialized).unwrap();
-        
+
         assert_eq!(json1, json2);
     }
 
@@ -844,7 +868,7 @@ mod tests {
     #[test]
     fn test_column_stats_overflow_edge_cases() {
         let mut stats = ColumnStats::new("overflow_test".to_string(), FieldType::Int64);
-        
+
         // Test with maximum u64 values for counts
         for _ in 0..u64::MAX / 2 {
             stats.update(Some(&[1, 0, 0, 0, 0, 0, 0, 0]));
@@ -856,14 +880,14 @@ mod tests {
     #[test]
     fn test_column_stats_mixed_null_non_null() {
         let mut stats = ColumnStats::new("mixed".to_string(), FieldType::String);
-        
+
         // Interleave nulls and values
         stats.update(Some(b"first".to_vec().as_slice()));
         stats.update(None);
         stats.update(Some(b"second".to_vec().as_slice()));
         stats.update(None);
         stats.update(Some(b"third".to_vec().as_slice()));
-        
+
         assert_eq!(stats.total_count, 5);
         assert_eq!(stats.null_count, 2);
         assert_eq!(stats.distinct_count, 3);
@@ -874,7 +898,7 @@ mod tests {
     #[test]
     fn test_column_stats_empty_column_stats() {
         let stats = ColumnStats::new("empty".to_string(), FieldType::Float32);
-        
+
         assert_eq!(stats.total_count, 0);
         assert_eq!(stats.null_count, 0);
         assert_eq!(stats.distinct_count, 0);
@@ -894,22 +918,22 @@ mod tests {
     fn test_column_stats_deterministic_updates() {
         let mut stats1 = ColumnStats::new("det1".to_string(), FieldType::Int32);
         let mut stats2 = ColumnStats::new("det2".to_string(), FieldType::Int32);
-        
+
         let values = vec![
             Some(vec![1, 0, 0, 0]),
             None,
             Some(vec![3, 0, 0, 0]),
             Some(vec![2, 0, 0, 0]),
         ];
-        
+
         for val in &values {
             stats1.update(val.as_ref().map(|v| v.as_slice()));
         }
-        
+
         for val in &values {
             stats2.update(val.as_ref().map(|v| v.as_slice()));
         }
-        
+
         assert_eq!(stats1.min_value, stats2.min_value);
         assert_eq!(stats1.max_value, stats2.max_value);
         assert_eq!(stats1.null_count, stats2.null_count);
@@ -919,13 +943,13 @@ mod tests {
     #[test]
     fn test_column_stats_large_values() {
         let mut stats = ColumnStats::new("large".to_string(), FieldType::Int64);
-        
+
         let large_val = i64::MAX.to_le_bytes().to_vec();
         let small_val = i64::MIN.to_le_bytes().to_vec();
-        
+
         stats.update(Some(&large_val));
         stats.update(Some(&small_val));
-        
+
         assert_eq!(stats.min_value, Some(small_val));
         assert_eq!(stats.max_value, Some(large_val));
     }
@@ -933,15 +957,27 @@ mod tests {
     #[test]
     fn test_column_stats_filter_edge_cases() {
         let mut stats = ColumnStats::new("edge".to_string(), FieldType::Int64);
-        
+
         // Single value
         let val = 42i64.to_le_bytes().to_vec();
         stats.update(Some(&val));
-        
+
         // Test filters on single value
-        assert_eq!(stats.can_pass_filter(&ColumnFilter::Equal(val.clone())), FilterResult::MayPass);
-        assert_eq!(stats.can_pass_filter(&ColumnFilter::NotEqual(vec![99, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
-        assert_eq!(stats.can_pass_filter(&ColumnFilter::GreaterThan(vec![40, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
-        assert_eq!(stats.can_pass_filter(&ColumnFilter::LessThan(vec![50, 0, 0, 0, 0, 0, 0, 0])), FilterResult::MayPass);
+        assert_eq!(
+            stats.can_pass_filter(&ColumnFilter::Equal(val.clone())),
+            FilterResult::MayPass
+        );
+        assert_eq!(
+            stats.can_pass_filter(&ColumnFilter::NotEqual(vec![99, 0, 0, 0, 0, 0, 0, 0])),
+            FilterResult::MayPass
+        );
+        assert_eq!(
+            stats.can_pass_filter(&ColumnFilter::GreaterThan(vec![40, 0, 0, 0, 0, 0, 0, 0])),
+            FilterResult::MayPass
+        );
+        assert_eq!(
+            stats.can_pass_filter(&ColumnFilter::LessThan(vec![50, 0, 0, 0, 0, 0, 0, 0])),
+            FilterResult::MayPass
+        );
     }
 }

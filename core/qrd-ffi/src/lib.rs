@@ -372,16 +372,18 @@ mod tests {
     fn test_ffi_memory_safety() {
         // Test FFI memory safety and cleanup
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("data", FieldType::Blob, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Write some data
         let row_data = vec![b"test data".to_vec()];
         writer.write_row(row_data).unwrap();
-        
+
         writer.finish().unwrap();
         let bytes = buffer.bytes();
         assert!(bytes.len() > 0);
@@ -391,12 +393,14 @@ mod tests {
     fn test_ffi_error_handling() {
         // Test FFI error handling and propagation
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Test invalid row data (wrong number of columns)
         let invalid_row = vec![b"too many columns".to_vec(), b"extra".to_vec()];
         assert!(writer.write_row(invalid_row).is_err());
@@ -413,17 +417,14 @@ mod tests {
             .add_field("f64", FieldType::Float64, Nullability::Required)
             .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Write valid typed data
-        let row = vec![
-            42i32.to_le_bytes().to_vec(),
-            3.14f64.to_le_bytes().to_vec(),
-        ];
+        let row = vec![42i32.to_le_bytes().to_vec(), 3.14f64.to_le_bytes().to_vec()];
         writer.write_row(row).unwrap();
-        
+
         writer.finish().unwrap();
         let bytes = buffer.bytes();
         assert!(bytes.len() > 0);
@@ -433,17 +434,19 @@ mod tests {
     fn test_ffi_buffer_bounds() {
         // Test FFI buffer bounds checking
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("data", FieldType::Blob, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Test with large data to check buffer handling
         let large_data = vec![0u8; 1024 * 1024]; // 1MB
         let row = vec![large_data];
         writer.write_row(row).unwrap();
-        
+
         writer.finish().unwrap();
         let bytes = buffer.bytes();
         assert!(bytes.len() > 1024 * 1024);
@@ -453,17 +456,19 @@ mod tests {
     fn test_ffi_concurrent_access() {
         // Test FFI concurrent access safety
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("id", FieldType::Int64, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("id", FieldType::Int64, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Test that writer handles concurrent access safely
         // (This is more of a structural test since FFI is single-threaded)
         let row = vec![123i64.to_le_bytes().to_vec()];
         writer.write_row(row).unwrap();
-        
+
         writer.finish().unwrap();
     }
 
@@ -471,17 +476,19 @@ mod tests {
     fn test_ffi_resource_cleanup() {
         // Test FFI resource cleanup
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("temp", FieldType::String, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("temp", FieldType::String, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Write and finish to test cleanup
         let row = vec![b"cleanup test".to_vec()];
         writer.write_row(row).unwrap();
         writer.finish().unwrap();
-        
+
         // Resources should be properly cleaned up
         let bytes = buffer.bytes();
         assert!(bytes.len() > 0);
@@ -491,16 +498,18 @@ mod tests {
     fn test_ffi_malformed_input() {
         // Test FFI handling of malformed input
         let mut builder = SchemaBuilder::new();
-        builder = builder.add_field("data", FieldType::Blob, Nullability::Required).unwrap();
+        builder = builder
+            .add_field("data", FieldType::Blob, Nullability::Required)
+            .unwrap();
         let schema = builder.build().unwrap();
-        
+
         let buffer = SharedVecWriter::new();
         let mut writer = StreamingWriter::new(buffer.clone(), schema).unwrap();
-        
+
         // Test with malformed data
         let malformed_row = vec![vec![]]; // Empty blob
         writer.write_row(malformed_row).unwrap(); // Should handle gracefully
-        
+
         writer.finish().unwrap();
     }
 }

@@ -3,15 +3,15 @@
 //! Tests disk full, permission denied, invalid data, and other error scenarios
 //! to improve coverage of error paths in writer/mod.rs
 
-use qrd_core::prelude::*;
-use qrd_core::writer::{FileWriter, WriterConfig};
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::ecc::EccConfig;
 use qrd_core::encryption::EncryptionConfig;
-use std::io::Cursor;
-use tempfile::NamedTempFile;
+use qrd_core::prelude::*;
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::writer::{FileWriter, WriterConfig};
 use std::fs;
+use std::io::Cursor;
 use std::path::Path;
+use tempfile::NamedTempFile;
 
 /// Test writer with null field handling
 #[test]
@@ -28,25 +28,31 @@ fn test_writer_nullable_field_handling() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Write row with nullable fields
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        vec![],  // NULL name
-        8f64.to_le_bytes().to_vec(),
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        b"test".to_vec(),
-        vec![],  // NULL value
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        3i64.to_le_bytes().to_vec(),
-        vec![],  // NULL name
-        vec![],  // NULL value
-    ]).unwrap();
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            vec![], // NULL name
+            8f64.to_le_bytes().to_vec(),
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            2i64.to_le_bytes().to_vec(),
+            b"test".to_vec(),
+            vec![], // NULL value
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            3i64.to_le_bytes().to_vec(),
+            vec![], // NULL name
+            vec![], // NULL value
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -67,15 +73,15 @@ fn test_writer_mismatched_field_count() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Try to write row with mismatched field count
     let result = writer.write_row(vec![
         1i64.to_le_bytes().to_vec(),
         // Missing second field
     ]);
-    
+
     // Should handle error gracefully (either error or panic expected)
-    assert!(result.is_err() || true);  // Depending on implementation
+    assert!(result.is_err() || true); // Depending on implementation
 }
 
 /// Test writer with empty blob fields
@@ -91,17 +97,21 @@ fn test_writer_empty_blob_fields() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Write rows with empty blobs
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        vec![],  // Empty blob
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        vec![],  // Empty blob
-    ]).unwrap();
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            vec![], // Empty blob
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            2i64.to_le_bytes().to_vec(),
+            vec![], // Empty blob
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -122,19 +132,17 @@ fn test_writer_large_blob_data() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Write rows with large blob data
-    let large_blob = vec![0xFF; 1024 * 1024];  // 1MB blob
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        large_blob.clone(),
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        large_blob,
-    ]).unwrap();
+    let large_blob = vec![0xFF; 1024 * 1024]; // 1MB blob
+
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), large_blob.clone()])
+        .unwrap();
+
+    writer
+        .write_row(vec![2i64.to_le_bytes().to_vec(), large_blob])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -146,7 +154,7 @@ fn test_writer_large_blob_data() {
 #[test]
 fn test_writer_many_columns() {
     let mut builder = SchemaBuilder::new();
-    
+
     // Create schema with 100+ columns
     for i in 0..100 {
         builder = builder
@@ -161,12 +169,12 @@ fn test_writer_many_columns() {
             )
             .unwrap();
     }
-    
+
     let schema = builder.build().unwrap();
     let temp = NamedTempFile::new().unwrap();
-    
+
     let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-    
+
     // Create row with 100 fields
     let mut row = Vec::new();
     for i in 0..100 {
@@ -176,7 +184,7 @@ fn test_writer_many_columns() {
             row.push((i as f64).to_le_bytes().to_vec());
         }
     }
-    
+
     writer.write_row(row).unwrap();
     writer.finish().unwrap();
 
@@ -212,21 +220,19 @@ fn test_writer_row_group_auto_flush() {
         .unwrap();
 
     let config = WriterConfig {
-        row_group_size: 10,  // Small row group size
+        row_group_size: 10, // Small row group size
         ..Default::default()
     };
 
-    let mut writer = FileWriter::with_config(
-        std::fs::File::create(temp.path()).unwrap(),
-        schema,
-        config,
-    ).unwrap();
+    let mut writer =
+        FileWriter::with_config(std::fs::File::create(temp.path()).unwrap(), schema, config)
+            .unwrap();
 
     // Write more rows than row group size
     for i in 0..50 {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![(i as i64).to_le_bytes().to_vec()])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -246,9 +252,9 @@ fn test_writer_duplicate_rows() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     let row_data = vec![42i64.to_le_bytes().to_vec()];
-    
+
     // Write same row multiple times
     for _ in 0..100 {
         writer.write_row(row_data.clone()).unwrap();
@@ -283,17 +289,19 @@ fn test_writer_all_field_types() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Write row with all types
-    writer.write_row(vec![
-        (42i32).to_le_bytes().to_vec(),
-        (100i64).to_le_bytes().to_vec(),
-        (3.14f32).to_le_bytes().to_vec(),
-        (2.71f64).to_le_bytes().to_vec(),
-        vec![1],  // true
-        b"test string".to_vec(),
-        vec![1, 2, 3, 4, 5],
-    ]).unwrap();
+    writer
+        .write_row(vec![
+            (42i32).to_le_bytes().to_vec(),
+            (100i64).to_le_bytes().to_vec(),
+            (3.14f32).to_le_bytes().to_vec(),
+            (2.71f64).to_le_bytes().to_vec(),
+            vec![1], // true
+            b"test string".to_vec(),
+            vec![1, 2, 3, 4, 5],
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -323,14 +331,16 @@ fn test_writer_with_encryption() {
 
     let file = std::fs::File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"sensitive data".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"sensitive data".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
-    
+
     // Verify file was created
     assert!(temp.path().exists());
 }
@@ -360,15 +370,17 @@ fn test_writer_with_per_column_encryption() {
 
     let file = std::fs::File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data1".to_vec(),
-        b"data2".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"data1".to_vec(),
+            b"data2".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
-    
+
     assert!(temp.path().exists());
 }
 
@@ -393,14 +405,16 @@ fn test_writer_with_ecc() {
 
     let file = std::fs::File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data with error correction".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"data with error correction".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
-    
+
     assert!(temp.path().exists());
 }
 
@@ -417,7 +431,7 @@ fn test_writer_edge_values() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Test edge values
     let test_cases = vec![
         (i64::MIN, f64::NEG_INFINITY),
@@ -426,12 +440,14 @@ fn test_writer_edge_values() {
         (-1i64, -1.0f64),
         (1i64, 1.0f64),
     ];
-    
+
     for (int_val, float_val) in test_cases {
-        writer.write_row(vec![
-            int_val.to_le_bytes().to_vec(),
-            float_val.to_le_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                int_val.to_le_bytes().to_vec(),
+                float_val.to_le_bytes().to_vec(),
+            ])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -451,7 +467,9 @@ fn test_writer_single_row_persisted() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    writer.write_row(vec![123i64.to_le_bytes().to_vec()]).unwrap();
+    writer
+        .write_row(vec![123i64.to_le_bytes().to_vec()])
+        .unwrap();
     writer.finish().unwrap();
 
     let reader = FileReader::new(temp.path()).unwrap();
@@ -471,7 +489,7 @@ fn test_writer_special_strings() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     // Test various special strings
     let very_long = "very long string".repeat(1000);
     let test_strings = vec![
@@ -484,12 +502,14 @@ fn test_writer_special_strings() {
         "\0null bytes",
         very_long.as_str(),
     ];
-    
+
     for (i, s) in test_strings.iter().enumerate() {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-            s.as_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                (i as i64).to_le_bytes().to_vec(),
+                s.as_bytes().to_vec(),
+            ])
+            .unwrap();
     }
 
     writer.finish().unwrap();

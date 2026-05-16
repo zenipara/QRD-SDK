@@ -245,5 +245,4 @@ mod tests {
         let expected: Vec<Vec<u8>> = values.iter().map(|&v| v.to_le_bytes().to_vec()).collect();
         assert_eq!(result, expected);
     }
-
 }

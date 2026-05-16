@@ -4,13 +4,11 @@
 //! to ensure production-grade security and resilience.
 
 use qrd_core::ecc::{EccCodec, EccConfig};
-use qrd_core::encryption::{encrypt, decrypt, EncryptionConfig};
-use qrd_core::utils::simd::SimdOps;
-use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use qrd_core::writer::FileWriter;
+use qrd_core::encryption::{decrypt, encrypt, EncryptionConfig};
 use qrd_core::reader::FileReader;
-use qrd_core::utils::bit_ops::*;
-use qrd_core::validation::{CorruptionDetector, CorruptionType};
+use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::utils::simd::SimdOps;
+use qrd_core::writer::FileWriter;
 use std::fs;
 
 // ============================================================================
@@ -394,7 +392,8 @@ fn test_encrypted_file_roundtrip() {
             let data_bytes = format!("encrypted_row_{}", i).into_bytes();
             // Properly serialize blob with length prefix
             let serialized_data = serialize_blob(&data_bytes);
-            writer.write_row(vec![id_bytes, serialized_data])
+            writer
+                .write_row(vec![id_bytes, serialized_data])
                 .expect("Failed to write row");
         }
 

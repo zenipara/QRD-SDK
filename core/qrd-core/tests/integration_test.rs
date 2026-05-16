@@ -1,7 +1,7 @@
 //! Integration test for Phase 2 advanced features
 
 use qrd_core::ecc::{EccCodec, EccConfig};
-use qrd_core::encryption::{EncryptionConfig, encrypt, decrypt};
+use qrd_core::encryption::{decrypt, encrypt, EncryptionConfig};
 use qrd_core::utils::simd::SimdOps;
 
 #[test]
@@ -70,36 +70,36 @@ fn test_simd_operations() {
 #[test]
 fn test_bit_operations() {
     use qrd_core::utils::bit_ops::BitOps;
-    
+
     // Test bitscan operations
     // Test trailing/leading zeros
     assert_eq!(BitOps::trailing_zeros(0b10100000), 5);
     assert_eq!(BitOps::leading_zeros(0b00000111), 61);
-    
+
     // Test population count on individual bytes represented as u64
     let count1 = BitOps::popcount(0b10101010u64);
     assert_eq!(count1, 4, "0b10101010 should have 4 set bits");
-    
+
     let count2 = BitOps::popcount(0b01010101u64);
     assert_eq!(count2, 4, "0b01010101 should have 4 set bits");
-    
+
     // Test popcount across both bytes
     let total_count = count1 + count2;
     assert_eq!(total_count, 8, "Should count 8 set bits total");
-    
+
     // Test bitscan forward (find first set bit)
     assert_eq!(BitOps::bitscan_forward(0b10101010), Some(1));
     assert_eq!(BitOps::bitscan_forward(0), None);
     assert_eq!(BitOps::bitscan_forward(0b00001000), Some(3));
-    
+
     // Test bitscan reverse (find last set bit)
     assert_eq!(BitOps::bitscan_reverse(0b10101010), Some(7));
     assert_eq!(BitOps::bitscan_reverse(0), None);
     assert_eq!(BitOps::bitscan_reverse(0b00001000), Some(3));
-    
+
     // Test min_bits_for_value
     assert_eq!(BitOps::min_bits_for_value(0), 1);
-    assert_eq!(BitOps::min_bits_for_value(7), 3);  // 0-7 needs 3 bits
+    assert_eq!(BitOps::min_bits_for_value(7), 3); // 0-7 needs 3 bits
     assert_eq!(BitOps::min_bits_for_value(15), 4); // 0-15 needs 4 bits
 }
 
@@ -113,7 +113,14 @@ fn test_encoding_with_simd() {
     // Test with plain encoding
     let original: Vec<i32> = (0..1000).collect();
     let encoder = PlainEncoder::new();
-    let encoded = encoder.encode(&original.iter().flat_map(|&x| x.to_le_bytes()).collect::<Vec<_>>()).unwrap();
+    let encoded = encoder
+        .encode(
+            &original
+                .iter()
+                .flat_map(|&x| x.to_le_bytes())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
 
     let decoded_bytes = encoder.decode(&encoded, original.len() * 4).unwrap();
     let mut decoded: Vec<i32> = Vec::new();
@@ -123,12 +130,18 @@ fn test_encoding_with_simd() {
         }
     }
 
-    assert_eq!(decoded, original, "Plain encoder should preserve i32 values");
+    assert_eq!(
+        decoded, original,
+        "Plain encoder should preserve i32 values"
+    );
 
     // Test SIMD delta encoding on the data
     let delta_encoded = ops.delta_encode_i32(&original).unwrap();
     let delta_decoded = ops.delta_decode_i32(&delta_encoded).unwrap();
-    assert_eq!(delta_decoded, original, "SIMD delta encode/decode should be reversible");
+    assert_eq!(
+        delta_decoded, original,
+        "SIMD delta encode/decode should be reversible"
+    );
 }
 
 #[test]

@@ -319,7 +319,7 @@ mod tests {
     fn test_invalid_encoding_id_rejection() {
         let result = EncodingType::from_id(255);
         assert!(result.is_err());
-        
+
         let result2 = EncodingType::from_id(99);
         assert!(result2.is_err());
     }
@@ -330,8 +330,14 @@ mod tests {
         assert_eq!(format!("{}", EncodingType::Rle), "RLE");
         assert_eq!(format!("{}", EncodingType::BitPacked), "BIT_PACKED");
         assert_eq!(format!("{}", EncodingType::DeltaBinary), "DELTA_BINARY");
-        assert_eq!(format!("{}", EncodingType::DeltaByteArray), "DELTA_BYTE_ARRAY");
-        assert_eq!(format!("{}", EncodingType::ByteStreamSplit), "BYTE_STREAM_SPLIT");
+        assert_eq!(
+            format!("{}", EncodingType::DeltaByteArray),
+            "DELTA_BYTE_ARRAY"
+        );
+        assert_eq!(
+            format!("{}", EncodingType::ByteStreamSplit),
+            "BYTE_STREAM_SPLIT"
+        );
         assert_eq!(format!("{}", EncodingType::DictionaryRle), "DICTIONARY_RLE");
         assert_eq!(format!("{}", EncodingType::Passthrough), "PASSTHROUGH");
     }
@@ -340,10 +346,10 @@ mod tests {
     fn test_passthrough_encoder_identity() {
         let encoder = PassthroughEncoder::new();
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        
+
         let encoded = encoder.encode(&data).unwrap();
         assert_eq!(encoded, data);
-        
+
         let decoded = encoder.decode(&encoded, data.len()).unwrap();
         assert_eq!(decoded, data);
     }
@@ -352,10 +358,10 @@ mod tests {
     fn test_passthrough_encoder_empty_data() {
         let encoder = PassthroughEncoder::new();
         let data = vec![];
-        
+
         let encoded = encoder.encode(&data).unwrap();
         assert_eq!(encoded.len(), 0);
-        
+
         let decoded = encoder.decode(&encoded, 0).unwrap();
         assert_eq!(decoded.len(), 0);
     }
@@ -364,7 +370,7 @@ mod tests {
     fn test_passthrough_encoder_large_data() {
         let encoder = PassthroughEncoder::new();
         let data: Vec<u8> = (0..10000).map(|i| (i % 256) as u8).collect();
-        
+
         let encoded = encoder.encode(&data).unwrap();
         assert_eq!(encoded.len(), data.len());
         assert_eq!(encoded, data);
@@ -373,11 +379,11 @@ mod tests {
     #[test]
     fn test_encoding_type_all_valid_ids() {
         let valid_ids = vec![0, 1, 2, 3, 4, 5, 6, 7];
-        
+
         for id in valid_ids {
             let encoding = EncodingType::from_id(id);
             assert!(encoding.is_ok());
-            
+
             let enc = encoding.unwrap();
             assert_eq!(enc.to_id(), id);
         }
@@ -399,26 +405,28 @@ mod tests {
             b"banana".to_vec(),
             b"banana".to_vec(),
         ];
-        
+
         let mut encoded = Vec::new();
         for item in data {
             encoded.extend_from_slice(&(item.len() as u32).to_le_bytes());
             encoded.extend_from_slice(&item);
         }
-        
+
         assert!(is_low_cardinality(&encoded, 5));
     }
 
     #[test]
     fn test_low_cardinality_detection_false() {
-        let data: Vec<Vec<u8>> = (0..100).map(|i| format!("value_{}", i).into_bytes()).collect();
-        
+        let data: Vec<Vec<u8>> = (0..100)
+            .map(|i| format!("value_{}", i).into_bytes())
+            .collect();
+
         let mut encoded = Vec::new();
         for item in data {
             encoded.extend_from_slice(&(item.len() as u32).to_le_bytes());
             encoded.extend_from_slice(&item);
         }
-        
+
         assert!(!is_low_cardinality(&encoded, 5));
     }
 
@@ -429,8 +437,12 @@ mod tests {
         for v in values {
             data.extend_from_slice(&v.to_le_bytes());
         }
-        
-        assert!(is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+
+        assert!(is_low_cardinality_integers(
+            &crate::schema::FieldType::Int64,
+            &data,
+            5
+        ));
     }
 
     #[test]
@@ -440,8 +452,12 @@ mod tests {
         for v in values {
             data.extend_from_slice(&v.to_le_bytes());
         }
-        
-        assert!(!is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+
+        assert!(!is_low_cardinality_integers(
+            &crate::schema::FieldType::Int64,
+            &data,
+            5
+        ));
     }
 
     #[test]
@@ -469,10 +485,10 @@ mod tests {
     fn test_passthrough_encoder_deterministic() {
         let encoder = PassthroughEncoder::new();
         let data = b"deterministic_test".to_vec();
-        
+
         let encoded1 = encoder.encode(&data).unwrap();
         let encoded2 = encoder.encode(&data).unwrap();
-        
+
         assert_eq!(encoded1, encoded2);
     }
 
@@ -484,7 +500,11 @@ mod tests {
     #[test]
     fn test_low_cardinality_integers_empty_input() {
         let empty: Vec<u8> = vec![];
-        assert!(is_low_cardinality_integers(&crate::schema::FieldType::Int64, &empty, 10));
+        assert!(is_low_cardinality_integers(
+            &crate::schema::FieldType::Int64,
+            &empty,
+            10
+        ));
     }
 
     #[test]
@@ -496,7 +516,11 @@ mod tests {
     #[test]
     fn test_low_cardinality_integers_invalid_size() {
         let data = vec![1, 2, 3]; // Not divisible by 8 (i64 size)
-        assert!(!is_low_cardinality_integers(&crate::schema::FieldType::Int64, &data, 5));
+        assert!(!is_low_cardinality_integers(
+            &crate::schema::FieldType::Int64,
+            &data,
+            5
+        ));
     }
 
     // Additional enterprise-grade tests
@@ -506,7 +530,14 @@ mod tests {
         let data = vec![0u8; 1000]; // High cardinality but compressible
         let encoding = select_encoding(&crate::schema::FieldType::Int64, &data);
         // Should not crash, should select some valid encoding
-        assert!(matches!(encoding, EncodingType::Plain | EncodingType::Rle | EncodingType::BitPacked | EncodingType::DeltaBinary | EncodingType::DictionaryRle));
+        assert!(matches!(
+            encoding,
+            EncodingType::Plain
+                | EncodingType::Rle
+                | EncodingType::BitPacked
+                | EncodingType::DeltaBinary
+                | EncodingType::DictionaryRle
+        ));
     }
 
     #[test]
@@ -522,18 +553,25 @@ mod tests {
         let invalid_id = 99;
         let result = EncodingType::from_id(invalid_id);
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), crate::error::Error::EncodingError(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            crate::error::Error::EncodingError(_)
+        ));
     }
 
     #[test]
     fn test_encoding_deterministic_selection() {
-        let data = vec![1i64.to_le_bytes().to_vec(), 2i64.to_le_bytes().to_vec(), 1i64.to_le_bytes().to_vec()];
+        let data = vec![
+            1i64.to_le_bytes().to_vec(),
+            2i64.to_le_bytes().to_vec(),
+            1i64.to_le_bytes().to_vec(),
+        ];
         let mut encoded = Vec::new();
         for item in &data {
             encoded.extend_from_slice(&(item.len() as u32).to_le_bytes());
             encoded.extend_from_slice(item);
         }
-        
+
         let enc1 = select_encoding(&crate::schema::FieldType::Int64, &encoded);
         let enc2 = select_encoding(&crate::schema::FieldType::Int64, &encoded);
         assert_eq!(enc1, enc2);
@@ -544,7 +582,7 @@ mod tests {
         // Test that encoding roundtrip preserves data
         let data = b"test data for roundtrip";
         let encoder = PassthroughEncoder::new();
-        
+
         let encoded = encoder.encode(data).unwrap();
         let decoded = encoder.decode(&encoded, data.len()).unwrap();
         assert_eq!(decoded, data);
@@ -555,22 +593,29 @@ mod tests {
         // Test encoding selection with mixed types (though QRD is columnar)
         let string_data = b"string data";
         let enc = select_encoding(&crate::schema::FieldType::String, string_data);
-        assert!(matches!(enc, EncodingType::Plain | EncodingType::DictionaryRle));
+        assert!(matches!(
+            enc,
+            EncodingType::Plain | EncodingType::DictionaryRle
+        ));
     }
 
     #[test]
     fn test_edge_case_cardinality() {
         // Test with exactly threshold cardinality
         let mut data = Vec::new();
-        for i in 0..10 { // Exactly threshold
+        for i in 0..10 {
+            // Exactly threshold
             let val = format!("value_{}", i).into_bytes();
             data.extend_from_slice(&(val.len() as u32).to_le_bytes());
             data.extend_from_slice(&val);
         }
-        
+
         let enc = select_encoding(&crate::schema::FieldType::String, &data);
         // Should handle boundary case without panic
-        assert!(matches!(enc, EncodingType::Plain | EncodingType::DictionaryRle));
+        assert!(matches!(
+            enc,
+            EncodingType::Plain | EncodingType::DictionaryRle
+        ));
     }
 
     #[test]
@@ -578,7 +623,14 @@ mod tests {
         let empty: Vec<u8> = vec![];
         let enc = select_encoding(&crate::schema::FieldType::Int64, &empty);
         // Should not crash on empty input
-        assert!(matches!(enc, EncodingType::Plain | EncodingType::Rle | EncodingType::BitPacked | EncodingType::DeltaBinary | EncodingType::DictionaryRle));
+        assert!(matches!(
+            enc,
+            EncodingType::Plain
+                | EncodingType::Rle
+                | EncodingType::BitPacked
+                | EncodingType::DeltaBinary
+                | EncodingType::DictionaryRle
+        ));
     }
 
     #[test]
@@ -586,7 +638,7 @@ mod tests {
         // Test that malformed payloads don't cause undefined behavior
         let malformed = vec![0xFF, 0xFF, 0xFF, 0xFF]; // Invalid data
         let encoder = PassthroughEncoder::new();
-        
+
         // Should handle gracefully
         let result = encoder.decode(&malformed, 4);
         assert!(result.is_ok()); // Passthrough just returns the data

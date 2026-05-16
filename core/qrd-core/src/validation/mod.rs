@@ -5,11 +5,17 @@
 //! - Corruption detection
 //! - Recovery strategies
 //! - Malformed input handling
+//! - Bloom filters and indexing for predicate pushdown
 
 pub mod corruption;
+pub mod index;
 
 pub use corruption::{
     CorruptionDetector, CorruptionReport, CorruptionType, RecoveryAction, RecoveryStrategy,
+};
+pub use index::{
+    BloomFilter, BloomFilterStats, CompositeIndex, HashIndex, IndexStats, Predicate,
+    PredicatePushdownResult, RangeIndex,
 };
 
 use crate::error::Result;

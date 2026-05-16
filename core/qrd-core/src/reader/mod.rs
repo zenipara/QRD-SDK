@@ -864,5 +864,4 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(&rows[0], &[0, 0, 0, 0]);
     }
-
 }

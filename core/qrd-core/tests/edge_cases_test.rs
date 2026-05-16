@@ -1,14 +1,14 @@
 //! Edge case tests for QRD Core
 //! Tests boundary conditions, extreme values, and special data patterns
 
-use qrd_core::prelude::*;
 use qrd_core::compression::CompressionCodec;
 use qrd_core::encoding::EncodingType;
+use qrd_core::prelude::*;
+use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
 use qrd_core::writer::FileWriter;
-use qrd_core::reader::FileReader;
-use tempfile::NamedTempFile;
 use std::io::Cursor;
+use tempfile::NamedTempFile;
 
 /// Test empty file creation
 #[test]
@@ -39,7 +39,9 @@ fn test_single_row_file() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    writer.write_row(vec![(42i32).to_le_bytes().to_vec()]).unwrap();
+    writer
+        .write_row(vec![(42i32).to_le_bytes().to_vec()])
+        .unwrap();
     writer.finish().unwrap();
 
     let reader = FileReader::new(temp.path()).unwrap();
@@ -57,8 +59,12 @@ fn test_max_min_int64_values() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    writer.write_row(vec![i64::MAX.to_le_bytes().to_vec()]).unwrap();
-    writer.write_row(vec![i64::MIN.to_le_bytes().to_vec()]).unwrap();
+    writer
+        .write_row(vec![i64::MAX.to_le_bytes().to_vec()])
+        .unwrap();
+    writer
+        .write_row(vec![i64::MIN.to_le_bytes().to_vec()])
+        .unwrap();
     writer.write_row(vec![0i64.to_le_bytes().to_vec()]).unwrap();
     writer.finish().unwrap();
 
@@ -102,7 +108,7 @@ fn test_large_string_field() {
     let mut text_bytes = Vec::new();
     text_bytes.extend_from_slice(&(large_text.len() as u32).to_le_bytes());
     text_bytes.extend_from_slice(large_text.as_bytes());
-    
+
     writer.write_row(vec![text_bytes]).unwrap();
     writer.finish().unwrap();
 
@@ -121,10 +127,18 @@ fn test_float_special_values() {
         .unwrap();
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    writer.write_row(vec![f64::NAN.to_le_bytes().to_vec()]).unwrap();
-    writer.write_row(vec![f64::INFINITY.to_le_bytes().to_vec()]).unwrap();
-    writer.write_row(vec![f64::NEG_INFINITY.to_le_bytes().to_vec()]).unwrap();
-    writer.write_row(vec![0.0f64.to_le_bytes().to_vec()]).unwrap();
+    writer
+        .write_row(vec![f64::NAN.to_le_bytes().to_vec()])
+        .unwrap();
+    writer
+        .write_row(vec![f64::INFINITY.to_le_bytes().to_vec()])
+        .unwrap();
+    writer
+        .write_row(vec![f64::NEG_INFINITY.to_le_bytes().to_vec()])
+        .unwrap();
+    writer
+        .write_row(vec![0.0f64.to_le_bytes().to_vec()])
+        .unwrap();
     writer.finish().unwrap();
 
     let reader = FileReader::new(temp.path()).unwrap();
@@ -156,16 +170,20 @@ fn test_zero_size_blob() {
 fn test_many_columns() {
     let temp = NamedTempFile::new().unwrap();
     let mut builder = SchemaBuilder::new();
-    
+
     for i in 0..20 {
         builder = builder
-            .add_field(&format!("col_{}", i), FieldType::Int32, Nullability::Required)
+            .add_field(
+                &format!("col_{}", i),
+                FieldType::Int32,
+                Nullability::Required,
+            )
             .unwrap();
     }
-    
+
     let schema = builder.build().unwrap();
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-    
+
     let mut row = Vec::new();
     for i in 0..20 {
         row.push((i as i32).to_le_bytes().to_vec());
@@ -211,7 +229,9 @@ fn test_sequential_integers() {
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
     for i in 0..1000 {
-        writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+        writer
+            .write_row(vec![(i as i64).to_le_bytes().to_vec()])
+            .unwrap();
     }
     writer.finish().unwrap();
 
@@ -231,7 +251,7 @@ fn test_highly_repetitive_data() {
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
     let pattern = b"AAAAAAAAAA";
-    
+
     for _ in 0..100 {
         let mut data = vec![10u32.to_le_bytes().to_vec()];
         data[0].extend_from_slice(pattern);
@@ -255,7 +275,7 @@ fn test_random_looking_data() {
 
     let mut writer = FileWriter::new(temp.path(), schema).unwrap();
     let mut seed = 12345u64;
-    
+
     for _ in 0..100 {
         seed = seed.wrapping_mul(2654435761).wrapping_add(2246822519);
         writer.write_row(vec![seed.to_le_bytes().to_vec()]).unwrap();
@@ -280,12 +300,19 @@ fn test_power_of_2_row_counts() {
 
         let mut writer = FileWriter::new(temp.path(), schema).unwrap();
         for i in 0..count {
-            writer.write_row(vec![(i as i64).to_le_bytes().to_vec()]).unwrap();
+            writer
+                .write_row(vec![(i as i64).to_le_bytes().to_vec()])
+                .unwrap();
         }
         writer.finish().unwrap();
 
         let reader = FileReader::new(temp.path()).unwrap();
-        assert_eq!(reader.row_count() as usize, count, "Failed for 2^{} rows", power);
+        assert_eq!(
+            reader.row_count() as usize,
+            count,
+            "Failed for 2^{} rows",
+            power
+        );
     }
 }
 
@@ -308,7 +335,7 @@ fn test_compression_codec_comparison() {
 
         let test_data: Vec<u8> = (0..100).map(|i| (i % 256) as u8).collect();
         let mut writer = FileWriter::new(temp.path(), schema).unwrap();
-        
+
         for _ in 0..10 {
             let mut row = vec![10u32.to_le_bytes().to_vec()];
             row[0].extend_from_slice(&test_data);

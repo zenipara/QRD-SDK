@@ -5,14 +5,14 @@
 //! - Data corruption and recovery patterns
 //! - Edge cases in ECC handling
 
-use qrd_core::prelude::*;
-use qrd_core::writer::{FileWriter, WriterConfig};
-use qrd_core::reader::FileReader;
 use qrd_core::ecc::EccConfig;
 use qrd_core::encryption::EncryptionConfig;
+use qrd_core::prelude::*;
+use qrd_core::reader::FileReader;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use tempfile::NamedTempFile;
+use qrd_core::writer::{FileWriter, WriterConfig};
 use std::fs::File;
+use tempfile::NamedTempFile;
 
 /// Test basic ECC configuration (4 data, 2 parity)
 #[test]
@@ -35,11 +35,10 @@ fn test_ecc_basic_config_4_2() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), b"data".to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -64,10 +63,10 @@ fn test_ecc_minimum_config_2_1() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        42i64.to_le_bytes().to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![42i64.to_le_bytes().to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -94,12 +93,14 @@ fn test_ecc_high_redundancy_8_8() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     for i in 0..10 {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-            format!("data_{}", i).as_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                (i as i64).to_le_bytes().to_vec(),
+                format!("data_{}", i).as_bytes().to_vec(),
+            ])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -134,10 +135,10 @@ fn test_ecc_balanced_data_parity_5_5() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        123i64.to_le_bytes().to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![123i64.to_le_bytes().to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -164,11 +165,13 @@ fn test_ecc_large_config_32_16() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        vec![0xFF; 1024],  // 1KB blob
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            vec![0xFF; 1024], // 1KB blob
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -197,11 +200,13 @@ fn test_ecc_with_encryption() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"protected with ECC and encryption".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"protected with ECC and encryption".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -223,19 +228,21 @@ fn test_ecc_with_compression() {
 
     let config = WriterConfig {
         ecc,
-        compression_level: 7,  // High compression
+        compression_level: 7, // High compression
         ..Default::default()
     };
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Compressible data
     for i in 0..50 {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-            b"AAAAAAAAAAAAAAAA".to_vec(),  // Highly compressible
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                (i as i64).to_le_bytes().to_vec(),
+                b"AAAAAAAAAAAAAAAA".to_vec(), // Highly compressible
+            ])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -286,10 +293,10 @@ fn test_ecc_single_row() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        999i64.to_le_bytes().to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![999i64.to_le_bytes().to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -311,18 +318,18 @@ fn test_ecc_multiple_row_groups() {
 
     let config = WriterConfig {
         ecc,
-        row_group_size: 10,  // Small row groups
+        row_group_size: 10, // Small row groups
         ..Default::default()
     };
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Write multiple row groups worth of data
     for i in 0..1000 {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![(i as i64).to_le_bytes().to_vec()])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -352,7 +359,7 @@ fn test_ecc_variable_length_data() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Write rows with varying string lengths
     let strings = vec![
         b"a".to_vec(),
@@ -362,12 +369,11 @@ fn test_ecc_variable_length_data() {
         b"a".repeat(1000),
         b"a".repeat(10000),
     ];
-    
+
     for (i, s) in strings.iter().enumerate() {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-            s.clone(),
-        ]).unwrap();
+        writer
+            .write_row(vec![(i as i64).to_le_bytes().to_vec(), s.clone()])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -397,22 +403,22 @@ fn test_ecc_with_nulls() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Mix of null and non-null values
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data".to_vec(),
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        vec![],  // NULL
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        3i64.to_le_bytes().to_vec(),
-        b"more data".to_vec(),
-    ]).unwrap();
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), b"data".to_vec()])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            2i64.to_le_bytes().to_vec(),
+            vec![], // NULL
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![3i64.to_le_bytes().to_vec(), b"more data".to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -451,16 +457,18 @@ fn test_ecc_all_field_types() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        42i32.to_le_bytes().to_vec(),
-        100i64.to_le_bytes().to_vec(),
-        (3.14f32).to_le_bytes().to_vec(),
-        (2.71f64).to_le_bytes().to_vec(),
-        vec![1],  // true
-        b"text".to_vec(),
-        vec![1, 2, 3, 4, 5],
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            42i32.to_le_bytes().to_vec(),
+            100i64.to_le_bytes().to_vec(),
+            (3.14f32).to_le_bytes().to_vec(),
+            (2.71f64).to_le_bytes().to_vec(),
+            vec![1], // true
+            b"text".to_vec(),
+            vec![1, 2, 3, 4, 5],
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
 

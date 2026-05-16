@@ -4,8 +4,8 @@
 //! to QRD format and that conversion maintains data integrity.
 
 use qrd_core::prelude::*;
-use qrd_core::writer::FileWriter;
 use qrd_core::reader::FileReader;
+use qrd_core::writer::FileWriter;
 use tempfile::NamedTempFile;
 
 /// Simple JSON value representation for testing
@@ -37,12 +37,14 @@ fn test_json_ingestion_smoke_test() {
 
         // Write rows that simulate JSON data
         for i in 0..10 {
-            writer.write_row(vec![
-                (i as i64).to_le_bytes().to_vec(),
-                format!("item_{}", i).into_bytes(),
-                (i as f64 * 1.5).to_le_bytes().to_vec(),
-                vec![if i % 2 == 0 { 1 } else { 0 }],
-            ]).unwrap();
+            writer
+                .write_row(vec![
+                    (i as i64).to_le_bytes().to_vec(),
+                    format!("item_{}", i).into_bytes(),
+                    (i as f64 * 1.5).to_le_bytes().to_vec(),
+                    vec![if i % 2 == 0 { 1 } else { 0 }],
+                ])
+                .unwrap();
         }
 
         writer.finish().unwrap();
@@ -82,18 +84,20 @@ fn test_large_json_conversion_validation() {
             };
             let metrics = vec![(i % 256) as u8; 100];
 
-            writer.write_row(vec![
-                (i as i64).to_le_bytes().to_vec(),
-                timestamp,
-                if i % 7 == 0 {
-                    vec![0, 0, 0, 0]
-                } else {
-                    let mut v = (data_str.len() as u32).to_le_bytes().to_vec();
-                    v.extend_from_slice(&data_str);
-                    v
-                },
-                metrics,
-            ]).unwrap();
+            writer
+                .write_row(vec![
+                    (i as i64).to_le_bytes().to_vec(),
+                    timestamp,
+                    if i % 7 == 0 {
+                        vec![0, 0, 0, 0]
+                    } else {
+                        let mut v = (data_str.len() as u32).to_le_bytes().to_vec();
+                        v.extend_from_slice(&data_str);
+                        v
+                    },
+                    metrics,
+                ])
+                .unwrap();
         }
 
         writer.finish().unwrap();
@@ -119,32 +123,32 @@ fn test_json_null_handling_in_conversion() {
         let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
 
         // Row 1: with value
-        writer.write_row(vec![
-            1i64.to_le_bytes().to_vec(),
-            {
+        writer
+            .write_row(vec![1i64.to_le_bytes().to_vec(), {
                 let s = "test";
                 let mut v = (s.len() as u32).to_le_bytes().to_vec();
                 v.extend_from_slice(s.as_bytes());
                 v
-            },
-        ]).unwrap();
+            }])
+            .unwrap();
 
         // Row 2: null value
-        writer.write_row(vec![
-            2i64.to_le_bytes().to_vec(),
-            vec![0, 0, 0, 0], // NULL indicator
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                2i64.to_le_bytes().to_vec(),
+                vec![0, 0, 0, 0], // NULL indicator
+            ])
+            .unwrap();
 
         // Row 3: with value
-        writer.write_row(vec![
-            3i64.to_le_bytes().to_vec(),
-            {
+        writer
+            .write_row(vec![3i64.to_le_bytes().to_vec(), {
                 let s = "data";
                 let mut v = (s.len() as u32).to_le_bytes().to_vec();
                 v.extend_from_slice(s.as_bytes());
                 v
-            },
-        ]).unwrap();
+            }])
+            .unwrap();
 
         writer.finish().unwrap();
     }
@@ -172,12 +176,14 @@ fn test_json_mixed_types_conversion() {
         let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
 
         for i in 0..50 {
-            writer.write_row(vec![
-                (i as i32).to_le_bytes().to_vec(),
-                (i as f64 * 3.14).to_le_bytes().to_vec(),
-                format!("text_{}", i).into_bytes(),
-                vec![if i % 2 == 0 { 1 } else { 0 }],
-            ]).unwrap();
+            writer
+                .write_row(vec![
+                    (i as i32).to_le_bytes().to_vec(),
+                    (i as f64 * 3.14).to_le_bytes().to_vec(),
+                    format!("text_{}", i).into_bytes(),
+                    vec![if i % 2 == 0 { 1 } else { 0 }],
+                ])
+                .unwrap();
         }
 
         writer.finish().unwrap();
@@ -226,10 +232,9 @@ fn test_json_nested_object_serialization() {
 
     {
         let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
-        writer.write_row(vec![
-            1i64.to_le_bytes().to_vec(),
-            nested_json,
-        ]).unwrap();
+        writer
+            .write_row(vec![1i64.to_le_bytes().to_vec(), nested_json])
+            .unwrap();
         writer.finish().unwrap();
     }
 
@@ -251,7 +256,9 @@ fn test_json_conversion_determinism() {
     {
         let mut writer = FileWriter::new(temp1.path(), schema.clone()).unwrap();
         let value: f64 = 3.14159265358979;
-        writer.write_row(vec![value.to_le_bytes().to_vec()]).unwrap();
+        writer
+            .write_row(vec![value.to_le_bytes().to_vec()])
+            .unwrap();
         writer.finish().unwrap();
     }
 
@@ -259,7 +266,9 @@ fn test_json_conversion_determinism() {
     {
         let mut writer = FileWriter::new(temp2.path(), schema.clone()).unwrap();
         let value: f64 = 3.14159265358979;
-        writer.write_row(vec![value.to_le_bytes().to_vec()]).unwrap();
+        writer
+            .write_row(vec![value.to_le_bytes().to_vec()])
+            .unwrap();
         writer.finish().unwrap();
     }
 
@@ -277,12 +286,7 @@ fn test_json_unicode_string_handling() {
         .build()
         .unwrap();
 
-    let unicode_strings = vec![
-        "Hello",
-        "世界",
-        "مرحبا",
-        "🚀",
-    ];
+    let unicode_strings = vec!["Hello", "世界", "مرحبا", "🚀"];
 
     {
         let mut writer = FileWriter::new(temp.path(), schema.clone()).unwrap();
@@ -365,11 +369,13 @@ fn test_json_number_precision_preservation() {
         let f64_val = 1.2345678901234567f64;
         let i64_val = 9223372036854775807i64;
 
-        writer.write_row(vec![
-            f32_val.to_le_bytes().to_vec(),
-            f64_val.to_le_bytes().to_vec(),
-            i64_val.to_le_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                f32_val.to_le_bytes().to_vec(),
+                f64_val.to_le_bytes().to_vec(),
+                i64_val.to_le_bytes().to_vec(),
+            ])
+            .unwrap();
 
         writer.finish().unwrap();
     }

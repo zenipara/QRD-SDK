@@ -3,7 +3,7 @@
 //! Tests various failure scenarios in compression/decompression
 //! to improve coverage of error handling paths
 
-use qrd_core::compression::{CompressionCodec, CompressionLevel, compress, decompress};
+use qrd_core::compression::{compress, decompress, CompressionCodec, CompressionLevel};
 use qrd_core::error::Result;
 
 /// Test decompression of corrupted zstd data
@@ -28,13 +28,12 @@ fn test_decompress_corrupted_lz4() {
 #[test]
 fn test_decompress_truncated_zstd() {
     let data = b"this is test data for compression";
-    let compressed = compress(data, CompressionCodec::Zstd, CompressionLevel::default())
-        .unwrap();
-    
+    let compressed = compress(data, CompressionCodec::Zstd, CompressionLevel::default()).unwrap();
+
     // Truncate the compressed data
     let truncated = &compressed[0..compressed.len().saturating_sub(5)];
     let result = decompress(truncated, CompressionCodec::Zstd);
-    
+
     // Should fail gracefully
     assert!(result.is_err());
 }
@@ -43,9 +42,8 @@ fn test_decompress_truncated_zstd() {
 #[test]
 fn test_decompress_truncated_lz4() {
     let data = b"this is test data for compression";
-    let compressed = compress(data, CompressionCodec::Lz4, CompressionLevel::default())
-        .unwrap();
-    
+    let compressed = compress(data, CompressionCodec::Lz4, CompressionLevel::default()).unwrap();
+
     // Truncate the compressed data
     if compressed.len() > 5 {
         let truncated = &compressed[0..compressed.len() - 5];
@@ -58,10 +56,10 @@ fn test_decompress_truncated_lz4() {
 #[test]
 fn test_decompress_invalid_codec_id() {
     let data = vec![0x01, 0x02, 0x03];
-    
+
     // CompressionCodec::from_id() should return None for invalid IDs
     let invalid_ids = vec![3u8, 4, 5, 255];
-    
+
     for id in invalid_ids {
         match CompressionCodec::from_id(id) {
             Some(_) => panic!("Should not recognize codec ID {}", id),
@@ -76,12 +74,16 @@ fn test_decompress_invalid_codec_id() {
 #[test]
 fn test_compress_empty_data() {
     let data = b"";
-    
-    for codec in &[CompressionCodec::None, CompressionCodec::Zstd, CompressionCodec::Lz4] {
+
+    for codec in &[
+        CompressionCodec::None,
+        CompressionCodec::Zstd,
+        CompressionCodec::Lz4,
+    ] {
         let result = compress(data, *codec, CompressionLevel::default());
         assert!(result.is_ok());
         let compressed = result.unwrap();
-        
+
         let decompressed = decompress(&compressed, *codec).unwrap();
         assert_eq!(decompressed, data);
     }
@@ -91,7 +93,7 @@ fn test_compress_empty_data() {
 #[test]
 fn test_compress_all_levels() {
     let data = b"The quick brown fox jumps over the lazy dog. ".repeat(20);
-    
+
     for level in 0..=10 {
         let comp_level = CompressionLevel::new(level);
         let compressed = compress(&data, CompressionCodec::Zstd, comp_level).unwrap();
@@ -104,7 +106,7 @@ fn test_compress_all_levels() {
 #[test]
 fn test_lz4_compression_level() {
     let data = b"Test data for LZ4 compression with different levels";
-    
+
     for level in 0..=10 {
         let comp_level = CompressionLevel::new(level);
         let compressed = compress(data, CompressionCodec::Lz4, comp_level).unwrap();
@@ -116,11 +118,15 @@ fn test_lz4_compression_level() {
 /// Test compression with very large data
 #[test]
 fn test_compress_very_large_data() {
-    let large_data = vec![0xAB; 100 * 1024 * 1024];  // 100MB of data
-    
-    for codec in &[CompressionCodec::None, CompressionCodec::Zstd, CompressionCodec::Lz4] {
+    let large_data = vec![0xAB; 100 * 1024 * 1024]; // 100MB of data
+
+    for codec in &[
+        CompressionCodec::None,
+        CompressionCodec::Zstd,
+        CompressionCodec::Lz4,
+    ] {
         let result = compress(&large_data, *codec, CompressionLevel::default());
-        
+
         // Should not crash or OOM
         if let Ok(compressed) = result {
             let decompressed = decompress(&compressed, *codec).unwrap();
@@ -155,7 +161,7 @@ fn test_codec_id_roundtrip() {
         CompressionCodec::Zstd,
         CompressionCodec::Lz4,
     ];
-    
+
     for codec in codecs {
         let id = codec.to_id();
         let roundtrip = CompressionCodec::from_id(id);
@@ -166,15 +172,18 @@ fn test_codec_id_roundtrip() {
 /// Test compression of highly repetitive data
 #[test]
 fn test_compress_repetitive_data() {
-    let repetitive = vec![0x42; 10 * 1024 * 1024];  // 10MB of same byte
-    
+    let repetitive = vec![0x42; 10 * 1024 * 1024]; // 10MB of same byte
+
     for codec in &[CompressionCodec::Zstd, CompressionCodec::Lz4] {
         let compressed = compress(&repetitive, *codec, CompressionLevel::default()).unwrap();
-        
+
         // Repetitive data should compress well
         let compression_ratio = compressed.len() as f64 / repetitive.len() as f64;
-        assert!(compression_ratio < 0.5, "Repetitive data should compress to <50%");
-        
+        assert!(
+            compression_ratio < 0.5,
+            "Repetitive data should compress to <50%"
+        );
+
         let decompressed = decompress(&compressed, *codec).unwrap();
         assert_eq!(decompressed, repetitive);
     }
@@ -190,7 +199,7 @@ fn test_compress_random_data() {
         seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
         data.push((seed >> 8) as u8);
     }
-    
+
     for codec in &[CompressionCodec::Zstd, CompressionCodec::Lz4] {
         let compressed = compress(&data, *codec, CompressionLevel::default()).unwrap();
         let decompressed = decompress(&compressed, *codec).unwrap();
@@ -202,11 +211,11 @@ fn test_compress_random_data() {
 #[test]
 fn test_decompress_mismatched_codec() {
     let data = b"test data for compression";
-    
+
     // Compress with ZSTD
-    let zstd_compressed = compress(data, CompressionCodec::Zstd, CompressionLevel::default())
-        .unwrap();
-    
+    let zstd_compressed =
+        compress(data, CompressionCodec::Zstd, CompressionLevel::default()).unwrap();
+
     // Try to decompress with LZ4 - should fail
     let result = decompress(&zstd_compressed, CompressionCodec::Lz4);
     assert!(result.is_err());
@@ -216,17 +225,17 @@ fn test_decompress_mismatched_codec() {
 #[test]
 fn test_compression_level_edge_cases() {
     let data = b"test data for compression level testing";
-    
+
     // Level 0 (minimum)
     let level_0 = CompressionLevel::new(0);
     let compressed_0 = compress(data, CompressionCodec::Zstd, level_0).unwrap();
     assert!(decompress(&compressed_0, CompressionCodec::Zstd).is_ok());
-    
+
     // Level 10 (maximum)
     let level_10 = CompressionLevel::new(10);
     let compressed_10 = compress(data, CompressionCodec::Zstd, level_10).unwrap();
     assert!(decompress(&compressed_10, CompressionCodec::Zstd).is_ok());
-    
+
     // Level > 10 (should clamp to 10)
     let level_20 = CompressionLevel::new(20);
     let compressed_20 = compress(data, CompressionCodec::Zstd, level_20).unwrap();
@@ -236,8 +245,8 @@ fn test_compression_level_edge_cases() {
 /// Test decompression of data with null bytes
 #[test]
 fn test_compress_data_with_null_bytes() {
-    let data = vec![0u8; 1000];  // All null bytes
-    
+    let data = vec![0u8; 1000]; // All null bytes
+
     for codec in &[CompressionCodec::Zstd, CompressionCodec::Lz4] {
         let compressed = compress(&data, *codec, CompressionLevel::default()).unwrap();
         let decompressed = decompress(&compressed, *codec).unwrap();

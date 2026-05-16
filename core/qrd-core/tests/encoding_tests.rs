@@ -15,7 +15,7 @@ fn test_plain_encoder_passthrough() {
 #[test]
 fn test_passthrough_encoder() {
     let encoder = get_encoder(EncodingType::Passthrough).unwrap();
-    let data = vec![1u8,2,3,4,5,6,7];
+    let data = vec![1u8, 2, 3, 4, 5, 6, 7];
     let enc = encoder.encode(&data).unwrap();
     let dec = encoder.decode(&enc, data.len()).unwrap();
     assert_eq!(dec, data);
@@ -35,7 +35,9 @@ fn test_delta_roundtrip_small() {
 fn test_bit_packed_passthrough() {
     let encoder = get_encoder(EncodingType::BitPacked).unwrap();
     // BitPacked expects boolean bytes (0 or 1)
-    let data = (0..128).map(|i| if i % 2 == 0 { 0u8 } else { 1u8 }).collect::<Vec<u8>>();
+    let data = (0..128)
+        .map(|i| if i % 2 == 0 { 0u8 } else { 1u8 })
+        .collect::<Vec<u8>>();
     let enc = encoder.encode(&data).unwrap();
     let dec = encoder.decode(&enc, data.len()).unwrap();
     assert_eq!(dec, data);
@@ -53,7 +55,9 @@ fn test_rle_encoder_basic() {
 #[test]
 fn test_byte_stream_split_roundtrip() {
     let encoder = get_encoder(EncodingType::ByteStreamSplit).unwrap();
-    let data = (0..256).flat_map(|i| (i as f32).to_le_bytes().to_vec()).collect::<Vec<u8>>();
+    let data = (0..256)
+        .flat_map(|i| (i as f32).to_le_bytes().to_vec())
+        .collect::<Vec<u8>>();
     let enc = encoder.encode(&data).unwrap();
     let dec = encoder.decode(&enc, data.len()).unwrap();
     assert_eq!(dec.len(), data.len());
@@ -69,7 +73,9 @@ fn test_dictionary_rle_roundtrip() {
 #[test]
 fn test_delta_binary_encoder_roundtrip() {
     let encoder = get_encoder(EncodingType::DeltaBinary).unwrap();
-    let data = (0i32..100i32).flat_map(|x| x.to_le_bytes().to_vec()).collect::<Vec<u8>>();
+    let data = (0i32..100i32)
+        .flat_map(|x| x.to_le_bytes().to_vec())
+        .collect::<Vec<u8>>();
     let enc = encoder.encode(&data).unwrap();
     let dec = encoder.decode(&enc, data.len()).unwrap();
     assert_eq!(dec.len(), data.len());
@@ -78,7 +84,16 @@ fn test_delta_binary_encoder_roundtrip() {
 #[test]
 fn test_encoding_getter_handles_all_variants() {
     use qrd_core::encoding::EncodingType::*;
-    let all = [Plain, Rle, BitPacked, DeltaBinary, DeltaByteArray, ByteStreamSplit, DictionaryRle, Passthrough];
+    let all = [
+        Plain,
+        Rle,
+        BitPacked,
+        DeltaBinary,
+        DeltaByteArray,
+        ByteStreamSplit,
+        DictionaryRle,
+        Passthrough,
+    ];
     for &e in &all {
         let enc = get_encoder(e).unwrap();
         // For specialized encoders, just ensure we can construct them.
@@ -92,9 +107,13 @@ fn test_encoding_getter_handles_all_variants() {
             Rle | BitPacked | DeltaBinary => {
                 // Provide appropriate data for these encoders
                 let data = if e == BitPacked {
-                    (0..64).map(|i| if i % 2 == 0 { 0u8 } else { 1u8 }).collect::<Vec<u8>>()
+                    (0..64)
+                        .map(|i| if i % 2 == 0 { 0u8 } else { 1u8 })
+                        .collect::<Vec<u8>>()
                 } else if e == DeltaBinary {
-                    (0i32..100i32).flat_map(|x| x.to_le_bytes().to_vec()).collect::<Vec<u8>>()
+                    (0i32..100i32)
+                        .flat_map(|x| x.to_le_bytes().to_vec())
+                        .collect::<Vec<u8>>()
                 } else {
                     vec![0u8; 100]
                 };

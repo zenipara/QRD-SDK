@@ -6,13 +6,11 @@
 //! - Encryption/decryption roundtrips
 //! - Edge cases in encrypted data handling
 
-use qrd_core::prelude::*;
-use qrd_core::writer::{FileWriter, WriterConfig};
-use qrd_core::reader::FileReader;
 use qrd_core::encryption::EncryptionConfig;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
-use tempfile::NamedTempFile;
+use qrd_core::writer::{FileWriter, WriterConfig};
 use std::fs::File;
+use tempfile::NamedTempFile;
 
 /// Test basic encryption/decryption roundtrip
 #[test]
@@ -38,11 +36,13 @@ fn test_encryption_basic_roundtrip() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"sensitive data".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"sensitive data".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
 
@@ -62,7 +62,7 @@ fn test_encryption_zero_key() {
         .build()
         .unwrap();
 
-    let key = [0u8; 32];  // All zeros key
+    let key = [0u8; 32]; // All zeros key
     let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
@@ -72,10 +72,10 @@ fn test_encryption_zero_key() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        42i64.to_le_bytes().to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![42i64.to_le_bytes().to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -91,7 +91,7 @@ fn test_encryption_ones_key() {
         .build()
         .unwrap();
 
-    let key = [0xFFu8; 32];  // All ones key
+    let key = [0xFFu8; 32]; // All ones key
     let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
     let config = WriterConfig {
@@ -101,10 +101,10 @@ fn test_encryption_ones_key() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        42i64.to_le_bytes().to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![42i64.to_le_bytes().to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -138,14 +138,16 @@ fn test_per_column_encryption_different_columns() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Each column will be encrypted separately with derived key
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"user@example.com".to_vec(),
-        b"hashed_password_123".to_vec(),
-        b"123-45-6789".to_vec(),
-    ]).unwrap();
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"user@example.com".to_vec(),
+            b"hashed_password_123".to_vec(),
+            b"123-45-6789".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -155,7 +157,7 @@ fn test_per_column_encryption_different_columns() {
 #[test]
 fn test_per_column_encryption_many_columns() {
     let mut builder = SchemaBuilder::new();
-    
+
     // Create 20 columns
     for i in 0..20 {
         builder = builder
@@ -170,7 +172,7 @@ fn test_per_column_encryption_many_columns() {
             )
             .unwrap();
     }
-    
+
     let temp = NamedTempFile::new().unwrap();
     let schema = builder.build().unwrap();
 
@@ -185,7 +187,7 @@ fn test_per_column_encryption_many_columns() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema.clone(), config).unwrap();
-    
+
     let mut row = Vec::new();
     for i in 0..20 {
         if i % 2 == 0 {
@@ -194,7 +196,7 @@ fn test_per_column_encryption_many_columns() {
             row.push(format!("data_{}", i).as_bytes().to_vec());
         }
     }
-    
+
     writer.write_row(row).unwrap();
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -217,17 +219,16 @@ fn test_encryption_no_footer_encryption() {
 
     let config = WriterConfig {
         encryption,
-        encrypt_footer: false,  // Footer is not encrypted
+        encrypt_footer: false, // Footer is not encrypted
         ..Default::default()
     };
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), b"data".to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -255,22 +256,22 @@ fn test_encryption_with_nulls() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Mix of null and non-null encrypted fields
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"data".to_vec(),
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        vec![],  // NULL
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        3i64.to_le_bytes().to_vec(),
-        b"more data".to_vec(),
-    ]).unwrap();
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), b"data".to_vec()])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            2i64.to_le_bytes().to_vec(),
+            vec![], // NULL
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![3i64.to_le_bytes().to_vec(), b"more data".to_vec()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -298,17 +299,21 @@ fn test_encryption_empty_strings() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Empty string values
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        b"".to_vec(),  // Empty string
-    ]).unwrap();
-    
-    writer.write_row(vec![
-        2i64.to_le_bytes().to_vec(),
-        b"".to_vec(),  // Empty string
-    ]).unwrap();
+    writer
+        .write_row(vec![
+            1i64.to_le_bytes().to_vec(),
+            b"".to_vec(), // Empty string
+        ])
+        .unwrap();
+
+    writer
+        .write_row(vec![
+            2i64.to_le_bytes().to_vec(),
+            b"".to_vec(), // Empty string
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -336,14 +341,13 @@ fn test_encryption_large_fields() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     // Write large encrypted blobs
-    let large_blob = vec![0xAB; 10 * 1024 * 1024];  // 10MB encrypted blob
-    
-    writer.write_row(vec![
-        1i64.to_le_bytes().to_vec(),
-        large_blob.clone(),
-    ]).unwrap();
+    let large_blob = vec![0xAB; 10 * 1024 * 1024]; // 10MB encrypted blob
+
+    writer
+        .write_row(vec![1i64.to_le_bytes().to_vec(), large_blob.clone()])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -352,17 +356,6 @@ fn test_encryption_large_fields() {
 /// Test encryption key derivation
 #[test]
 fn test_encryption_key_derivation() {
-    let temp = NamedTempFile::new().unwrap();
-    let schema = SchemaBuilder::new()
-        .add_field("col1", FieldType::String, Nullability::Optional)
-        .unwrap()
-        .add_field("col2", FieldType::String, Nullability::Optional)
-        .unwrap()
-        .add_field("col3", FieldType::String, Nullability::Optional)
-        .unwrap()
-        .build()
-        .unwrap();
-
     let key = [22u8; 32];
     let encryption = EncryptionConfig::new(key.to_vec()).ok();
 
@@ -371,12 +364,12 @@ fn test_encryption_key_derivation() {
         let key1 = enc.derive_column_key("col1");
         let key2 = enc.derive_column_key("col2");
         let key3 = enc.derive_column_key("col3");
-        
+
         // Keys should be derivable (Ok result)
         assert!(key1.is_ok());
         assert!(key2.is_ok());
         assert!(key3.is_ok());
-        
+
         // Keys should be different for different column names
         if let (Ok(k1), Ok(k2), Ok(k3)) = (key1, key2, key3) {
             assert_ne!(k1, k2);
@@ -395,7 +388,11 @@ fn test_encryption_special_column_names() {
         .unwrap()
         .add_field("col.with.dots", FieldType::String, Nullability::Optional)
         .unwrap()
-        .add_field("col_with_underscore", FieldType::String, Nullability::Optional)
+        .add_field(
+            "col_with_underscore",
+            FieldType::String,
+            Nullability::Optional,
+        )
         .unwrap()
         .build()
         .unwrap();
@@ -411,12 +408,14 @@ fn test_encryption_special_column_names() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        b"data1".to_vec(),
-        b"data2".to_vec(),
-        b"data3".to_vec(),
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            b"data1".to_vec(),
+            b"data2".to_vec(),
+            b"data3".to_vec(),
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());
@@ -444,12 +443,14 @@ fn test_encryption_multiple_rows() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
+
     for i in 0..100 {
-        writer.write_row(vec![
-            (i as i64).to_le_bytes().to_vec(),
-            format!("secret_{}", i).as_bytes().to_vec(),
-        ]).unwrap();
+        writer
+            .write_row(vec![
+                (i as i64).to_le_bytes().to_vec(),
+                format!("secret_{}", i).as_bytes().to_vec(),
+            ])
+            .unwrap();
     }
 
     writer.finish().unwrap();
@@ -484,14 +485,16 @@ fn test_encryption_mixed_types() {
 
     let file = File::create(temp.path()).unwrap();
     let mut writer = FileWriter::with_config(file, schema, config).unwrap();
-    
-    writer.write_row(vec![
-        42i64.to_le_bytes().to_vec(),
-        (3.14f64).to_le_bytes().to_vec(),
-        b"text data".to_vec(),
-        vec![1, 2, 3, 4, 5],
-        vec![1],  // true
-    ]).unwrap();
+
+    writer
+        .write_row(vec![
+            42i64.to_le_bytes().to_vec(),
+            (3.14f64).to_le_bytes().to_vec(),
+            b"text data".to_vec(),
+            vec![1, 2, 3, 4, 5],
+            vec![1], // true
+        ])
+        .unwrap();
 
     writer.finish().unwrap();
     assert!(temp.path().exists());

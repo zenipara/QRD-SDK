@@ -1,9 +1,14 @@
 //! Schema definitions and serialization
 
+pub mod evolution;
+
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
+
+// Re-export evolution public API for convenience
+pub use evolution::{FieldMapping, SchemaMigration, SchemaEvolution, TypeCompatibility, TypeConversion};
 
 /// Logical field type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -640,5 +645,4 @@ mod tests {
 
         assert_eq!(id1, id2);
     }
-
 }

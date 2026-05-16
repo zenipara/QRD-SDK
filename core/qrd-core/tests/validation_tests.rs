@@ -1,9 +1,9 @@
 //! Validation tests for QRD Core
 //! Focus on Validator, CorruptionDetector, and footer validation
 
-use qrd_core::validation::{Validator, CorruptionDetector, CorruptionType};
 use qrd_core::footer::Footer;
 use qrd_core::schema::{FieldType, Nullability, SchemaBuilder};
+use qrd_core::validation::{CorruptionDetector, CorruptionType, Validator};
 
 #[test]
 fn test_validate_magic_ok() {

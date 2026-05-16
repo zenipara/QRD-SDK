@@ -135,7 +135,9 @@ impl QrdMemWriter {
                 .map_err(|e| JsValue::from_str(&e.to_string()))?;
         }
 
-        writer.finish().map_err(|e| JsValue::from_str(&e.to_string()))?;
+        writer
+            .finish()
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
         Ok(Uint8Array::from(buffer.as_slice()))
     }
@@ -232,7 +234,7 @@ mod tests {
     use wasm_bindgen::JsCast;
 
     #[test]
-    #[ignore]  // WASM tests cannot run on non-WASM targets
+    #[ignore] // WASM tests cannot run on non-WASM targets
     fn test_qrd_mem_reader_roundtrip() {
         let schema = SchemaBuilder::new()
             .add_field("id", FieldType::Int64, Nullability::Required)

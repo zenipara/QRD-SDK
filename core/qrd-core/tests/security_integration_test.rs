@@ -272,7 +272,10 @@ fn test_encrypted_footer_schema_hidden() {
 
     // The file is readable with encryption key
     let result = FileReader::with_decryption(temp.path(), encrypt_key);
-    assert!(result.is_ok(), "Should be able to read file with encryption key");
+    assert!(
+        result.is_ok(),
+        "Should be able to read file with encryption key"
+    );
 }
 
 #[test]
@@ -366,7 +369,11 @@ fn test_password_based_encryption_e2e() {
     if let Err(ref e) = all_rgs {
         eprintln!("Error reading row groups: {}", e);
     }
-    assert!(all_rgs.is_ok(), "Failed to read all row groups: {:?}", all_rgs.err());
+    assert!(
+        all_rgs.is_ok(),
+        "Failed to read all row groups: {:?}",
+        all_rgs.err()
+    );
 }
 
 #[test]

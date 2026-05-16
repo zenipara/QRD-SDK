@@ -130,7 +130,7 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         let cursor = Cursor::new(data);
         let reader = BufferedReader::new(cursor, 1024);
-        
+
         assert_eq!(reader.buffer.capacity(), 1024);
     }
 
@@ -139,13 +139,13 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         let cursor = Cursor::new(data.clone());
         let mut reader = BufferedReader::new(cursor, 4);
-        
+
         let bytes = reader.read_exact_bytes(3)?;
         assert_eq!(bytes, vec![1, 2, 3]);
-        
+
         let more_bytes = reader.read_exact_bytes(3)?;
         assert_eq!(more_bytes, vec![4, 5, 6]);
-        
+
         Ok(())
     }
 
@@ -154,13 +154,13 @@ mod tests {
         let data = vec![1, 2, 3];
         let cursor = Cursor::new(data);
         let mut reader = BufferedReader::new(cursor, 10);
-        
+
         let bytes = reader.read_exact_bytes(3)?;
         assert_eq!(bytes.len(), 3);
-        
+
         let more = reader.read_exact_bytes(1)?;
         assert_eq!(more.len(), 0); // EOF
-        
+
         Ok(())
     }
 
@@ -169,11 +169,11 @@ mod tests {
         let data = vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         let cursor = Cursor::new(data);
         let mut reader = BufferedReader::new(cursor, 5);
-        
+
         reader.seek(5)?;
         let bytes = reader.read_exact_bytes(3)?;
         assert_eq!(bytes, vec![5, 6, 7]);
-        
+
         Ok(())
     }
 
@@ -182,14 +182,14 @@ mod tests {
         let data = vec![1, 2, 3, 4, 5];
         let cursor = Cursor::new(data);
         let mut reader = BufferedReader::new(cursor, 1024);
-        
+
         let pos = reader.position()?;
         assert_eq!(pos, 0);
-        
+
         reader.read_exact_bytes(2)?;
         let new_pos = reader.position()?;
         assert_eq!(new_pos, 2);
-        
+
         Ok(())
     }
 
@@ -197,7 +197,7 @@ mod tests {
     fn test_buffered_writer_initialization() {
         let cursor = Cursor::new(Vec::new());
         let writer = BufferedWriter::new(cursor, 1024);
-        
+
         assert_eq!(writer.buffer_size, 1024);
         assert_eq!(writer.buffer.len(), 0);
     }
@@ -206,13 +206,13 @@ mod tests {
     fn test_buffered_writer_write_bytes() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let mut writer = BufferedWriter::new(cursor, 10);
-        
+
         writer.write_bytes(&[1, 2, 3])?;
         assert_eq!(writer.buffer.len(), 3);
-        
+
         writer.write_bytes(&[4, 5])?;
         assert_eq!(writer.buffer.len(), 5);
-        
+
         Ok(())
     }
 
@@ -220,13 +220,13 @@ mod tests {
     fn test_buffered_writer_flush() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let mut writer = BufferedWriter::new(cursor, 10);
-        
+
         writer.write_bytes(&[1, 2, 3])?;
         assert_eq!(writer.buffer.len(), 3);
-        
+
         writer.flush()?;
         assert_eq!(writer.buffer.len(), 0);
-        
+
         Ok(())
     }
 
@@ -234,13 +234,13 @@ mod tests {
     fn test_buffered_writer_auto_flush() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let mut writer = BufferedWriter::new(cursor, 5);
-        
+
         writer.write_bytes(&[1, 2, 3])?;
         assert_eq!(writer.buffer.len(), 3);
-        
+
         // Writing more data than buffer size should trigger flush
         writer.write_bytes(&[4, 5, 6, 7])?;
-        
+
         Ok(())
     }
 
@@ -248,7 +248,7 @@ mod tests {
     fn test_buffered_writer_finish() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let writer = BufferedWriter::new(cursor, 10);
-        
+
         writer.finish()?;
         // Should complete successfully
         Ok(())
@@ -277,11 +277,11 @@ mod tests {
         let data: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
         let cursor = Cursor::new(data.clone());
         let mut reader = BufferedReader::new(cursor, 64);
-        
+
         let bytes = reader.read_exact_bytes(500)?;
         assert_eq!(bytes.len(), 500);
         assert_eq!(bytes, &data[0..500]);
-        
+
         Ok(())
     }
 
@@ -289,11 +289,11 @@ mod tests {
     fn test_buffered_writer_large_writes() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let mut writer = BufferedWriter::new(cursor, 64);
-        
+
         let data: Vec<u8> = (0..1000).map(|i| (i % 256) as u8).collect();
         writer.write_bytes(&data)?;
         writer.flush()?;
-        
+
         assert_eq!(writer.inner.get_ref().len(), 1000);
         Ok(())
     }
@@ -303,13 +303,13 @@ mod tests {
         let data: Vec<u8> = (0..100).collect();
         let cursor = Cursor::new(data);
         let mut reader = BufferedReader::new(cursor, 10);
-        
+
         reader.seek(10)?;
         let bytes1 = reader.read_exact_bytes(5)?;
-        
+
         reader.seek(10)?;
         let bytes3 = reader.read_exact_bytes(5)?;
-        
+
         assert_eq!(bytes1, bytes3);
         Ok(())
     }
@@ -318,12 +318,11 @@ mod tests {
     fn test_buffered_writer_empty_write() -> Result<()> {
         let cursor = Cursor::new(Vec::new());
         let mut writer = BufferedWriter::new(cursor, 10);
-        
+
         writer.write_bytes(&[])?;
         assert_eq!(writer.buffer.len(), 0);
-        
+
         writer.flush()?;
         Ok(())
     }
-
 }

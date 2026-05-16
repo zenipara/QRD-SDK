@@ -689,5 +689,4 @@ mod tests {
         assert_eq!(reader.schema().fields.len(), 1);
         assert_eq!(reader.row_group_offsets().len(), 1); // Both rows should be in one row group
     }
-
 }
